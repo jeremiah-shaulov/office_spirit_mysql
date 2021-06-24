@@ -70,7 +70,7 @@ Possible parameters:
 - `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names
 - `multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
 
-Connection from the poll can be asked with `pool.forConn()` function:
+Connection from the pool can be asked with `pool.forConn()` function:
 
 ```ts
 MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Promise<T>
@@ -82,7 +82,7 @@ The requested connection will be available in the provided `callback`, and when 
 Connection state is reset before returning to the pool. This means that incomplete transaction will be rolled back, and all kind of locks will be cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
-If this happens, another connection will be tried, and you query will be retried. This process is transparent to you.
+If this happens, another connection will be tried, and your query will be retried. This process is transparent to you.
 
 In the beginning of `callback`, `conn` may be not connected to the server. It will connect on first requested query.
 
@@ -96,7 +96,7 @@ During this session you can call `session.conn()` to get a connection. At the en
 ```ts
 MySession.conn(dsn?: Dsn|string, fresh=false): MyConn
 ```
-The connection object (`MyConn`) is returned immediately, but actual connection will be established on first SQL query.
+`MySession.conn()` returns the connection object (`MyConn`) immediately, but actual connection will be established on first SQL query.
 
 With `true` second argument, always new connection is returned. Otherwise, if there's already a connection to the same DSN in this session, it will be picked up.
 
@@ -367,7 +367,7 @@ pool.closeIdle();
 
 ## Importing big dumps
 
-Functions like `MyConn.query()`, `MyConn.queryCol()`, etc. allow to provide SQL query in several forms.
+Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms.
 
 ```ts
 type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
@@ -519,14 +519,14 @@ pool.closeIdle();
 
 `MyConn` object has several status variables:
 
-`conn.serverVersion: string` - remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
-`conn.connectionId: number` - thread ID of the connection, that `SHOW PROCESSLIST` shows.
-`conn.autocommit: boolean` - true if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
-`conn.inTrx: boolean` - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
-`conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
-`conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
-`conn.charset: Charset` - collation ID, as appears in `SELECT * FROM information_schema.collations`.
-`conn.schema: string` - if your server supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value.
+- `conn.serverVersion: string` - remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
+- `conn.connectionId: number` - thread ID of the connection, that `SHOW PROCESSLIST` shows.
+- `conn.autocommit: boolean` - true if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
+- `conn.inTrx: boolean` - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
+- `conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
+- `conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
+- `conn.charset: Charset` - collation ID, as appears in `SELECT * FROM information_schema.collations`.
+- `conn.schema: string` - if your server supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value.
 
 Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call `await conn.connect()`.
 
