@@ -30,6 +30,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 {	server_version = '';
 	connection_id = 0;
 	charset = 0;
+	capability_flags = 0;
 	status_flags = 0;
 	schema = '';
 	is_broken_connection = false; // set on i/o error
@@ -38,7 +39,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 	use_till = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
 	use_n_times = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
 
-	private capability_flags = 0;
 	private warnings = 0;
 	private affected_rows: number|bigint = 0;
 	private last_insert_id: number|bigint = 0;
@@ -440,12 +440,6 @@ L:		while (true)
 			}
 			let n_columns_num = Number(n_columns);
 
-			if (n_columns_num>0 && mode==ReadPacketMode.REGULAR && !(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
-			{	// Read EOF after columns list
-				let type = await this.read_packet();
-				debug_assert(type == PacketType.OK);
-			}
-
 			// Read sequence of ColumnDefinition packets
 			let placeholders = n_placeholders==0 ? [] : await this.read_column_definition_packets(n_placeholders);
 			let columns = n_columns_num==0 ? [] : await this.read_column_definition_packets(n_columns_num);
@@ -464,58 +458,65 @@ L:		while (true)
 
 	private async read_column_definition_packets(n_packets: number)
 	{	let columns: Column[] = [];
-		if (this.capability_flags & CapabilityFlags.CLIENT_PROTOCOL_41)
-		{	for (let i=0; i<n_packets; i++)
-			{	// Read ColumnDefinition41 packet
-				this.read_packet_header() || await this.read_packet_header_async();
-				let catalog = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let schema = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let org_table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let org_name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
-				debug_assert(block_len >= 12);
-				let block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
-				let v = new DataView(block.buffer, block.byteOffset);
-				let charset = v.getUint16(0, true);
-				let column_len = v.getUint32(2, true);
-				let column_type = v.getUint8(6);
-				let flags = v.getUint16(7, true);
-				let decimals = v.getUint8(9);
-				this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
-				columns[i] = new Column(catalog, schema, table, org_table, name, org_name, charset, column_len, column_type, flags, decimals);
+		if (n_packets > 0)
+		{	if (this.capability_flags & CapabilityFlags.CLIENT_PROTOCOL_41)
+			{	for (let i=0; i<n_packets; i++)
+				{	// Read ColumnDefinition41 packet
+					this.read_packet_header() || await this.read_packet_header_async();
+					let catalog = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let schema = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let org_table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let org_name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
+					debug_assert(block_len >= 12);
+					let block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
+					let v = new DataView(block.buffer, block.byteOffset);
+					let charset = v.getUint16(0, true);
+					let column_len = v.getUint32(2, true);
+					let column_type = v.getUint8(6);
+					let flags = v.getUint16(7, true);
+					let decimals = v.getUint8(9);
+					this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
+					columns[i] = new Column(catalog, schema, table, org_table, name, org_name, charset, column_len, column_type, flags, decimals);
+				}
 			}
-		}
-		else
-		{	for (let i=0; i<n_packets; i++)
-			{	// Read ColumnDefinition320 packet
-				this.read_packet_header() || await this.read_packet_header_async();
-				let table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
-				let block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
-				let block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
-				let v = new DataView(block.buffer, block.byteOffset);
-				let column_len = v.getUint16(0, true) | (v.getUint8(2) << 16);
-				block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
-				block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
-				v = new DataView(block.buffer, block.byteOffset);
-				let column_type = v.getUint8(0);
-				block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
-				block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
-				v = new DataView(block.buffer, block.byteOffset);
-				let flags;
-				let decimals;
-				if (this.capability_flags & CapabilityFlags.CLIENT_LONG_FLAG)
-				{	flags = v.getUint16(0, true);
-					decimals = v.getUint8(2);
+			else
+			{	for (let i=0; i<n_packets; i++)
+				{	// Read ColumnDefinition320 packet
+					this.read_packet_header() || await this.read_packet_header_async();
+					let table = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+					let block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
+					let block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
+					let v = new DataView(block.buffer, block.byteOffset);
+					let column_len = v.getUint16(0, true) | (v.getUint8(2) << 16);
+					block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
+					block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
+					v = new DataView(block.buffer, block.byteOffset);
+					let column_type = v.getUint8(0);
+					block_len = Number(this.read_lenenc_int() ?? await this.read_lenenc_int_async());
+					block = this.read_short_bytes(block_len) ?? await this.read_short_bytes_async(block_len);
+					v = new DataView(block.buffer, block.byteOffset);
+					let flags;
+					let decimals;
+					if (this.capability_flags & CapabilityFlags.CLIENT_LONG_FLAG)
+					{	flags = v.getUint16(0, true);
+						decimals = v.getUint8(2);
+					}
+					else
+					{	flags = v.getUint8(0);
+						decimals = v.getUint8(1);
+					}
+					this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
+					columns[i] = new Column('', '', table, '', name, '', Charset.UNKNOWN, column_len, column_type, flags, decimals);
 				}
-				else
-				{	flags = v.getUint8(0);
-					decimals = v.getUint8(1);
-				}
-				this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
-				columns[i] = new Column('', '', table, '', name, '', Charset.UNKNOWN, column_len, column_type, flags, decimals);
+			}
+			if (!(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
+			{	// Read EOF after columns list
+				let type = await this.read_packet();
+				debug_assert(type == PacketType.OK);
 			}
 		}
 		return columns;

@@ -40,6 +40,7 @@ Deno.test
 					assertEquals(conn.autocommit, true);
 					await conn.execute("SET autocommit=0");
 					assertEquals(conn.autocommit, false);
+					await conn.execute("SET autocommit=1");
 
 					await conn.execute("START TRANSACTION");
 					assertEquals(conn.inTrx, true);
@@ -63,9 +64,9 @@ Deno.test
 
 					// Check schema change
 					await conn.query("USE test1");
-					assertEquals(conn.schema, 'test1');
+					assert(!conn.schema || conn.schema=='test1');
 					await conn.query("USE test2");
-					assertEquals(conn.schema, 'test2');
+					assert(!conn.schema || conn.schema=='test2');
 
 					// CREATE TABLE
 					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");
@@ -312,7 +313,7 @@ Deno.test
 
 					// Check schema change
 					await conn.query("USE test1");
-					assertEquals(conn.schema, 'test1');
+					assert(!conn.schema || conn.schema=='test1');
 
 					// CREATE TABLE
 					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");

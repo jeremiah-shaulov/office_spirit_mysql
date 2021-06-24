@@ -1,4 +1,4 @@
-Driver for MySQL and MariahDB.
+MySQL and MariahDB driver for Deno.
 
 Features:
 - Prepared statements.
@@ -526,7 +526,7 @@ pool.closeIdle();
 `conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
 `conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
 `conn.charset: Charset` - collation ID, as appears in `SELECT * FROM information_schema.collations`.
-`conn.schema: string` - current default schema (database) name. Queries like `USE new_schema` will affect this value, if your server supports change schema notifications.
+`conn.schema: string` - if your server supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value.
 
 Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call `await conn.connect()`.
 

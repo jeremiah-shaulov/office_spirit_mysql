@@ -1,5 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
-import {StatusFlags, Charset} from './constants.ts';
+import {StatusFlags, Charset, CapabilityFlags} from './constants.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {SqlError, BusyError, CanceledError, SendWithDataError} from './errors.ts';
@@ -61,7 +61,12 @@ export class MyConn
 	}
 
 	get schema()
-	{	return this.protocol?.schema ?? '';
+	{	if (this.protocol)
+		{	return this.protocol.capability_flags & CapabilityFlags.CLIENT_SESSION_TRACK ? this.protocol.schema : '';
+		}
+		else
+		{	return '';
+		}
 	}
 
 	/**	Can return undefined, if end() called during connection process.
