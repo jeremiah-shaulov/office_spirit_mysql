@@ -1,4 +1,4 @@
-MySQL and MariahDB driver for Deno.
+MySQL and MariahDB driver for Deno. Tested on: MySQL 5.6, 8.0, MariaDB 5.5, 10.0, 10.2, 10.5.
 
 Features:
 - Prepared statements.

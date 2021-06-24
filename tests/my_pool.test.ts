@@ -3,6 +3,7 @@ import {Dsn} from '../dsn.ts';
 import {MyPool} from '../my_pool.ts';
 import {BusyError} from "../errors.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import * as semver from "https://deno.land/x/semver@v1.4.0/mod.ts";
 
 const {DSN} = Deno.env.toObject();
 
@@ -49,12 +50,14 @@ Deno.test
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
 
-					await conn.execute("START TRANSACTION READ ONLY");
-					assertEquals(conn.inTrx, true);
-					assertEquals(conn.inTrxReadonly, true);
-					await conn.execute("ROLLBACK");
-					assertEquals(conn.inTrx, false);
-					assertEquals(conn.inTrxReadonly, false);
+					if (semver.gt(conn.serverVersion, '8.0.0'))
+					{	await conn.execute("START TRANSACTION READ ONLY");
+						assertEquals(conn.inTrx, true);
+						assertEquals(conn.inTrxReadonly, true);
+						await conn.execute("ROLLBACK");
+						assertEquals(conn.inTrx, false);
+						assertEquals(conn.inTrxReadonly, false);
+					}
 
 					// CREATE DATABASE
 					await conn.query("DROP DATABASE IF EXISTS test1");
