@@ -259,14 +259,11 @@ pool.closeIdle();
 
 It's possible to substitute parameters inside SQL query.
 
-This library doesn't know to parse SQL. To parse SQL correctly, need to take into account `conn.charset` and `conn.noBackslashEscapes` values.
-This is complicated task for me. Inspirations can be sniffed from source code of MySQL driver for PHP, especially files `php-7.4.14/ext/mysqlnd/mysqlnd_charset.c` and `php-7.4.14/ext/mysqlnd/mysqlnd_structs.h`. But i'm not sure that even that implementation covers all possible cases.
-
-Anyway parsing SQL wastes CPU and memory resources. Much easier is just let MySQL server to substitute the parameters. It knows to do so.
+This library doesn't know to parse SQL. It delegates this job to MySQL server, that has built-in functionality for parameters substitution.
 
 ### Positional parameters
 
-Values are substituted in place of `?` marks. Placeholders can appear only in places in SQL where expression is allowed.
+Values are substituted in place of `?` marks. Placeholders can appear only in places in SQL where an expression is allowed.
 
 ```ts
 import {MyPool} from './mod.ts';
@@ -289,9 +286,9 @@ pool.closeIdle();
 
 ### Named parameters
 
-For named parameters i utilize MySQL variables. Values are expressed as `@` sign followed by variable name, where name can be backtick-quoted.
+For named parameters i utilize MySQL variables. Values are expressed as `@` sign followed by a variable name, that can be backtick-quoted.
 
-To execute such query, another pre-query is needed, that sends `SET @days=3, @id=1`. Parameter names will override session variables with the same name.
+To execute such query, another pre-query is sent to the server, like `SET @days=3, @id=1`. Parameter names will override session variables with the same names.
 
 ```ts
 import {MyPool} from './mod.ts';

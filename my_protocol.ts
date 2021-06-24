@@ -450,7 +450,8 @@ L:		while (true)
 			resultsets.has_more = mode==ReadPacketMode.REGULAR && (n_columns_num != 0 || (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0);
 
 			if (!resultsets.has_more)
-			{	resultsets.next_resultset = () => Promise.resolve(false);
+			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
+				resultsets.next_resultset = () => Promise.resolve(false);
 			}
 			break;
 		}
@@ -737,7 +738,8 @@ L:		while (true)
 		{	resultsets.has_more_rows = false;
 			resultsets.has_more = (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0;
 			if (!resultsets.has_more)
-			{	resultsets.next_resultset = () => Promise.resolve(false);
+			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
+				resultsets.next_resultset = () => Promise.resolve(false);
 			}
 			if (!this.is_at_end_of_packet())
 			{	await this.read_packet(ReadPacketMode.PREPARED_STMT_CONTINUATION);
@@ -754,9 +756,9 @@ L:		while (true)
 		if (type == (stmt_id==-1 ? PacketType.OK : PacketType.EOF))
 		{	resultsets.has_more_rows = false;
 			resultsets.has_more = (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0;
-			resultsets.fetch = () => Promise.resolve(undefined); // eof
 			if (!resultsets.has_more)
-			{	resultsets.next_resultset = () => Promise.resolve(false);
+			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
+				resultsets.next_resultset = () => Promise.resolve(false);
 			}
 			return undefined;
 		}
@@ -988,7 +990,8 @@ L:		while (true)
 			}
 		}
 		if (!resultsets.has_more)
-		{	resultsets.next_resultset = () => Promise.resolve(false);
+		{	resultsets.fetch = () => Promise.resolve(undefined); // eof
+			resultsets.next_resultset = () => Promise.resolve(false);
 		}
 		else
 		{	resultsets.reset_fields();

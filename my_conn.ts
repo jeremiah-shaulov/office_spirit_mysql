@@ -367,7 +367,10 @@ export class MyConn
 		{	this.cur_idle_resultsets = resultsets;
 			if (row_type != RowType.LAST_COLUMN_READER)
 			{	resultsets.fetch = async () =>
-				{	let row = await this.protocol_op(protocol, -1, orig_state_id, () => protocol.fetch(resultsets, row_type));
+				{	if (!resultsets.has_more_rows)
+					{	return undefined;
+					}
+					let row = await this.protocol_op(protocol, -1, orig_state_id, () => protocol.fetch(resultsets, row_type));
 					if (!resultsets.has_more)
 					{	this.cur_idle_resultsets = undefined;
 					}
@@ -379,6 +382,9 @@ export class MyConn
 				resultsets.fetch = async () =>
 				{	if (is_fetching)
 					{	throw new BusyError(`Please, read previous column reader to the end`);
+					}
+					if (!resultsets.has_more_rows)
+					{	return undefined;
 					}
 					is_fetching = true;
 					let row = await this.protocol_op
