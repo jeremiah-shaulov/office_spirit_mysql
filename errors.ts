@@ -19,3 +19,9 @@ export class BusyError extends Error
 export class CanceledError extends Error
 {
 }
+
+/**	send_with_data() throws it if failed to send data to server.
+ **/
+export class SendWithDataError extends Error
+{
+}

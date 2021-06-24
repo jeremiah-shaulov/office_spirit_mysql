@@ -24,13 +24,36 @@ Deno.test
 					assertEquals(conn.charset, Charset.UNKNOWN);
 					assertEquals(conn.schema, '');
 
-					let conn_id = await conn.queryCol("SELECT Connection_id()").first();
+					await conn.connect();
+
 					assert(parseFloat(conn.serverVersion) > 0);
-					assertEquals(conn.connectionId, conn_id);
+					assert(conn.connectionId > 0);
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
 					assert(conn.charset != Charset.UNKNOWN);
 					assertEquals(conn.schema, dsn.schema);
+
+					let conn_id = await conn.queryCol("SELECT Connection_id()").first();
+					assertEquals(conn.connectionId, conn_id);
+
+					await conn.execute("SET autocommit=1");
+					assertEquals(conn.autocommit, true);
+					await conn.execute("SET autocommit=0");
+					assertEquals(conn.autocommit, false);
+
+					await conn.execute("START TRANSACTION");
+					assertEquals(conn.inTrx, true);
+					assertEquals(conn.inTrxReadonly, false);
+					await conn.execute("ROLLBACK");
+					assertEquals(conn.inTrx, false);
+					assertEquals(conn.inTrxReadonly, false);
+
+					await conn.execute("START TRANSACTION READ ONLY");
+					assertEquals(conn.inTrx, true);
+					assertEquals(conn.inTrxReadonly, true);
+					await conn.execute("ROLLBACK");
+					assertEquals(conn.inTrx, false);
+					assertEquals(conn.inTrxReadonly, false);
 
 					// CREATE DATABASE
 					await conn.query("DROP DATABASE IF EXISTS test1");
@@ -64,6 +87,9 @@ Deno.test
 							assertEquals(prepared.affectedRows, 1);
 						}
 					);
+					let res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+4000), 'Message 4']);
+					assertEquals(res.lastInsertId, 4);
+					assertEquals(res.affectedRows, 1);
 
 					// SELECT
 					assertEquals
@@ -71,6 +97,7 @@ Deno.test
 						[	{id: 1, time: new Date(now+1000), message: 'Message 1'},
 							{id: 2, time: new Date(now+2000), message: 'Message 2'},
 							{id: 3, time: new Date(now+3000), message: 'Message 3'},
+							{id: 4, time: new Date(now+4000), message: 'Message 4'},
 						]
 					);
 

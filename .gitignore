@@ -1,4 +1,5 @@
-main.ts
 .vscode
 .directory
 tests/coverage
+main.ts
+nonmain.ts

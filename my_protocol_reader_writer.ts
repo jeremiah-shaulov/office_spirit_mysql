@@ -2,6 +2,7 @@ import {debug_assert} from './debug_assert.ts';
 import {utf8_string_length} from './utf8_string_length.ts';
 import {MyProtocolReader, BUFFER_LEN} from './my_protocol_reader.ts';
 import {writeAll} from './deps.ts';
+import {SendWithDataError} from "./errors.ts";
 
 export type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
 
@@ -19,7 +20,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	protected discard_packet()
 	{	debug_assert(this.buffer_start==0 && this.buffer_end>=4);
-		this.buffer_end = 4; // after header
+		this.buffer_end = 0; // after header
 	}
 
 	protected write_uint8(value: number)
@@ -183,32 +184,38 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		{	data = this.encoder.encode(data);
 		}
 		if (data instanceof Uint8Array)
-		{	while (this.buffer_end-4 + data.length >= 0xFFFFFF)
-			{	// send current packet part + data chunk = 0xFFFFFF
-				this.set_header(0xFFFFFF);
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-				let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
-				await writeAll(this.conn, data.subarray(0, data_chunk_len));
-				data = data.subarray(data_chunk_len);
-				this.buffer_end = 4; // after header
+		{	try
+			{	while (this.buffer_end-4 + data.length >= 0xFFFFFF)
+				{	// send current packet part + data chunk = 0xFFFFFF
+					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
+					this.set_header(0xFFFFFF);
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+					await writeAll(this.conn, data.subarray(0, data_chunk_len));
+					data = data.subarray(data_chunk_len);
+					this.buffer_end = 4; // after header
+				}
+				let len = this.buffer_end-4 + data.length;
+				debug_assert(len < 0xFFFFFF);
+				this.set_header(len);
+				if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
+				{	this.buffer.set(data, this.buffer_end);
+					this.buffer_end += data.length;
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				}
+				else
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+					await writeAll(this.conn, data);
+				}
 			}
-			let len = this.buffer_end-4 + data.length;
-			debug_assert(len < 0xFFFFFF);
-			this.set_header(len);
-			if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
-			{	this.buffer.set(data, this.buffer_end);
-				this.buffer_end += data.length;
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-			}
-			else
-			{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-				await writeAll(this.conn, data);
+			catch (e)
+			{	throw new SendWithDataError(e.message);
 			}
 		}
 		else if (typeof(data) != 'string') // Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number}
 		{	let size: number;
 			if ('seek' in data)
 			{	size = await data.seek(0, Deno.SeekMode.End);
+				await data.seek(0, Deno.SeekMode.Start);
 			}
 			else
 			{	size = data.size;
@@ -216,7 +223,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			while (this.buffer_end-4 + size >= 0xFFFFFF)
 			{	// send current packet part + data chunk = 0xFFFFFF
 				this.set_header(0xFFFFFF);
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				try
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message);
+				}
 				let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
 				size -= data_chunk_len;
 				while (data_chunk_len > 0)
@@ -224,7 +236,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
-					await writeAll(this.conn, this.buffer.subarray(0, n));
+					try
+					{	await writeAll(this.conn, this.buffer.subarray(0, n));
+					}
+					catch (e)
+					{	throw new SendWithDataError(e.message);
+					}
 					data_chunk_len -= n;
 				}
 				this.buffer_end = 4; // after header
@@ -241,54 +258,74 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					this.buffer_end += n;
 					size -= n;
 				}
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				try
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message);
+				}
 			}
 			else
-			{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+			{	try
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message);
+				}
 				while (size > 0)
 				{	let n = await data.read(this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
-					await writeAll(this.conn, this.buffer.subarray(0, n));
+					try
+					{	await writeAll(this.conn, this.buffer.subarray(0, n));
+					}
+					catch (e)
+					{	throw new SendWithDataError(e.message);
+					}
 					size -= n;
 				}
 			}
 		}
 		else // long string
-		{	let size = utf8_string_length(data);
-			while (this.buffer_end-4 + size >= 0xFFFFFF)
-			{	// send current packet part + data chunk = 0xFFFFFF
-				this.set_header(0xFFFFFF);
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-				let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
-				size -= data_chunk_len;
-				while (data_chunk_len > 0)
-				{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
-					data = data.slice(read);
-					await writeAll(this.conn, this.buffer.subarray(0, written));
-					data_chunk_len -= written;
+		{	try
+			{	let size = utf8_string_length(data);
+				while (this.buffer_end-4 + size >= 0xFFFFFF)
+				{	// send current packet part + data chunk = 0xFFFFFF
+					this.set_header(0xFFFFFF);
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
+					size -= data_chunk_len;
+					while (data_chunk_len > 0)
+					{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
+						data = data.slice(read);
+						await writeAll(this.conn, this.buffer.subarray(0, written));
+						data_chunk_len -= written;
+					}
+					this.buffer_end = 4; // after header
 				}
-				this.buffer_end = 4; // after header
-			}
-			let len = this.buffer_end-4 + size;
-			debug_assert(len < 0xFFFFFF);
-			this.set_header(len);
-			if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
-			{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
-				debug_assert(read == data.length);
-				debug_assert(written == size);
-				this.buffer_end += written;
-				await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-			}
-			else
-			{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-				while (size > 0)
-				{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
-					data = data.slice(read);
-					await writeAll(this.conn, this.buffer.subarray(0, written));
-					size -= written;
+				let len = this.buffer_end-4 + size;
+				debug_assert(len < 0xFFFFFF);
+				this.set_header(len);
+				if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
+				{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
+					debug_assert(read == data.length);
+					debug_assert(written == size);
+					this.buffer_end += written;
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
+				else
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+					while (size > 0)
+					{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
+						data = data.slice(read);
+						await writeAll(this.conn, this.buffer.subarray(0, written));
+						size -= written;
+					}
+				}
+			}
+			catch (e)
+			{	throw new SendWithDataError(e.message);
 			}
 		}
 		// prepare for reader

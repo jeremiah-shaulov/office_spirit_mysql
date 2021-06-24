@@ -369,93 +369,96 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private async read_query_response(resultsets: ResultsetsDriver, mode: ReadPacketMode)
 	{	debug_assert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
 		debug_assert(resultsets.stmt_id == -1);
-		let type = await this.read_packet(mode);
-		let n_columns: number|bigint = 0;
-		let n_placeholders = 0;
-		switch (type)
-		{	case PacketType.OK:
-			{	if (mode == ReadPacketMode.REGULAR)
-				{	this.init_resultsets(resultsets);
-					n_columns = 0;
+L:		while (true)
+		{	let type = await this.read_packet(mode);
+			let n_columns: number|bigint = 0;
+			let n_placeholders = 0;
+			switch (type)
+			{	case PacketType.OK:
+				{	if (mode == ReadPacketMode.REGULAR)
+					{	this.init_resultsets(resultsets);
+						n_columns = 0;
+					}
+					else
+					{	resultsets.stmt_id = this.read_uint32() ?? await this.read_uint32_async();
+						n_columns = this.read_uint16() ?? await this.read_uint16_async();
+						n_placeholders = this.read_uint16() ?? await this.read_uint16_async();
+						this.read_uint8() ?? await this.read_uint8_async(); // skip reserved_1
+						this.warnings = this.read_uint16() ?? await this.read_uint16_async();
+						this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
+					}
+					break;
 				}
-				else
-				{	resultsets.stmt_id = this.read_uint32() ?? await this.read_uint32_async();
-					n_columns = this.read_uint16() ?? await this.read_uint16_async();
-					n_placeholders = this.read_uint16() ?? await this.read_uint16_async();
-					this.read_uint8() ?? await this.read_uint8_async(); // skip reserved_1
-					this.warnings = this.read_uint16() ?? await this.read_uint16_async();
+				case PacketType.NULL_OR_LOCAL_INFILE:
+				{	let filename = this.read_short_eof_string() ?? await this.read_short_eof_string_async();
 					this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
-				}
-				break;
-			}
-			case PacketType.NULL_OR_LOCAL_INFILE:
-			{	let filename = this.read_short_eof_string() ?? await this.read_short_eof_string_async();
-				this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
-				if (!this.onloadfile)
-				{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
-				}
-				let reader = await this.onloadfile(filename);
-				if (!reader)
-				{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
-				}
-				try
-				{	while (true)
-					{	this.start_writing_new_packet();
-						let n = await this.write_read_chunk(reader);
-						await this.send();
-						if (n == null)
-						{	break;
+					if (!this.onloadfile)
+					{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
+					}
+					let reader = await this.onloadfile(filename);
+					if (!reader)
+					{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
+					}
+					try
+					{	while (true)
+						{	this.start_writing_new_packet();
+							let n = await this.write_read_chunk(reader);
+							await this.send();
+							if (n == null)
+							{	break;
+							}
 						}
 					}
-				}
-				finally
-				{	try
-					{	reader.close();
+					finally
+					{	try
+						{	reader.close();
+						}
+						catch (e)
+						{	console.error(e);
+						}
 					}
-					catch (e)
-					{	console.error(e);
-					}
+					continue L;
 				}
-				break;
+				case PacketType.UINT16:
+				{	n_columns = this.read_uint16() ?? await this.read_uint16_async();
+					break;
+				}
+				case PacketType.UINT24:
+				{	n_columns = this.read_uint24() ?? await this.read_uint24_async();
+					break;
+				}
+				case PacketType.UINT64:
+				{	n_columns = this.read_uint64() ?? await this.read_uint64_async();
+					break;
+				}
+				default:
+				{	n_columns = type;
+				}
 			}
-			case PacketType.UINT16:
-			{	n_columns = this.read_uint16() ?? await this.read_uint16_async();
-				break;
+			if (n_columns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
+			{	throw new Error(`Can't handle so many columns: ${n_columns}`);
 			}
-			case PacketType.UINT24:
-			{	n_columns = this.read_uint24() ?? await this.read_uint24_async();
-				break;
-			}
-			case PacketType.UINT64:
-			{	n_columns = this.read_uint64() ?? await this.read_uint64_async();
-				break;
-			}
-			default:
-			{	n_columns = type;
-			}
-		}
-		if (n_columns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
-		{	throw new Error(`Can't handle so many columns: ${n_columns}`);
-		}
-		let n_columns_num = Number(n_columns);
+			let n_columns_num = Number(n_columns);
 
-		if (n_columns_num>0 && mode==ReadPacketMode.REGULAR && !(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
-		{	// Read EOF after columns list
-			let type = await this.read_packet();
-			debug_assert(type == PacketType.OK);
-		}
+			if (n_columns_num>0 && mode==ReadPacketMode.REGULAR && !(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
+			{	// Read EOF after columns list
+				let type = await this.read_packet();
+				debug_assert(type == PacketType.OK);
+			}
 
-		// Read sequence of ColumnDefinition packets
-		let placeholders = n_placeholders==0 ? [] : await this.read_column_definition_packets(n_placeholders);
-		let columns = n_columns_num==0 ? [] : await this.read_column_definition_packets(n_columns_num);
+			// Read sequence of ColumnDefinition packets
+			let placeholders = n_placeholders==0 ? [] : await this.read_column_definition_packets(n_placeholders);
+			let columns = n_columns_num==0 ? [] : await this.read_column_definition_packets(n_columns_num);
 
-		resultsets.placeholders = placeholders;
-		resultsets.columns = columns;
-		resultsets.has_more_rows = mode==ReadPacketMode.REGULAR && n_columns_num!=0;
-		resultsets.has_more = mode==ReadPacketMode.REGULAR && (n_columns_num != 0 || (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0);
+			resultsets.placeholders = placeholders;
+			resultsets.columns = columns;
+			resultsets.has_more_rows = mode==ReadPacketMode.REGULAR && n_columns_num!=0;
+			resultsets.has_more = mode==ReadPacketMode.REGULAR && (n_columns_num != 0 || (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0);
 
-		if (!resultsets.has_more)
-		{	resultsets.next_resultset = () => Promise.resolve(false);
+			if (!resultsets.has_more)
+			{	resultsets.next_resultset = () => Promise.resolve(false);
+			}
+			break;
 		}
 	}
 
@@ -987,7 +990,8 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	resultsets.next_resultset = () => Promise.resolve(false);
 		}
 		else
-		{	await this.read_query_response(resultsets, mode);
+		{	resultsets.reset_fields();
+			await this.read_query_response(resultsets, mode);
 		}
 	}
 }
