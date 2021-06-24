@@ -50,7 +50,7 @@ Deno.test
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
 
-					if (semver.gt(conn.serverVersion, '8.0.0'))
+					if (semver.gt(conn.serverVersion.match(/^[\d\.]*/)?.[0] || '', '6.0.0')) // conn.serverVersion can be: 8.0.25-0ubuntu0.21.04.1
 					{	await conn.execute("START TRANSACTION READ ONLY");
 						assertEquals(conn.inTrx, true);
 						assertEquals(conn.inTrxReadonly, true);
