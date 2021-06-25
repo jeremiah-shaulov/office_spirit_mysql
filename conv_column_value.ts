@@ -59,7 +59,7 @@ export function conv_column_value(value: Uint8Array, type: FieldType)
 		case FieldType.MYSQL_TYPE_TINY_BLOB:
 		case FieldType.MYSQL_TYPE_MEDIUM_BLOB:
 		case FieldType.MYSQL_TYPE_LONG_BLOB:
-			// don't know why, but string values are returned as MYSQL_TYPE_BLOB
+			// don't know why, but all string and blob values are returned as MYSQL_TYPE_BLOB
 			return value.slice();
 
 		case FieldType.MYSQL_TYPE_DATE:

@@ -139,8 +139,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	/**	Write client's response to initial server handshake packet.
 	 **/
 	private write_handshake_response(username: string, password: string, schema: string, auth_plugin: AuthPlugin, found_rows: boolean, ignore_space: boolean, multi_statements: boolean)
-	{	this.schema = schema;
-		// apply client capabilities
+	{	// apply client capabilities
 		this.capability_flags &=
 		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
 			CapabilityFlags.CLIENT_LONG_PASSWORD |
@@ -159,6 +158,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 			(ignore_space ? CapabilityFlags.CLIENT_IGNORE_SPACE : 0) |
 			(multi_statements ? CapabilityFlags.CLIENT_MULTI_STATEMENTS : 0)
 		);
+		if (this.capability_flags & CapabilityFlags.CLIENT_SESSION_TRACK)
+		{	this.schema = schema;
+		}
 		// send packet
 		this.start_writing_new_packet();
 		if (this.capability_flags & CapabilityFlags.CLIENT_PROTOCOL_41)

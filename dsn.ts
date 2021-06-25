@@ -11,23 +11,137 @@
 	`multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky;
  **/
 export class Dsn
-{	name: string;
-	hostname: string;
-	port: number;
-	username: string;
-	password: string;
-	schema: string;
-	pipe: string;
-	keepAliveTimeout: number;
-	keepAliveMax: number;
-	maxColumnLen: number;
+{	private m_hostname: string;
+	private m_port: number;
+	private m_username: string;
+	private m_password: string;
+	private m_schema: string;
+	private m_pipe: string;
+	private m_keep_alive_timeout: number;
+	private m_keep_alive_max: number;
+	private m_max_column_len: number;
 	/** Use "found rows" instead of "affected rows" */
-	foundRows: boolean;
+	private m_found_rows: boolean;
 	/** Parser on server can ignore spaces before '(' in built-in function names */
-	ignoreSpace: boolean;
+	private m_ignore_space: boolean;
 	/** SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky */
-	multiStatements: boolean;
-	initSql: string;
+	private m_multi_statements: boolean;
+	private m_init_sql: string;
+	private m_name: string;
+
+	get hostname()
+	{	return this.m_hostname;
+	}
+	set hostname(value: string)
+	{	if (value.charAt(0)=='[' && value.slice(-1)==']') // IPv6, like [::1]:3306
+		{	value = value.slice(1, -1);
+		}
+		this.m_hostname = value;
+		this.update_name();
+	}
+
+	get port()
+	{	return this.m_port;
+	}
+	set port(value: number)
+	{	this.m_port = !value || !isFinite(value) ? 3306 : value;
+		this.update_name();
+	}
+
+	get username()
+	{	return this.m_username;
+	}
+	set username(value: string)
+	{	this.m_username = value;
+		this.update_name();
+	}
+
+	get password()
+	{	return this.m_password;
+	}
+	set password(value: string)
+	{	this.m_password = value;
+		this.update_name();
+	}
+
+	get schema()
+	{	return this.m_schema;
+	}
+	set schema(value: string)
+	{	this.m_schema = value;
+		this.update_name();
+	}
+
+	get pipe()
+	{	return this.m_pipe;
+	}
+	set pipe(value: string)
+	{	if (value.length>0 && value.charAt(0)!='/')
+		{	value = '/'+value;
+		}
+		this.m_pipe = value;
+		this.update_name();
+	}
+
+	get keepAliveTimeout()
+	{	return this.m_keep_alive_timeout;
+	}
+	set keepAliveTimeout(value: number)
+	{	this.m_keep_alive_timeout = Math.max(0, value);
+		this.update_name();
+	}
+
+	get keepAliveMax()
+	{	return this.m_keep_alive_max;
+	}
+	set keepAliveMax(value: number)
+	{	this.m_keep_alive_max = Math.max(0, value);
+		this.update_name();
+	}
+
+	get maxColumnLen()
+	{	return this.m_max_column_len;
+	}
+	set maxColumnLen(value: number)
+	{	this.m_max_column_len = Math.max(1, value);
+		this.update_name();
+	}
+
+	get foundRows()
+	{	return this.m_found_rows;
+	}
+	set foundRows(value: boolean)
+	{	this.m_found_rows = value;
+		this.update_name();
+	}
+
+	get ignoreSpace()
+	{	return this.m_ignore_space;
+	}
+	set ignoreSpace(value: boolean)
+	{	this.m_ignore_space = value;
+		this.update_name();
+	}
+
+	get multiStatements()
+	{	return this.m_multi_statements;
+	}
+	set multiStatements(value: boolean)
+	{	this.m_multi_statements = value;
+		this.update_name();
+	}
+
+	get initSql()
+	{	return this.m_init_sql;
+	}
+	set initSql(value: string)
+	{	this.m_init_sql = value;
+		this.update_name();
+	}
+
+	get name()
+	{	return this.m_name;
+	}
 
 	constructor(dsn: string)
 	{	let pos = dsn.indexOf(':');
@@ -39,50 +153,65 @@ export class Dsn
 		if (hostname.charAt(0)=='[' && hostname.slice(-1)==']') // IPv6, like [::1]:3306
 		{	hostname = hostname.slice(1, -1);
 		}
-		this.hostname = hostname;
-		this.port = !url.port ? 3306 : Number(url.port);
-		this.username = username;
-		this.password = password;
+		this.m_hostname = hostname;
+		this.m_port = !url.port ? 3306 : Number(url.port) || 3306;
+		this.m_username = username;
+		this.m_password = password;
 		pos = pathname.lastIndexOf('/');
-		this.pipe = pathname.slice(0, pos);
-		this.schema = pathname.slice(pos + 1);
+		this.m_pipe = pathname.slice(0, pos);
+		this.m_schema = pathname.slice(pos + 1);
 		// params
-		let keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
-		let keepAliveMax = url.searchParams.get('keepAliveMax');
+		let keep_alive_timeout = url.searchParams.get('keepAliveTimeout');
+		let keep_alive_max = url.searchParams.get('keepAliveMax');
 		let maxColumnLen = url.searchParams.get('maxColumnLen');
-		let foundRows = url.searchParams.get('foundRows');
-		let ignoreSpace = url.searchParams.get('ignoreSpace');
-		let multiStatements = url.searchParams.get('multiStatements');
-		this.keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
-		this.keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
-		this.maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
-		this.foundRows = foundRows != null;
-		this.ignoreSpace = ignoreSpace != null;
-		this.multiStatements = multiStatements != null;
+		let found_rows = url.searchParams.get('foundRows');
+		let ignore_space = url.searchParams.get('ignoreSpace');
+		let multi_statements = url.searchParams.get('multiStatements');
+		this.m_keep_alive_timeout = keep_alive_timeout ? Math.max(0, Number(keep_alive_timeout)) : NaN;
+		this.m_keep_alive_max = keep_alive_max ? Math.max(0, Math.round(Number(keep_alive_max))) : NaN;
+		this.m_max_column_len = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
+		this.m_found_rows = found_rows != null;
+		this.m_ignore_space = ignore_space != null;
+		this.m_multi_statements = multi_statements != null;
 		// initSql
-		this.initSql = decodeURIComponent(url.hash.slice(1)).trim();
-		// normalized name
-		let params =
-		(	(!isNaN(this.keepAliveTimeout) ? '&keepAliveTimeout='+this.keepAliveTimeout : '') +
-			(!isNaN(this.keepAliveMax) ? '&keepAliveMax='+this.keepAliveMax : '') +
-			(!isNaN(this.maxColumnLen) ? '&maxColumnLen='+this.maxColumnLen : '') +
-			(this.foundRows ? '&foundRows' : '') +
-			(this.ignoreSpace ? '&ignoreSpace' : '') +
-			(this.multiStatements ? '&multiStatements' : '')
+		this.m_init_sql = decodeURIComponent(url.hash.slice(1)).trim();
+		this.m_name = '';
+		this.update_name();
+	}
+
+	/**	Normalized name.
+	 **/
+	private update_name()
+	{	let params =
+		(	(!isNaN(this.m_keep_alive_timeout) ? '&keepAliveTimeout='+this.m_keep_alive_timeout : '') +
+			(!isNaN(this.m_keep_alive_max) ? '&keepAliveMax='+this.m_keep_alive_max : '') +
+			(!isNaN(this.m_max_column_len) ? '&maxColumnLen='+this.m_max_column_len : '') +
+			(this.m_found_rows ? '&foundRows' : '') +
+			(this.m_ignore_space ? '&ignoreSpace' : '') +
+			(this.m_multi_statements ? '&multiStatements' : '')
 		);
-		this.name = 'mysql://' + (!username ? '' : !password ? username+'@' : username+':'+password+'@') + url.host + pathname + (!params ? '' : '?'+params.slice(1)) + (!this.initSql ? '' : '#'+encodeURIComponent(this.initSql));
+		this.m_name =
+		(	'mysql://' +
+			(!this.m_username ? '' : !this.m_password ? this.m_username+'@' : this.m_username+':'+this.m_password+'@') +
+			(this.m_hostname.indexOf(':')==-1 ? this.m_hostname : '['+this.m_hostname+']') +
+			(this.m_port==3306 ? '' : ':'+this.m_port) +
+			this.m_pipe +
+			'/' + this.m_schema +
+			(!params ? '' : '?'+params.slice(1)) +
+			(!this.m_init_sql ? '' : '#'+encodeURIComponent(this.m_init_sql))
+		);
 	}
 
 	get addr(): Deno.ConnectOptions | Deno.UnixConnectOptions
-	{	if (this.pipe)
-		{	return {transport: 'unix', path: this.pipe};
+	{	if (this.m_pipe)
+		{	return {transport: 'unix', path: this.m_pipe};
 		}
 		else
-		{	return {transport: 'tcp', hostname: this.hostname, port: this.port};
+		{	return {transport: 'tcp', hostname: this.m_hostname, port: this.m_port};
 		}
 	}
 
 	toString()
-	{	return this.name;
+	{	return this.m_name;
 	}
 }

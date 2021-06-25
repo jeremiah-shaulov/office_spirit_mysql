@@ -75,6 +75,7 @@ export class MyPool
 	private have_slots_callbacks: (() => void)[] = [];
 	private onerror: (error: Error) => void = () => {};
 	private onend: () => void = () => {};
+	private n_sessions_or_conns = 0;
 
 	private dsn: Dsn|undefined;
 	private maxConns: number;
@@ -159,10 +160,14 @@ export class MyPool
 	async session<T>(callback: (session: MySession) => Promise<T>)
 	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this));
 		try
-		{	return await callback(session);
+		{	this.n_sessions_or_conns++;
+			return await callback(session);
 		}
 		finally
 		{	session.end();
+			if (--this.n_sessions_or_conns==0 && this.n_busy_all==0)
+			{	this.onend();
+			}
 		}
 	}
 
@@ -178,10 +183,14 @@ export class MyPool
 		}
 		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this));
 		try
-		{	return await callback(conn);
+		{	this.n_sessions_or_conns++;
+			return await callback(conn);
 		}
 		finally
 		{	conn.end();
+			if (--this.n_sessions_or_conns==0 && this.n_busy_all==0)
+			{	this.onend();
+			}
 		}
 	}
 
@@ -249,7 +258,7 @@ export class MyPool
 		}
 		this.n_busy_all--;
 		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
-		if (this.n_busy_all == 0)
+		if (this.n_sessions_or_conns==0 && this.n_busy_all==0)
 		{	this.onend();
 		}
 		conns.busy[i] = conns.busy[conns.busy.length - 1];

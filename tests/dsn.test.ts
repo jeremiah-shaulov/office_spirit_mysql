@@ -111,5 +111,111 @@ Deno.test
 		assertEquals(dsn.initSql, '');
 		assertEquals(dsn+'', 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements');
 		assertEquals(dsn.addr, {transport: 'unix', path: '/var/run/my.sock'});
+
+		dsn.hostname = '[::1:2:3]';
+		assertEquals(dsn.hostname, '::1:2:3');
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:22/var/run/my.sock/information_schema?multiStatements');
+
+		dsn.port = 23;
+		assertEquals(dsn.port, 23);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:23/var/run/my.sock/information_schema?multiStatements');
+		dsn.port = 0;
+		assertEquals(dsn.port, 3306);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		dsn.port = 3305;
+		assertEquals(dsn.port, 3305);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:3305/var/run/my.sock/information_schema?multiStatements');
+		dsn.port = 3306;
+		assertEquals(dsn.port, 3306);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		dsn.port = 3307;
+		assertEquals(dsn.port, 3307);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:3307/var/run/my.sock/information_schema?multiStatements');
+		dsn.port = -Infinity;
+		assertEquals(dsn.port, 3306);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		dsn = new Dsn('mysql://johnny:hello@[::1:2:3]:0/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn.port, 3306);
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+
+		dsn.username = 'johnny';
+		assertEquals(dsn.username, 'johnny');
+		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		dsn.username = '';
+		assertEquals(dsn.username, '');
+		assertEquals(dsn+'', 'mysql://[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+
+		dsn.username = 'root';
+		assertEquals(dsn.username, 'root');
+		assertEquals(dsn.password, 'hello');
+		assertEquals(dsn+'', 'mysql://root:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		dsn.password = '';
+		assertEquals(dsn.password, '');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+
+		dsn.schema = 'app';
+		assertEquals(dsn.schema, 'app');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/var/run/my.sock/app?multiStatements');
+		dsn.schema = '';
+		assertEquals(dsn.schema, '');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/var/run/my.sock/?multiStatements');
+		dsn = new Dsn('mysql://root@[::1:2:3]/var/run/my.sock/?multiStatements');
+		assertEquals(dsn.pipe, '/var/run/my.sock');
+		assertEquals(dsn.schema, '');
+
+		dsn.pipe = 'abc';
+		assertEquals(dsn.pipe, '/abc');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/?multiStatements');
+		dsn.schema = 'def';
+		assertEquals(dsn.schema, 'def');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.keepAliveTimeout = 3;
+		assertEquals(dsn.keepAliveTimeout, 3);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?keepAliveTimeout=3&multiStatements');
+		dsn.keepAliveTimeout = -3;
+		assertEquals(dsn.keepAliveTimeout, 0);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?keepAliveTimeout=0&multiStatements');
+		dsn.keepAliveTimeout = NaN;
+		assertEquals(dsn.keepAliveTimeout, NaN);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.keepAliveMax = 3;
+		assertEquals(dsn.keepAliveMax, 3);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?keepAliveMax=3&multiStatements');
+		dsn.keepAliveMax = -3;
+		assertEquals(dsn.keepAliveMax, 0);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?keepAliveMax=0&multiStatements');
+		dsn.keepAliveMax = NaN;
+		assertEquals(dsn.keepAliveMax, NaN);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.maxColumnLen = 3;
+		assertEquals(dsn.maxColumnLen, 3);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?maxColumnLen=3&multiStatements');
+		dsn.maxColumnLen = -3;
+		assertEquals(dsn.maxColumnLen, 1);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?maxColumnLen=1&multiStatements');
+		dsn.maxColumnLen = NaN;
+		assertEquals(dsn.maxColumnLen, NaN);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.foundRows = true;
+		assertEquals(dsn.foundRows, true);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?foundRows&multiStatements');
+		dsn.foundRows = false;
+		assertEquals(dsn.foundRows, false);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.ignoreSpace = true;
+		assertEquals(dsn.ignoreSpace, true);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?ignoreSpace&multiStatements');
+		dsn.ignoreSpace = false;
+		assertEquals(dsn.ignoreSpace, false);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.multiStatements = false;
+		assertEquals(dsn.multiStatements, false);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def');
 	}
 );

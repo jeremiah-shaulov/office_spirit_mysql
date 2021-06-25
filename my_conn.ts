@@ -61,12 +61,7 @@ export class MyConn
 	}
 
 	get schema()
-	{	if (this.protocol)
-		{	return this.protocol.capability_flags & CapabilityFlags.CLIENT_SESSION_TRACK ? this.protocol.schema : '';
-		}
-		else
-		{	return '';
-		}
+	{	return this.protocol?.schema ?? '';
 	}
 
 	/**	Can return undefined, if end() called during connection process.
