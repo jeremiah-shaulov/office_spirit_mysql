@@ -9,9 +9,7 @@ const C_DOT = '.'.charCodeAt(0);
 const C_E = 'e'.charCodeAt(0);
 const C_E_CAP = 'E'.charCodeAt(0);
 
-const decoder = new TextDecoder;
-
-export function conv_column_value(value: Uint8Array, type: FieldType)
+export function conv_column_value(value: Uint8Array, type: FieldType, decoder: TextDecoder)
 {	switch (type)
 	{	case FieldType.MYSQL_TYPE_NULL:
 			return null;

@@ -11,6 +11,8 @@ import {conv_column_value} from "./conv_column_value.ts";
 
 const MAX_COLUMN_LEN = 10*1024*1024;
 const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can use other bits for myself
+const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
+const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 export const enum ReadPacketMode
 {	REGULAR,
@@ -29,7 +31,6 @@ export const enum RowType
 export class MyProtocol extends MyProtocolReaderWriter
 {	server_version = '';
 	connection_id = 0;
-	charset = 0;
 	capability_flags = 0;
 	status_flags = 0;
 	schema = '';
@@ -49,7 +50,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	static async inst(dsn: Dsn, use_buffer?: Uint8Array, onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>): Promise<MyProtocol>
 	{	let conn = await Deno.connect(dsn.addr);
-		let protocol = new MyProtocol(conn, use_buffer);
+		let protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, use_buffer);
 		if (dsn.maxColumnLen > 0)
 		{	protocol.max_column_len = dsn.maxColumnLen;
 		}
@@ -90,7 +91,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 		let connection_id = this.read_uint32() ?? await this.read_uint32_async();
 		let auth_plugin_data = new Uint8Array(24).subarray(0, 0);
 		let capability_flags = 0;
-		let charset = Charset.UNKNOWN;
 		let status_flags = 0;
 		let auth_plugin_name = '';
 		if (protocol_version == 9)
@@ -101,7 +101,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			this.read_void(1) || await this.read_void_async(1);
 			capability_flags = this.read_uint16() ?? await this.read_uint16_async();
 			if (!this.is_at_end_of_packet())
-			{	charset = this.read_uint8() ?? await this.read_uint8_async();
+			{	this.read_uint8() ?? await this.read_uint8_async(); // lower 8 bits of the server-default charset (skip)
 				status_flags = this.read_uint16() ?? await this.read_uint16_async();
 				capability_flags |= (this.read_uint16() ?? await this.read_uint16_async()) << 16;
 				let auth_plugin_data_len = 0;
@@ -131,7 +131,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 		this.server_version = server_version;
 		this.connection_id = connection_id;
 		this.capability_flags = capability_flags;
-		this.charset = charset;
 		this.status_flags = status_flags;
 		return AuthPlugin.inst(auth_plugin_name, auth_plugin_data);
 	}
@@ -166,7 +165,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		if (this.capability_flags & CapabilityFlags.CLIENT_PROTOCOL_41)
 		{	this.write_uint32(this.capability_flags);
 			this.write_uint32(0xFFFFFF); // max packet size
-			this.write_uint8(Charset.UTF8_UNICODE_CI);
+			this.write_uint8(DEFAULT_CHARACTER_SET_CLIENT);
 			this.write_zero(23);
 			this.write_nul_string(username);
 			// auth
@@ -307,7 +306,19 @@ export class MyProtocol extends MyProtocolReaderWriter
 								while (this.packet_offset < to)
 								{	let change_type = this.read_uint8() ?? await this.read_uint8_async();
 									switch (change_type)
-									{	case SessionTrack.SCHEMA:
+									{	case SessionTrack.SYSTEM_VARIABLES:
+										{	this.read_lenenc_int() ?? await this.read_lenenc_int_async(); // skip
+											let name = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+											let value = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
+											if (name == 'character_set_client')
+											{	this.set_character_set_client(value);
+											}
+											else if (name == 'character_set_results')
+											{	this.set_character_set_results(value);
+											}
+											break;
+										}
+										case SessionTrack.SCHEMA:
 											this.read_lenenc_int() ?? await this.read_lenenc_int_async(); // skip
 											this.schema = this.read_short_lenenc_string() ?? await this.read_short_lenenc_string_async();
 											break;
@@ -337,6 +348,50 @@ export class MyProtocol extends MyProtocolReaderWriter
 			}
 			default:
 			{	return type;
+			}
+		}
+	}
+
+	private set_character_set_client(value: string)
+	{	if (value.slice(0, 4) != 'utf8')
+		{	throw new Error(`Cannot use this value for character_set_client: ${value}`);
+		}
+	}
+
+	private set_character_set_results(value: string)
+	{	if (value.slice(0, 4) == 'utf8')
+		{	this.decoder = new TextDecoder('utf-8');
+		}
+		else
+		{	switch (value)
+			{	case 'latin1':
+				case 'latin2':
+				case 'latin3':
+				case 'latin4':
+				case 'cp866':
+				case 'cp1250':
+				case 'cp1251':
+				case 'cp1256':
+				case 'cp1257':
+				case 'big5':
+				case 'gb2312':
+				case 'gb18030':
+				case 'greek':
+				case 'hebrew':
+				case 'sjis':
+					this.decoder = new TextDecoder(value);
+					break;
+				case 'koi8r':
+					this.decoder = new TextDecoder('koi8-r');
+					break;
+				case 'koi8u':
+					this.decoder = new TextDecoder('koi8-u');
+					break;
+				case 'eucjpms':
+					this.decoder = new TextDecoder('euc-jp');
+					break;
+				default:
+					throw new Error(`Cannot use this value for character_set_results: ${value}`);
 			}
 		}
 	}
@@ -800,7 +855,7 @@ L:		while (true)
 					}
 					else if (len <= BUFFER_LEN)
 					{	let v = this.read_short_bytes(len) ?? await this.read_short_bytes_async(len);
-						value = conv_column_value(v, columns[i].type);
+						value = conv_column_value(v, columns[i].type, this.decoder);
 					}
 					else
 					{	if (!buffer || buffer.length<len)
@@ -808,7 +863,7 @@ L:		while (true)
 						}
 						let v = buffer.subarray(0, len);
 						await this.read_bytes_to_buffer(v);
-						value = conv_column_value(v, columns[i].type);
+						value = conv_column_value(v, columns[i].type, this.decoder);
 					}
 				}
 				switch (row_type)

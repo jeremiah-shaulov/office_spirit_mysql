@@ -13,9 +13,7 @@ export class MyProtocolReader
 
 	protected data_view: DataView;
 
-	decoder = new TextDecoder;
-
-	constructor(protected conn: Deno.Conn, use_buffer: Uint8Array|undefined)
+	protected constructor(protected conn: Deno.Conn, protected decoder: TextDecoder, use_buffer: Uint8Array|undefined)
 	{	this.buffer = use_buffer ?? new Uint8Array(BUFFER_LEN);
 		this.data_view = new DataView(this.buffer.buffer);
 		debug_assert(this.buffer.length == BUFFER_LEN);

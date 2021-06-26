@@ -56,10 +56,6 @@ export class MyConn
 	{	return ((this.protocol?.status_flags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 	}
 
-	get charset(): Charset
-	{	return this.protocol?.charset ?? Charset.UNKNOWN;
-	}
-
 	get schema()
 	{	return this.protocol?.schema ?? '';
 	}
@@ -264,10 +260,11 @@ export class MyConn
 		{	let protocol = this.protocol ?? await this.get_protocol();
 			let {state_id} = this;
 			let resultsets = new ResultsetsDriver;
+			let ok = false;
 
 			if (!params)
 			{	// Text protocol query
-				let ok = await this.protocol_op
+				ok = true === await this.protocol_op
 				(	protocol,
 					n_attempt,
 					state_id,
@@ -276,84 +273,72 @@ export class MyConn
 						await protocol.read_com_query_response(resultsets);
 					}
 				);
-				if (!ok)
-				{	continue; // redo COM_QUERY
-				}
-				this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
 			}
 			else if (params === true)
 			{	// Prepare for later execution
-				let ok = await this.protocol_op
-				(	protocol,
-					n_attempt,
-					state_id,
-					async () =>
-					{	await protocol.send_com_stmt_prepare(sql);
-						await protocol.read_com_stmt_prepare_response(resultsets);
-					}
-				);
-				if (!ok)
-				{	continue; // redo COM_STMT_PREPARE
-				}
 				resultsets.stmt_execute = async (params: any[]) =>
 				{	await this.protocol_op(protocol, -1, state_id, () => protocol.send_com_stmt_execute(resultsets, params));
 					this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
 				};
-				this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
-			}
-			else
-			{	// Named parameters?
-				let array_params: any[];
-				if (Array.isArray(params))
-				{	array_params = params;
-				}
-				else
-				{	let sql_set = "";
-					let params_set: any[] = [];
-					for (let [n, v] of Object.entries(params))
-					{	sql_set += !sql_set.length ? "SET @`" : "`=?,@`";
-						sql_set += n.replaceAll('`', '``');
-						params_set[params_set.length] = v;
-					}
-					if (sql_set.length != 0)
-					{	sql_set += "`=?";
-						let ok = await this.protocol_op
-						(	protocol,
-							n_attempt,
-							state_id,
-							async () =>
-							{	await protocol.send_com_stmt_prepare(sql_set);
-								let resultsets_set = new ResultsetsDriver;
-								await protocol.read_com_stmt_prepare_response(resultsets_set);
-								await protocol.send_com_stmt_execute(resultsets_set, params_set);
-								debug_assert(!resultsets_set.has_more);
-							}
-						);
-						if (!ok)
-						{	continue; // redo COM_STMT_PREPARE
-						}
-					}
-					array_params = [];
-				}
 
-				// Prepare to execute immediately
-				let ok = await this.protocol_op
+				ok = true === await this.protocol_op
 				(	protocol,
 					n_attempt,
 					state_id,
 					async () =>
 					{	await protocol.send_com_stmt_prepare(sql);
 						await protocol.read_com_stmt_prepare_response(resultsets);
-						await protocol.send_com_stmt_execute(resultsets, array_params);
 					}
 				);
-				if (!ok)
-				{	continue; // redo COM_STMT_PREPARE
+			}
+			else if (Array.isArray(params))
+			{	// Prepare to execute immediately: positional parameters
+				ok = true === await this.protocol_op
+				(	protocol,
+					n_attempt,
+					state_id,
+					async () =>
+					{	await protocol.send_com_stmt_prepare(sql);
+						await protocol.read_com_stmt_prepare_response(resultsets);
+						await protocol.send_com_stmt_execute(resultsets, params);
+					}
+				);
+			}
+			else
+			{	// Prepare to execute immediately: named parameters
+				let sql_set = "";
+				let params_set: any[] = [];
+				for (let [n, v] of Object.entries(params))
+				{	sql_set += !sql_set.length ? "SET @`" : "`=?,@`";
+					sql_set += n.replaceAll('`', '``');
+					params_set[params_set.length] = v;
 				}
-				this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
+
+				ok = true === await this.protocol_op
+				(	protocol,
+					n_attempt,
+					state_id,
+					async () =>
+					{	if (sql_set.length != 0)
+						{	let resultsets_set = new ResultsetsDriver;
+							await protocol.send_com_stmt_prepare(sql_set+"`=?");
+							await protocol.read_com_stmt_prepare_response(resultsets_set);
+							await protocol.send_com_stmt_execute(resultsets_set, params_set);
+							debug_assert(!resultsets_set.has_more);
+						}
+						await protocol.send_com_stmt_prepare(sql);
+						await protocol.read_com_stmt_prepare_response(resultsets);
+						await protocol.send_com_stmt_execute(resultsets, []);
+					}
+				);
 			}
 
-			return resultsets;
+			if (ok)
+			{	this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
+				return resultsets;
+			}
+
+			// redo
 		}
 	}
 

@@ -22,7 +22,6 @@ Deno.test
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
 					assertEquals(conn.noBackslashEscapes, false);
-					assertEquals(conn.charset, Charset.UNKNOWN);
 					assertEquals(conn.schema, '');
 
 					await conn.connect();
@@ -31,7 +30,6 @@ Deno.test
 					assert(conn.connectionId > 0);
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
-					assert(conn.charset != Charset.UNKNOWN);
 					assertEquals(conn.schema, dsn.schema);
 
 					let conn_id = await conn.queryCol("SELECT Connection_id()").first();
@@ -409,7 +407,7 @@ Deno.test
 					let res = await conn.queryCol("INSERT INTO t_log SET `time`=Now(), message=NULL");
 					assertEquals(res.affectedRows, 1);
 
-					// CREATE TABLE
+					// HELLO
 					let error;
 					try
 					{	await conn.query("HELLO");

@@ -7,7 +7,7 @@ import {SendWithDataError} from "./errors.ts";
 export type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
 
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	encoder = new TextEncoder;
+{	protected encoder = new TextEncoder;
 
 	protected start_writing_new_packet(reset_sequence_id=false)
 	{	debug_assert(this.buffer_end == this.buffer_start); // must read all before starting to write
