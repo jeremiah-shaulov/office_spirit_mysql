@@ -17,7 +17,7 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 export const enum ReadPacketMode
 {	REGULAR,
 	PREPARED_STMT,
-	PREPARED_STMT_CONTINUATION,
+	PREPARED_STMT_OK_CONTINUATION,
 }
 
 export const enum RowType
@@ -269,14 +269,17 @@ export class MyProtocol extends MyProtocolReaderWriter
 	 **/
 	private async read_packet(mode=ReadPacketMode.REGULAR)
 	{	let type = 0;
-		if (mode != ReadPacketMode.PREPARED_STMT_CONTINUATION)
+		if (mode != ReadPacketMode.PREPARED_STMT_OK_CONTINUATION)
 		{	debug_assert(this.is_at_end_of_packet());
 			this.read_packet_header() || await this.read_packet_header_async();
 			type = this.read_uint8() ?? await this.read_uint8_async();
 		}
 		switch (type)
 		{	case PacketType.EOF:
-			{	if (!(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
+			{	if (this.payload_length >= 9) // not a EOF packet. EOF packets are <9 bytes long, and if it's >=9, it's a lenenc int
+				{	return type;
+				}
+				if (!(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
 				{	if (this.capability_flags & CapabilityFlags.CLIENT_PROTOCOL_41)
 					{	this.warnings = this.read_uint16() ?? await this.read_uint16_async();
 						this.status_flags = this.read_uint16() ?? await this.read_uint16_async();
@@ -779,7 +782,7 @@ L:		while (true)
 		}
 		await this.send();
 		// Read Binary Protocol Resultset
-		let type = await this.read_packet(ReadPacketMode.PREPARED_STMT);
+		let type = await this.read_packet(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
 		this.unput(type);
 		let row_n_columns = this.read_lenenc_int() ?? await this.read_lenenc_int_async();
 		if (row_n_columns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
@@ -799,7 +802,7 @@ L:		while (true)
 				resultsets.next_resultset = () => Promise.resolve(false);
 			}
 			if (!this.is_at_end_of_packet())
-			{	await this.read_packet(ReadPacketMode.PREPARED_STMT_CONTINUATION);
+			{	await this.read_packet(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 				this.init_resultsets(resultsets);
 			}
 		}
@@ -1017,14 +1020,26 @@ L:		while (true)
 		if (row_type == RowType.LAST_COLUMN_READER)
 		{	let that = this;
 			let column_name = columns[columns.length - 1].name;
+			let data_in_cur_packet_len = Math.min(last_column_reader_len, this.payload_length - this.packet_offset);
 			row[column_name] =
 			{	async read(dest: Uint8Array)
 				{	if (last_column_reader_len <= 0)
-					{	await onreadend?.();
+					{	debug_assert(last_column_reader_len==0 && data_in_cur_packet_len==0);
+						if (that.payload_length == 0xFFFFFF) // packet of 0xFFFFFF length must be followed by one empty packet
+						{	that.read_packet_header() || await that.read_packet_header_async();
+							debug_assert((that.payload_length as any) == 0);
+						}
+						await onreadend?.();
 						return null;
 					}
-					let n = Math.min(dest.length, last_column_reader_len);
+					if (data_in_cur_packet_len <= 0)
+					{	debug_assert(data_in_cur_packet_len == 0);
+						that.read_packet_header() || await that.read_packet_header_async();
+						data_in_cur_packet_len = Math.min(last_column_reader_len, that.payload_length - that.packet_offset);
+					}
+					let n = Math.min(dest.length, data_in_cur_packet_len);
 					await that.read_bytes_to_buffer(dest.subarray(0, n));
+					data_in_cur_packet_len -= n;
 					last_column_reader_len -= n;
 					return n;
 				}

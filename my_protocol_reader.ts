@@ -8,7 +8,7 @@ export class MyProtocolReader
 	protected buffer_start = 0;
 	protected buffer_end = 0;
 	protected sequence_id = 0;
-	private payload_length = 0;
+	protected payload_length = 0;
 	protected packet_offset = 0;
 
 	protected data_view: DataView;

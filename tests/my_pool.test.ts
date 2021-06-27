@@ -5,6 +5,7 @@ import {sql} from "../sql.ts";
 import {BusyError, CanceledError} from "../errors.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 import * as semver from "https://deno.land/x/semver@v1.4.0/mod.ts";
+import {writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
 
 const {DSN} = Deno.env.toObject();
 
@@ -624,6 +625,113 @@ Deno.test
 		finally
 		{	await pool.onEnd();
 			pool.closeIdle();
+		}
+	}
+);
+
+Deno.test
+(	'Load big dump',
+	async () =>
+	{	let pool = new MyPool(DSN);
+
+		for (let read_to_memory of [false, true])
+		{	for (let SIZE of [100, 8*1024 + 100, 2**24 + 8*1024 + 100])
+			{	try
+				{	pool.forConn
+					(	async (conn) =>
+						{	let filename = await Deno.makeTempFile();
+							try
+							{	let fh = await Deno.open(filename, {write: true, read: true});
+								try
+								{	// Write INSERT query to file
+									await writeAll(fh, new TextEncoder().encode("INSERT INTO t_log SET message = '"));
+									let buffer = new Uint8Array(8*1024);
+									for (let i=0; i<buffer.length; i++)
+									{	let c = i & 0x7F;
+										if (c=="'".charCodeAt(0) || c=="\\".charCodeAt(0))
+										{	c = 0;
+										}
+										buffer[i] = c;
+									}
+									let cur_size = 0;
+									for (let i=0; i<SIZE; i+=buffer.length)
+									{	let len = Math.min(buffer.length, SIZE-cur_size);
+										await writeAll(fh, buffer.subarray(0, len));
+										cur_size += len;
+									}
+									assertEquals(cur_size, SIZE);
+									await writeAll(fh, new TextEncoder().encode("'"));
+
+									// Createa and use db
+									await conn.query("DROP DATABASE IF EXISTS test1");
+									await conn.query("CREATE DATABASE `test1`");
+									await conn.query("USE test1");
+
+									// CREATE TABLE
+									await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
+
+									// Read INSERT from file
+									if (!read_to_memory)
+									{	await conn.query(fh);
+									}
+									else
+									{	await conn.query(await Deno.readTextFile(filename));
+									}
+
+									// SELECT Length()
+									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id=1").first(), SIZE);
+
+									// SELECT from table to new file
+									let filename_2 = await Deno.makeTempFile();
+									try
+									{	let fh_2 = await Deno.open(filename_2, {write: true, read: true});
+										try
+										{	let row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id=1");
+											await Deno.copy(row.message, fh_2);
+
+											// Validate the new file size
+											let size_2 = await fh_2.seek(0, Deno.SeekMode.End);
+											assertEquals(size_2, SIZE);
+											await fh_2.seek(0, Deno.SeekMode.Start);
+
+											// Validate the new file contents
+											let buffer_2 = new Uint8Array(buffer.length);
+											while (size_2 > 0)
+											{	let pos = 0;
+												let len = Math.min(buffer_2.length, size_2);
+												while (pos < len)
+												{	let n = await fh_2.read(buffer_2.subarray(pos, len));
+													assert(n != null);
+													pos += n;
+												}
+
+												assertEquals(buffer.subarray(0, len), buffer_2.subarray(0, len));
+												size_2 -= len;
+											}
+										}
+										finally
+										{	fh_2.close();
+										}
+									}
+									finally
+									{	await Deno.remove(filename_2);
+									}
+								}
+								finally
+								{	fh.close();
+								}
+							}
+							finally
+							{	await Deno.remove(filename);
+							}
+						}
+					);
+				}
+				finally
+				{	await pool.onEnd();
+					pool.closeIdle();
+				}
+			}
 		}
 	}
 );

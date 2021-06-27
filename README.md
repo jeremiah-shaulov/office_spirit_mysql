@@ -418,7 +418,7 @@ pool.closeIdle();
 Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms.
 
 ```ts
-type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
 
 MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise;
 ```
@@ -463,7 +463,7 @@ pool.closeIdle();
 
 ## Prepared statements
 
-Function `conn.forQuery()` prepares an SQL statement with parameters, that you can execute multiple times, each time with different parameters.
+Function `conn.forQuery()` prepares an SQL statement, that you can execute multiple times, each time with different parameters.
 
 ```ts
 forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Promise<T>
@@ -539,15 +539,15 @@ pool.forConn
 		// LOAD DATA
 		let res = await conn.execute
 		(	sql
-			`LOAD DATA LOCAL INFILE '${filename}'
-					INTO TABLE t_countries
-					FIELDS TERMINATED BY ','
-					ENCLOSED BY '"'
-					IGNORE 1 LINES
-					(@name, @code)
-					SET
-						country_code = @code,
-						country_name = @name
+			`	LOAD DATA LOCAL INFILE '${filename}'
+				INTO TABLE t_countries
+				FIELDS TERMINATED BY ','
+				ENCLOSED BY '"'
+				IGNORE 1 LINES
+				(@name, @code)
+				SET
+					country_code = @code,
+					country_name = @name
 			`
 		);
 		console.log(res.statusInfo);

@@ -7,13 +7,20 @@ const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
 const C_BACKSLASH = '\\'.charCodeAt(0);
+const C_SPACE = ' '.charCodeAt(0);
+const C_DASH = '-'.charCodeAt(0);
+const C_DOT = '.'.charCodeAt(0);
+const C_COLON = ':'.charCodeAt(0);
 const C_ZERO = '0'.charCodeAt(0);
+const C_ONE = '1'.charCodeAt(0);
+const C_TWO = '2'.charCodeAt(0);
+const C_THREE = '3'.charCodeAt(0);
 const C_X = 'x'.charCodeAt(0);
 const C_A_CAP = 'A'.charCodeAt(0);
 
 const NUMBER_ALLOC_CHAR_LEN = Math.max((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length, (Number.MAX_VALUE+'').length, (Number.MIN_VALUE+'').length);
 const BIGINT_ALLOC_CHAR_LEN = Math.max((0x8000_0000_0000_0000n+'').length, (0x7FFF_FFFF_FFFF_FFFFn+'').length);
-const DATE_ALLOC_CHAR_LEN = '2000-01-01 00:00:00.000000'.length;
+const DATE_ALLOC_CHAR_LEN = '2000-01-01 00:00:00.000'.length;
 
 const enum Want
 {	NOTHING,
@@ -59,7 +66,6 @@ export class Sql
 			}
 			else if (param instanceof Date)
 			{	len += DATE_ALLOC_CHAR_LEN;
-				params[i] = stringify_date(param);
 			}
 			else if (param.buffer instanceof ArrayBuffer)
 			{	len += param.byteLength*2 + 3; // like x'01020304'
@@ -143,6 +149,11 @@ export class Sql
 			{	pos--;
 				append(param+'');
 				want = Want.REMOVE_QUOT;
+			}
+			else if (param instanceof Date)
+			{	ensure_room(DATE_ALLOC_CHAR_LEN);
+				pos += date_encode_into(param, result.subarray(pos));
+				want = Want.NOTHING;
 			}
 			else if (param.buffer instanceof ArrayBuffer)
 			{	pos--;
@@ -256,7 +267,7 @@ export function sql(strings: TemplateStringsArray, ...params: any[])
 {	return new Sql(strings, params);
 }
 
-function stringify_date(date: Date)
+function date_encode_into(date: Date, buffer: Uint8Array)
 {	let year = date.getFullYear();
 	let month = date.getMonth() + 1;
 	let day = date.getDate();
@@ -264,18 +275,53 @@ function stringify_date(date: Date)
 	let minutes = date.getMinutes();
 	let seconds = date.getSeconds();
 	let millis = date.getMilliseconds();
-	return '' +
-	(	year +
-		(month<10 ? '-0' : '-') +
-		month +
-		(day<10 ? '-0' : '-') +
-		day +
-		(hours<10 ? ' 0' : ' ') +
-		hours +
-		(minutes<10 ? '-0' : '-') +
-		minutes +
-		(seconds<10 ? '-0' : '-') +
-		seconds +
-		(millis / 1000 + '').slice(1)
-	);
+	// year
+	buffer[3] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	buffer[2] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	buffer[1] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	buffer[0] = C_ZERO + year % 10;
+	// delimiter
+	buffer[4] = C_DASH;
+	// month
+	buffer[5] = month<10 ? C_ZERO : C_ONE;
+	buffer[6] = month<10 ? C_ZERO+month : C_ZERO+month-10;
+	// delimiter
+	buffer[7] = C_DASH;
+	// day
+	buffer[8] = day<10 ? C_ZERO : day<20 ? C_ONE : day<30 ? C_TWO : C_THREE;
+	buffer[9] = day<10 ? C_ZERO+day : day<20 ? C_ZERO+day-10 : day<30 ? C_ZERO+day-20 : C_ZERO+day-30;
+	if (millis+seconds+minutes+hours == 0)
+	{	return 10;
+	}
+	// delimiter
+	buffer[10] = C_SPACE;
+	// hours
+	buffer[11] = hours<10 ? C_ZERO : hours<20 ? C_ONE : C_TWO;
+	buffer[12] = hours<10 ? C_ZERO+hours : hours<20 ? C_ZERO+hours-10 : C_ZERO+hours-20;
+	// delimiter
+	buffer[13] = C_COLON;
+	// minutes
+	buffer[14] = C_ZERO + Math.floor(minutes / 10);
+	buffer[15] = C_ZERO + minutes % 10;
+	// delimiter
+	buffer[16] = C_COLON;
+	// seconds
+	buffer[17] = C_ZERO + Math.floor(seconds / 10);
+	buffer[18] = C_ZERO + seconds % 10;
+	if (millis == 0)
+	{	// no millis
+		return 19;
+	}
+	// delimiter
+	buffer[19] = C_DOT;
+	// millis
+	buffer[22] = C_ZERO + millis % 10;
+	millis = Math.floor(millis / 10);
+	buffer[21] = C_ZERO + millis % 10;
+	millis = Math.floor(millis / 10);
+	buffer[20] = C_ZERO + millis % 10;
+	return 23;
 }
