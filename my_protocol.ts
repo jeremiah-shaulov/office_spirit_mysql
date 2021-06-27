@@ -589,13 +589,13 @@ L:		while (true)
 	send_com_query(sql: SqlSource)
 	{	this.start_writing_new_packet(true);
 		this.write_uint8(Command.COM_QUERY);
-		return this.send_with_data(sql);
+		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
 	}
 
 	send_com_stmt_prepare(sql: SqlSource)
 	{	this.start_writing_new_packet(true);
 		this.write_uint8(Command.COM_STMT_PREPARE);
-		return this.send_with_data(sql);
+		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
 	}
 
 	read_com_query_response(resultsets: ResultsetsDriver)
@@ -619,14 +619,24 @@ L:		while (true)
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
 		for (let i=0; i<n_placeholders; i++)
 		{	let param = params[i];
-			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && typeof(param)!='boolean' && typeof(param)!='number' && typeof(param)!='bigint')
-			{	if (typeof(param) == 'object')
+			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+			{	if (typeof(param) == 'string')
+				{	this.start_writing_new_packet(true);
+					this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
+					this.write_uint32(stmt_id);
+					this.write_uint16(i);
+					await this.send_with_data(param, false);
+				}
+				else if (typeof(param) == 'object')
 				{	if (param.buffer instanceof ArrayBuffer)
-					{	this.start_writing_new_packet(true);
-						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
-						this.write_uint32(stmt_id);
-						this.write_uint16(i);
-						await this.send_with_data(param);
+					{	if (param.byteLength > 8)
+						{	this.start_writing_new_packet(true);
+							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
+							this.write_uint32(stmt_id);
+							this.write_uint16(i);
+							await this.send_with_data(param, false);
+							placeholders[i].flags |= BLOB_SENT_FLAG;
+						}
 					}
 					else if (typeof(param.read) == 'function')
 					{	let is_empty = true;
@@ -652,15 +662,8 @@ L:		while (true)
 						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.write_uint32(stmt_id);
 						this.write_uint16(i);
-						await this.send_with_data(JSON.stringify(param));
+						await this.send_with_data(JSON.stringify(param), false);
 					}
-				}
-				else
-				{	this.start_writing_new_packet(true);
-					this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
-					this.write_uint32(stmt_id);
-					this.write_uint16(i);
-					await this.send_with_data(param+'');
 				}
 			}
 		}
@@ -676,7 +679,7 @@ L:		while (true)
 			let null_bit_mask = 1;
 			for (let i=0; i<n_placeholders; i++)
 			{	let param = params[i];
-				if (param==null || typeof(param)=='function' || typeof(param)=='symbol')
+				if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
 				{	null_bits |= null_bit_mask;
 				}
 				if (null_bit_mask != 0x80)
@@ -696,7 +699,7 @@ L:		while (true)
 			for (let i=0; i<n_placeholders; i++)
 			{	let param = params[i];
 				let type = FieldType.MYSQL_TYPE_STRING;
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol')
+				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 				{	if (typeof(param) == 'boolean')
 					{	type = FieldType.MYSQL_TYPE_TINY;
 					}
@@ -728,7 +731,7 @@ L:		while (true)
 				if (placeholders[i].flags & BLOB_SENT_FLAG)
 				{	placeholders[i].flags &= ~BLOB_SENT_FLAG;
 				}
-				else if (param!=null && typeof(param)!='function' && typeof(param)!='symbol')
+				else if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 				{	if (typeof(param) == 'boolean')
 					{	this.write_uint8(param ? 1 : 0);
 					}
@@ -746,33 +749,30 @@ L:		while (true)
 					else if (typeof(param) == 'bigint')
 					{	this.write_uint64(param);
 					}
-					else if (typeof(param) == 'object')
-					{	if (param instanceof Date)
-						{	let frac = param.getMilliseconds();
-							this.write_uint8(frac ? 11 : 7); // length
-							this.write_uint16(param.getFullYear());
-							this.write_uint8(param.getMonth() + 1);
-							this.write_uint8(param.getDate());
-							this.write_uint8(param.getHours());
-							this.write_uint8(param.getMinutes());
-							this.write_uint8(param.getSeconds());
-							if (frac)
-							{	this.write_uint32(frac * 1000);
-							}
-						}
-						else if (param.buffer instanceof ArrayBuffer)
-						{	this.write_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
-						}
-						else if (typeof(param.read) == 'function')
-						{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), so write empty string
-							this.write_uint8(0); // 0-length lenenc-string
-						}
-						else
-						{	this.write_string(JSON.stringify(param));
+					else if (typeof(param) == 'string')
+					{	this.write_lenenc_string(param+'');
+					}
+					else if (param instanceof Date)
+					{	let frac = param.getMilliseconds();
+						this.write_uint8(frac ? 11 : 7); // length
+						this.write_uint16(param.getFullYear());
+						this.write_uint8(param.getMonth() + 1);
+						this.write_uint8(param.getDate());
+						this.write_uint8(param.getHours());
+						this.write_uint8(param.getMinutes());
+						this.write_uint8(param.getSeconds());
+						if (frac)
+						{	this.write_uint32(frac * 1000);
 						}
 					}
+					else if (param.buffer instanceof ArrayBuffer)
+					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes length
+						this.write_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+					}
 					else
-					{	this.write_lenenc_string(param+'');
+					{	debug_assert(typeof(param.read) == 'function');
+						// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), so write empty string
+						this.write_uint8(0); // 0-length lenenc-string
 					}
 				}
 			}

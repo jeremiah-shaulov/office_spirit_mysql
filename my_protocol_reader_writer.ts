@@ -3,13 +3,14 @@ import {utf8_string_length} from './utf8_string_length.ts';
 import {MyProtocolReader, BUFFER_LEN} from './my_protocol_reader.ts';
 import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
+import {Sql} from './sql.ts';
 
-export type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+export type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+
+const encoder = new TextEncoder;
 
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	protected encoder = new TextEncoder;
-
-	protected start_writing_new_packet(reset_sequence_id=false)
+{	protected start_writing_new_packet(reset_sequence_id=false)
 	{	debug_assert(this.buffer_end == this.buffer_start); // must read all before starting to write
 		this.buffer_start = 0;
 		this.buffer_end = 4; // after header
@@ -137,17 +138,17 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	}
 
 	protected write_string(value: string)
-	{	this.write_bytes(this.encoder.encode(value));
+	{	this.write_bytes(encoder.encode(value));
 	}
 
 	protected write_lenenc_string(value: string)
-	{	let data = this.encoder.encode(value);
+	{	let data = encoder.encode(value);
 		this.write_lenenc_int(data.length);
 		this.write_bytes(data);
 	}
 
 	protected write_nul_string(value: string)
-	{	this.write_nul_bytes(this.encoder.encode(value));
+	{	this.write_nul_bytes(encoder.encode(value));
 	}
 
 	protected async write_read_chunk(value: Deno.Reader)
@@ -179,9 +180,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
-	protected async send_with_data(data: SqlSource)
-	{	if (typeof(data) == 'string' && data.length <= BUFFER_LEN)
-		{	data = this.encoder.encode(data);
+	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean)
+	{	if (data instanceof Sql)
+		{	data = data.encode(no_backslash_escapes);
+		}
+		else if (typeof(data) == 'string' && data.length <= BUFFER_LEN)
+		{	data = encoder.encode(data);
 		}
 		if (data instanceof Uint8Array)
 		{	try
@@ -297,7 +301,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
 					size -= data_chunk_len;
 					while (data_chunk_len > 0)
-					{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
+					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
 						data = data.slice(read);
 						await writeAll(this.conn, this.buffer.subarray(0, written));
 						data_chunk_len -= written;
@@ -308,7 +312,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				debug_assert(len < 0xFFFFFF);
 				this.set_header(len);
 				if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
-				{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
+				{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
 					debug_assert(read == data.length);
 					debug_assert(written == size);
 					this.buffer_end += written;
@@ -317,7 +321,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				else
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 					while (size > 0)
-					{	let {read, written} = this.encoder.encodeInto(data, this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
+					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
 						data = data.slice(read);
 						await writeAll(this.conn, this.buffer.subarray(0, written));
 						size -= written;

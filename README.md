@@ -257,13 +257,11 @@ pool.closeIdle();
 
 ## Query parameters
 
-It's possible to substitute parameters inside SQL query.
-
-This library doesn't know to parse SQL. It delegates this job to MySQL server, that has built-in functionality for parameters substitution.
-
 ### Positional parameters
 
-Values are substituted in place of `?` marks. Placeholders can appear only in places in SQL where an expression is allowed.
+You can use `?` placeholders in SQL query strings, and supply array of parameter values to be substituted in place of them.
+This library doesn't parse the provided SQL string, but uses MySQL built-in functionality, so the parameters are substituted on MySQL side.
+Placeholders can appear only in places where expressions are allowed.
 
 ```ts
 import {MyPool} from './mod.ts';
@@ -286,9 +284,9 @@ pool.closeIdle();
 
 ### Named parameters
 
-For named parameters i utilize MySQL variables. Values are expressed as `@` sign followed by a variable name, that can be backtick-quoted.
-
-To execute such query, another pre-query is sent to the server, like `SET @days=3, @id=1`. Parameter names will override session variables with the same names.
+For named parameters you can use `@name` placeholders, and this library uses MySQL session variables to send parameters data.
+To execute such query, another pre-query is sent to the server, like `SET @days=?, @id=?`.
+Parameter names will override session variables with the same names.
 
 ```ts
 import {MyPool} from './mod.ts';
@@ -308,6 +306,59 @@ pool.forConn
 await pool.onEnd();
 pool.closeIdle();
 ```
+
+### Make SQL string with quoted parameters
+
+This library also provides string-template function that escapes SQL values in strings and quoted literals.
+
+```ts
+import {MyPool, sql} from './mod.ts';
+
+let pool = new MyPool('mysql://root:hello@localhost/tests');
+
+pool.forConn
+(	async (conn) =>
+	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+
+		const timeColumnName = 'time';
+		const days = 3;
+		const id = 1;
+		let row = await conn.query(sql`SELECT "${timeColumnName}" + INTERVAL '${days}' DAY AS 'time', message FROM t_log WHERE id='${id}'`).first();
+		console.log(row);
+	}
+);
+
+await pool.onEnd();
+pool.closeIdle();
+```
+
+Double-quoted and backtick-quoted parameters represent column or table names, and are replaced with backtick-quoted escaped names.
+
+Apostrophe-quoted parameters represent string values, and strings inside apostrophes are escaped, or the quoted string is replaced with a raw literal, like NULL, or a number.
+
+The `sql` literal evaluates to `Sql` object that can be stringified, or converted to bytes.
+
+```ts
+Sql.toString(noBackslashEscapes=false): string
+
+Sql.encode(noBackslashEscapes=false): Uint8Array
+```
+
+```ts
+import {sql} from './mod.ts';
+
+const value1 = "The string is: 'name'. The backslash is: \\";
+const value2 = 123.4;
+const value3 = null;
+
+let select = sql`SELECT '${value1}', '${value2}', '${value3}'`;
+
+console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL
+console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL
+```
+
+The proper value for `noBackslashEscapes` can be found on `MyConn` object: `conn.noBackslashEscapes`.
 
 ## Reading long BLOBs
 
@@ -452,7 +503,7 @@ pool.closeIdle();
 If this feature is enabled on your server, you can register a custom handler that will take `LOAD DATA LOCAL INFILE` requests.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool, sql} from './mod.ts';
 import {dirname} from "https://deno.land/std@0.97.0/path/mod.ts";
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
@@ -485,12 +536,10 @@ pool.forConn
 			`
 		);
 
-		// Quote filename for use in an SQL query
-		let filename_sql = await conn.queryCol("SELECT Quote(?)", [filename]).first();
-
 		// LOAD DATA
 		let res = await conn.execute
-		(	`	LOAD DATA LOCAL INFILE ${filename_sql}
+		(	sql
+			`LOAD DATA LOCAL INFILE '${filename}'
 					INTO TABLE t_countries
 					FIELDS TERMINATED BY ','
 					ENCLOSED BY '"'
@@ -522,7 +571,6 @@ pool.closeIdle();
 - `conn.inTrx: boolean` - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
 - `conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
 - `conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
-- `conn.charset: Charset` - collation ID, as appears in `SELECT * FROM information_schema.collations`.
 - `conn.schema: string` - if your server supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value.
 
 Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call `await conn.connect()`.

@@ -1,6 +1,7 @@
 import {CapabilityFlags, StatusFlags, PacketType, FieldType, Command, CursorType, Charset} from '../constants.ts';
 import {Dsn} from '../dsn.ts';
 import {MyPool} from '../my_pool.ts';
+import {sql} from "../sql.ts";
 import {BusyError, CanceledError} from "../errors.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 import * as semver from "https://deno.land/x/semver@v1.4.0/mod.ts";
@@ -159,6 +160,17 @@ Deno.test
 
 					// SELECT
 					assertEquals(await conn.queryCol("SELECT message FROM t_log WHERE id=@id", {id: 3, junk: '*'}).first(), 'Message 3');
+
+					// SELECT
+					let value = 'Message 3';
+					assertEquals(await conn.queryCol(sql`SELECT id FROM t_log WHERE message='${value}'`).first(), 3);
+
+					// INSERT, SELECT
+					value = 'абвгдежзиклмнопрстуфхцчшщъыьэюя '.repeat(10); // many 2-byte utf-8 chars cause buffer of guessed size to reallocate
+					res = await conn.execute(sql`INSERT INTO t_log SET "${'time'}"='${new Date(now+5000)}', message='${value}'`);
+					assertEquals(res.lastInsertId, 5);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=5`).first(), {time: new Date(now+5000), message: value});
 				}
 			);
 		}

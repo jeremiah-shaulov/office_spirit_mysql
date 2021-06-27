@@ -1,6 +1,6 @@
 import {FieldType} from './constants.ts';
 
-const SAFE_INTEGER_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
+const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
 const C_MINUS = '-'.charCodeAt(0);
 const C_ZERO = '0'.charCodeAt(0);
 const C_SPACE = ' '.charCodeAt(0);
@@ -9,6 +9,9 @@ const C_DOT = '.'.charCodeAt(0);
 const C_E = 'e'.charCodeAt(0);
 const C_E_CAP = 'E'.charCodeAt(0);
 
+/**	Convert column value fetched through text protocol.
+	All values come stringified, and i need to convert them according to column type.
+ **/
 export function conv_column_value(value: Uint8Array, type: FieldType, decoder: TextDecoder)
 {	switch (type)
 	{	case FieldType.MYSQL_TYPE_NULL:
@@ -23,7 +26,7 @@ export function conv_column_value(value: Uint8Array, type: FieldType, decoder: T
 			return data_to_number(value);
 
 		case FieldType.MYSQL_TYPE_LONGLONG:
-		{	if (value.length > SAFE_INTEGER_LEN)
+		{	if (value.length > NONSAFE_INTEGER_MIN_LEN)
 			{	let is_negative = value[0] == C_MINUS;
 				let i = 0;
 				if (is_negative)
