@@ -188,7 +188,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		{	data = encoder.encode(data);
 		}
 		if (data instanceof Uint8Array)
-		{	try
+		{	let packet_size = this.buffer_end - 4 + data.length;
+			try
 			{	while (this.buffer_end-4 + data.length >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
@@ -212,7 +213,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 			}
 			catch (e)
-			{	throw new SendWithDataError(e.message);
+			{	throw new SendWithDataError(e.message, packet_size);
 			}
 		}
 		else if (typeof(data) != 'string') // Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number}
@@ -224,6 +225,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			else
 			{	size = data.size;
 			}
+			let packet_size = this.buffer_end - 4 + size;
 			while (this.buffer_end-4 + size >= 0xFFFFFF)
 			{	// send current packet part + data chunk = 0xFFFFFF
 				this.set_header(0xFFFFFF);
@@ -231,7 +233,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message);
+				{	throw new SendWithDataError(e.message, packet_size);
 				}
 				let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
 				size -= data_chunk_len;
@@ -244,7 +246,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	await writeAll(this.conn, this.buffer.subarray(0, n));
 					}
 					catch (e)
-					{	throw new SendWithDataError(e.message);
+					{	throw new SendWithDataError(e.message, packet_size);
 					}
 					data_chunk_len -= n;
 				}
@@ -266,7 +268,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message);
+				{	throw new SendWithDataError(e.message, packet_size);
 				}
 			}
 			else
@@ -274,7 +276,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message);
+				{	throw new SendWithDataError(e.message, packet_size);
 				}
 				while (size > 0)
 				{	let n = await data.read(this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
@@ -285,16 +287,17 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	await writeAll(this.conn, this.buffer.subarray(0, n));
 					}
 					catch (e)
-					{	throw new SendWithDataError(e.message);
+					{	throw new SendWithDataError(e.message, packet_size);
 					}
 					size -= n;
 				}
 			}
 		}
 		else // long string
-		{	try
-			{	let size = utf8_string_length(data);
-				while (this.buffer_end-4 + size >= 0xFFFFFF)
+		{	let size = utf8_string_length(data);
+			let packet_size = this.buffer_end - 4 + size;
+			try
+			{	while (this.buffer_end-4 + size >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.set_header(0xFFFFFF);
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
@@ -329,7 +332,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 			}
 			catch (e)
-			{	throw new SendWithDataError(e.message);
+			{	throw new SendWithDataError(e.message, packet_size);
 			}
 		}
 		// prepare for reader

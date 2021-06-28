@@ -639,7 +639,20 @@ Deno.test
 			{	try
 				{	pool.forConn
 					(	async (conn) =>
-						{	let filename = await Deno.makeTempFile();
+						{	let max_allowed_packet = await conn.queryCol("SELECT @@max_allowed_packet").first();
+							if (max_allowed_packet < SIZE+100)
+							{	let want_size = SIZE + 100;
+								let size_rounded = 1;
+								while (want_size)
+								{	want_size >>= 1;
+									size_rounded <<= 1;
+								}
+								await conn.execute("SET GLOBAL max_allowed_packet = ?", [size_rounded]);
+								conn.end();
+								assert((await conn.queryCol("SELECT @@max_allowed_packet").first()) >= want_size);
+							}
+
+							let filename = await Deno.makeTempFile();
 							try
 							{	let fh = await Deno.open(filename, {write: true, read: true});
 								try
@@ -671,11 +684,20 @@ Deno.test
 									await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
 
 									// Read INSERT from file
-									if (!read_to_memory)
-									{	await conn.query(fh);
+									try
+									{	if (!read_to_memory)
+										{	await conn.query(fh);
+										}
+										else
+										{	await conn.query(await Deno.readTextFile(filename));
+										}
 									}
-									else
-									{	await conn.query(await Deno.readTextFile(filename));
+									catch (e)
+									{	if (e.message.indexOf('innodb_log_file_size') == -1)
+										{	throw e;
+										}
+										console.warn('%cTest skipped: %c'+e.message, 'color:orange', 'color:inherit');
+										return;
 									}
 
 									// SELECT Length()
