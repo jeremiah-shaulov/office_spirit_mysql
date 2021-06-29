@@ -9,7 +9,7 @@ export class MyProtocolReader
 	protected buffer_end = 0;
 	protected sequence_id = 0;
 	protected payload_length = 0;
-	protected packet_offset = 0;
+	protected packet_offset = 0; // can be negative, if correct_near_packet_boundary() joined 2 packets
 
 	protected data_view: DataView;
 
@@ -77,22 +77,17 @@ export class MyProtocolReader
 	}
 
 	/**	Don't call if buffer.subarray(buffer_start, buffer_end).indexOf(0) != -1.
-		If !by_parts, can read a string not longer than BUFFER_LEN, or exception will be thrown.
-		If by_parts, can return -1, indicating that buffer[buffer_start .. buffer_end] contains partial string.
+		Only can read strings not longer than BUFFER_LEN, and not across packet boundary, or exception will be thrown.
 		Returns i, where buffer[i] == 0, and buffer[buffer_start .. i] is the string.
 	 **/
-	private async recv_to_nul(by_parts=false)
-	{	debug_assert(this.buffer.subarray(this.buffer_start, this.buffer_end).indexOf(0) == -1);
-		if (this.buffer_start == this.buffer_end)
+	private async recv_to_nul()
+	{	if (this.buffer_start == this.buffer_end)
 		{	this.buffer_start = 0;
 			this.buffer_end = 0;
 		}
 		while (true)
 		{	if (this.buffer_end == BUFFER_LEN)
-			{	if (by_parts)
-				{	return -1;
-				}
-				if (this.buffer_start == 0)
+			{	if (this.buffer_start == 0)
 				{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN/1024} kib`);
 				}
 				this.buffer_end -= this.buffer_start;
@@ -134,7 +129,7 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_packet_header_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 4);
+	{	debug_assert(this.buffer_end-this.buffer_start < 4); // use read_packet_header() first
 		await this.recv_at_least(4);
 		let header = this.data_view.getUint32(this.buffer_start, true);
 		this.buffer_start += 4;
@@ -143,14 +138,43 @@ export class MyProtocolReader
 		this.packet_offset = 0; // start counting offset
 	}
 
+	private async correct_near_packet_boundary()
+	{	debug_assert(this.packet_offset > 0xFFFFFF-9); // otherwise don't call me
+		debug_assert(this.payload_length <= 0xFFFFFF); // payload_length is 3-byte in the packet header
+		if (this.payload_length == 0xFFFFFF)
+		{	let tail = this.payload_length - this.packet_offset;
+			let want_read = tail + 4; // plus 4 byte header that follows
+			while (this.buffer_end-this.buffer_start < want_read)
+			{	this.buffer.copyWithin(0, this.buffer_start, this.buffer_end);
+				this.buffer_end -= this.buffer_start;
+				this.buffer_start = 0;
+				let n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
+				if (n_read == null)
+				{	throw new ServerDisconnectedError('Server disconnected');
+				}
+				this.buffer_end += n_read;
+			}
+			// Next packet header
+			let header = this.data_view.getUint32(this.buffer_start+tail, true);
+			this.payload_length = header & 0xFFFFFF;
+			this.sequence_id = (header >> 24) + 1; // inc sequence_id
+			this.packet_offset = -tail;
+			// Cut header to join 2 payload parts
+			this.buffer.copyWithin(this.buffer_start+4, this.buffer_start, this.buffer_start+tail);
+			// Skip bytes where header laid
+			this.buffer_start += 4;
+		}
+	}
+
 
 	// --- 3. Reading numbers
 
 	/**	If buffer contains full uint8_t, consume it. Else return undefined.
 	 **/
 	protected read_uint8()
-	{	if (this.buffer_end > this.buffer_start)
-		{	this.packet_offset++;
+	{	if (this.buffer_end > this.buffer_start && this.packet_offset <= 0xFFFFFF-1)
+		{	debug_assert(this.payload_length-this.packet_offset >= 1);
+			this.packet_offset++;
 			return this.buffer[this.buffer_start++];
 		}
 	}
@@ -159,17 +183,21 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_uint8_async()
-	{	debug_assert(this.buffer_end == this.buffer_start);
+	{	if (this.packet_offset > 0xFFFFFF-1)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(1);
+		let value = this.buffer[this.buffer_start++];
 		this.packet_offset++;
-		return this.buffer[this.buffer_start++];
+		return value;
 	}
 
 	/**	If buffer contains full uint16_t, consume it. Else return undefined.
 	 **/
 	protected read_uint16()
-	{	if (this.buffer_end-this.buffer_start >= 2)
-		{	let value = this.data_view.getUint16(this.buffer_start, true);
+	{	if (this.buffer_end-this.buffer_start >= 2 && this.packet_offset <= 0xFFFFFF-2)
+		{	debug_assert(this.payload_length-this.packet_offset >= 2);
+			let value = this.data_view.getUint16(this.buffer_start, true);
 			this.buffer_start += 2;
 			this.packet_offset += 2;
 			return value;
@@ -180,7 +208,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_uint16_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 2);
+	{	if (this.packet_offset > 0xFFFFFF-2)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(2);
 		let value = this.data_view.getUint16(this.buffer_start, true);
 		this.buffer_start += 2;
@@ -191,8 +221,9 @@ export class MyProtocolReader
 	/**	If buffer contains full 3-byte little-endian unsigned int, consume it. Else return undefined.
 	 **/
 	protected read_uint24()
-	{	if (this.buffer_end-this.buffer_start >= 3)
-		{	let value = this.data_view.getUint16(this.buffer_start, true) | (this.data_view.getUint8(this.buffer_start+2) << 16);
+	{	if (this.buffer_end-this.buffer_start >= 3 && this.packet_offset <= 0xFFFFFF-3)
+		{	debug_assert(this.payload_length-this.packet_offset >= 3);
+			let value = this.data_view.getUint16(this.buffer_start, true) | (this.data_view.getUint8(this.buffer_start+2) << 16);
 			this.buffer_start += 3;
 			this.packet_offset += 3;
 			return value;
@@ -203,7 +234,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_uint24_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 3);
+	{	if (this.packet_offset > 0xFFFFFF-3)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(3);
 		let value = this.data_view.getUint16(this.buffer_start, true) | (this.data_view.getUint8(this.buffer_start+2) << 16);
 		this.buffer_start += 3;
@@ -214,8 +247,9 @@ export class MyProtocolReader
 	/**	If buffer contains full uint32_t, consume it. Else return undefined.
 	 **/
 	protected read_uint32()
-	{	if (this.buffer_end-this.buffer_start >= 4)
-		{	let value = this.data_view.getUint32(this.buffer_start, true);
+	{	if (this.buffer_end-this.buffer_start >= 4 && this.packet_offset <= 0xFFFFFF-4)
+		{	debug_assert(this.payload_length-this.packet_offset >= 4);
+			let value = this.data_view.getUint32(this.buffer_start, true);
 			this.buffer_start += 4;
 			this.packet_offset += 4;
 			return value;
@@ -226,7 +260,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_uint32_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 4);
+	{	if (this.packet_offset > 0xFFFFFF-4)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(4);
 		let value = this.data_view.getUint32(this.buffer_start, true);
 		this.buffer_start += 4;
@@ -237,8 +273,9 @@ export class MyProtocolReader
 	/**	If buffer contains full uint64_t, consume it. Else return undefined.
 	 **/
 	protected read_uint64()
-	{	if (this.buffer_end-this.buffer_start >= 8)
-		{	let value = this.data_view.getBigUint64(this.buffer_start, true);
+	{	if (this.buffer_end-this.buffer_start >= 8 && this.packet_offset <= 0xFFFFFF-8)
+		{	debug_assert(this.payload_length-this.packet_offset >= 8);
+			let value = this.data_view.getBigUint64(this.buffer_start, true);
 			this.buffer_start += 8;
 			this.packet_offset += 8;
 			return value;
@@ -249,7 +286,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_uint64_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 8);
+	{	if (this.packet_offset > 0xFFFFFF-8)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(8);
 		let value = this.data_view.getBigUint64(this.buffer_start, true);
 		this.buffer_start += 8;
@@ -260,8 +299,9 @@ export class MyProtocolReader
 	/**	If buffer contains full float, consume it. Else return undefined.
 	 **/
 	protected read_float()
-	{	if (this.buffer_end-this.buffer_start >= 4)
-		{	let value = this.data_view.getFloat32(this.buffer_start, true);
+	{	if (this.buffer_end-this.buffer_start >= 4 && this.packet_offset <= 0xFFFFFF-4)
+		{	debug_assert(this.payload_length-this.packet_offset >= 4);
+			let value = this.data_view.getFloat32(this.buffer_start, true);
 			this.buffer_start += 4;
 			this.packet_offset += 4;
 			return value;
@@ -272,7 +312,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_float_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 4);
+	{	if (this.packet_offset > 0xFFFFFF-4)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(4);
 		let value = this.data_view.getFloat32(this.buffer_start, true);
 		this.buffer_start += 4;
@@ -283,8 +325,9 @@ export class MyProtocolReader
 	/**	If buffer contains full double, consume it. Else return undefined.
 	 **/
 	protected read_double()
-	{	if (this.buffer_end-this.buffer_start >= 8)
-		{	let value = this.data_view.getFloat64(this.buffer_start, true);
+	{	if (this.buffer_end-this.buffer_start >= 8 && this.packet_offset <= 0xFFFFFF-8)
+		{	debug_assert(this.payload_length-this.packet_offset >= 8);
+			let value = this.data_view.getFloat64(this.buffer_start, true);
 			this.buffer_start += 8;
 			this.packet_offset += 8;
 			return value;
@@ -295,7 +338,9 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_double_async()
-	{	debug_assert(this.buffer_end-this.buffer_start < 8);
+	{	if (this.packet_offset > 0xFFFFFF-8)
+		{	await this.correct_near_packet_boundary();
+		}
 		await this.recv_at_least(8);
 		let value = this.data_view.getFloat64(this.buffer_start, true);
 		this.buffer_start += 8;
@@ -307,21 +352,24 @@ export class MyProtocolReader
 		Null value (0xFB) will be returned as -1.
 	 **/
 	protected read_lenenc_int()
-	{	if (this.buffer_end > this.buffer_start)
-		{	switch (this.buffer[this.buffer_start])
+	{	if (this.buffer_end > this.buffer_start && this.packet_offset <= 0xFFFFFF-9)
+		{	debug_assert(this.payload_length-this.packet_offset >= 1);
+			switch (this.buffer[this.buffer_start])
 			{	case 0xFE:
 				{	if (this.buffer_end-this.buffer_start < 9)
 					{	return;
 					}
-					let value = this.data_view.getBigUint64(this.buffer_start+1, true);
+					debug_assert(this.payload_length-this.packet_offset >= 9);
+					let value_64 = this.data_view.getBigUint64(this.buffer_start+1, true);
 					this.buffer_start += 9;
 					this.packet_offset += 9;
-					return value<Number.MIN_SAFE_INTEGER || value>Number.MAX_SAFE_INTEGER ? value : Number(value);
+					return value_64<Number.MIN_SAFE_INTEGER || value_64>Number.MAX_SAFE_INTEGER ? value_64 : Number(value_64);
 				}
 				case 0xFD:
 				{	if (this.buffer_end-this.buffer_start < 4)
 					{	return;
 					}
+					debug_assert(this.payload_length-this.packet_offset >= 4);
 					let value = this.data_view.getUint16(this.buffer_start+1, true) | (this.data_view.getUint8(this.buffer_start+3) << 16);
 					this.buffer_start += 4;
 					this.packet_offset += 4;
@@ -331,6 +379,7 @@ export class MyProtocolReader
 				{	if (this.buffer_end-this.buffer_start < 3)
 					{	return;
 					}
+					debug_assert(this.payload_length-this.packet_offset >= 3);
 					let value = this.data_view.getUint16(this.buffer_start+1, true);
 					this.buffer_start += 3;
 					this.packet_offset += 3;
@@ -354,26 +403,32 @@ export class MyProtocolReader
 		Null value (0xFB) will be returned as -1.
 	 **/
 	protected async read_lenenc_int_async()
-	{	if (this.buffer_end == this.buffer_start)
+	{	if (this.packet_offset > 0xFFFFFF-9)
+		{	await this.correct_near_packet_boundary();
+		}
+		if (this.buffer_end == this.buffer_start)
 		{	await this.recv_at_least(1);
 		}
 		switch (this.buffer[this.buffer_start])
 		{	case 0xFE:
-			{	await this.recv_at_least(9);
-				let value = this.data_view.getBigUint64(this.buffer_start+1, true);
+			{	debug_assert(this.payload_length-this.packet_offset >= 9);
+				await this.recv_at_least(9);
+				let value_64 = this.data_view.getBigUint64(this.buffer_start+1, true);
 				this.buffer_start += 9;
 				this.packet_offset += 9;
-				return value<Number.MIN_SAFE_INTEGER || value>Number.MAX_SAFE_INTEGER ? value : Number(value);
+				return value_64<Number.MIN_SAFE_INTEGER || value_64>Number.MAX_SAFE_INTEGER ? value_64 : Number(value_64);
 			}
 			case 0xFD:
-			{	await this.recv_at_least(4);
+			{	debug_assert(this.payload_length-this.packet_offset >= 4);
+				await this.recv_at_least(4);
 				let value = this.data_view.getUint16(this.buffer_start+1, true) | (this.data_view.getUint8(this.buffer_start+3) << 16);
 				this.buffer_start += 4;
 				this.packet_offset += 4;
 				return value;
 			}
 			case 0xFC:
-			{	await this.recv_at_least(3);
+			{	debug_assert(this.payload_length-this.packet_offset >= 3);
+				await this.recv_at_least(3);
 				let value = this.data_view.getUint16(this.buffer_start+1, true);
 				this.buffer_start += 3;
 				this.packet_offset += 3;
@@ -398,23 +453,57 @@ export class MyProtocolReader
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected read_short_bytes(len: number)
-	{	if (this.buffer_end-this.buffer_start >= len)
-		{	this.buffer_start += len;
-			this.packet_offset += len;
-			return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
+	{	if (len > BUFFER_LEN-4) // minus 4 byte header
+		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
+		}
+		let have_bytes = this.buffer_end - this.buffer_start;
+		if (have_bytes >= len)
+		{	let len_in_cur_packet = this.payload_length - this.packet_offset;
+			if (len_in_cur_packet >= len)
+			{	this.buffer_start += len;
+				this.packet_offset += len;
+				return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
+			}
+			else if (have_bytes >= len+4) // across packet boundary: count 4-byte header
+			{	let value = new Uint8Array(len);
+				value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len_in_cur_packet));
+				this.buffer_start += len_in_cur_packet;
+				len -= len_in_cur_packet;
+				this.read_packet_header();
+				value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len), len_in_cur_packet);
+				this.buffer_start += len;
+				debug_assert(this.buffer_start <= this.buffer_end);
+				return value;
+			}
 		}
 	}
 
-	/**	To read len bytes, where len<=BUFFER_LEN, do: read_short_bytes() ?? await read_short_bytes_async().
+	/**	To read len bytes, where len<=BUFFER_LEN-4, do: read_short_bytes() ?? await read_short_bytes_async().
 		This allows to avoid unnecessary promise awaiting.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected async read_short_bytes_async(len: number)
-	{	debug_assert(this.buffer_end-this.buffer_start < len);
-		await this.recv_at_least(len);
-		this.buffer_start += len;
-		this.packet_offset += len;
-		return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
+	{	debug_assert(len <= BUFFER_LEN-4); // use read_short_bytes() first
+		let len_in_cur_packet = this.payload_length - this.packet_offset;
+		if (len_in_cur_packet >= len)
+		{	await this.recv_at_least(len);
+			this.buffer_start += len;
+			this.packet_offset += len;
+			return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
+		}
+		else
+		{	await this.recv_at_least(len_in_cur_packet + 4);
+			let value = new Uint8Array(len);
+			value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len_in_cur_packet));
+			this.buffer_start += len_in_cur_packet;
+			len -= len_in_cur_packet;
+			this.read_packet_header();
+			await this.recv_at_least(len);
+			value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len), len_in_cur_packet);
+			this.buffer_start += len;
+			debug_assert(this.buffer_start <= this.buffer_end);
+			return value;
+		}
 	}
 
 	/**	If buffer contains full null-terminated blob, consume it. Else return undefined.
@@ -426,11 +515,12 @@ export class MyProtocolReader
 		{	let value = this.buffer.subarray(this.buffer_start, i);
 			this.packet_offset += i - this.buffer_start + 1;
 			this.buffer_start = i + 1;
+			debug_assert(this.packet_offset <= this.payload_length); // only call this function where the string is known not to cross packet boundary
 			return value;
 		}
 	}
 
-	/**	To read a null-terminated blob that can fit BUFFER_LEN, do: read_short_nul_bytes() ?? await read_short_nul_bytes_async().
+	/**	To read a null-terminated blob that can fit BUFFER_LEN (not across packet boundary), do: read_short_nul_bytes() ?? await read_short_nul_bytes_async().
 		This allows to avoid unnecessary promise awaiting.
 		If the blob was longer than BUFFER_LEN, error is thrown.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
@@ -440,6 +530,7 @@ export class MyProtocolReader
 		let value = this.buffer.subarray(this.buffer_start, i);
 		this.packet_offset += i - this.buffer_start + 1;
 		this.buffer_start = i + 1;
+		debug_assert(this.packet_offset <= this.payload_length); // only call this function where the string is known not to cross packet boundary
 		return value;
 	}
 
@@ -447,43 +538,40 @@ export class MyProtocolReader
 		Null value (0xFB) will be returned as empty buffer.
 	 **/
 	protected read_short_lenenc_bytes()
-	{	if (this.buffer_end > this.buffer_start)
-		{	switch (this.buffer[this.buffer_start])
+	{	if (this.buffer_end > this.buffer_start && this.packet_offset <= 0xFFFFFF-9)
+		{	debug_assert(this.payload_length-this.packet_offset >= 1);
+			let str_len = -1;
+			let all_len = -1;
+			switch (this.buffer[this.buffer_start])
 			{	case 0xFE:
 				{	if (this.buffer_end-this.buffer_start < 9)
 					{	return;
 					}
+					debug_assert(this.payload_length-this.packet_offset >= 9);
 					let value = this.data_view.getBigUint64(this.buffer_start+1, true);
 					if (value <= BUFFER_LEN)
-					{	let len = Number(value);
-						if (this.buffer_end-this.buffer_start >= 9+len)
-						{	this.buffer_start += 9 + len;
-							this.packet_offset += 9 + len;
-							return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
-						}
+					{	str_len = Number(value);
+						all_len = str_len + 9;
 					}
+					break;
 				}
 				case 0xFD:
 				{	if (this.buffer_end-this.buffer_start < 4)
 					{	return;
 					}
-					let len = this.data_view.getUint16(this.buffer_start+1, true) | (this.data_view.getUint8(this.buffer_start+3) << 16);
-					if (this.buffer_end-this.buffer_start >= 4+len)
-					{	this.buffer_start += 4 + len;
-						this.packet_offset += 4 + len;
-						return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
-					}
+					debug_assert(this.payload_length-this.packet_offset >= 4);
+					str_len = this.data_view.getUint16(this.buffer_start+1, true) | (this.data_view.getUint8(this.buffer_start+3) << 16);
+					all_len = str_len + 4;
+					break;
 				}
 				case 0xFC:
 				{	if (this.buffer_end-this.buffer_start < 3)
 					{	return;
 					}
-					let len = this.data_view.getUint16(this.buffer_start+1, true);
-					if (this.buffer_end-this.buffer_start >= 3+len)
-					{	this.buffer_start += 3 + len;
-						this.packet_offset += 3 + len;
-						return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
-					}
+					debug_assert(this.payload_length-this.packet_offset >= 3);
+					str_len = this.data_view.getUint16(this.buffer_start+1, true);
+					all_len = str_len + 3;
+					break;
 				}
 				case 0xFB:
 				{	this.packet_offset++;
@@ -491,25 +579,44 @@ export class MyProtocolReader
 					return new Uint8Array;
 				}
 				default:
-				{	let len = this.buffer[this.buffer_start];
-					if (this.buffer_end-this.buffer_start >= 1+len)
-					{	this.buffer_start += 1 + len;
-						this.packet_offset += 1 + len;
-						return this.buffer.subarray(this.buffer_start-len, this.buffer_start);
+				{	str_len = this.buffer[this.buffer_start];
+					all_len = str_len + 1;
+				}
+			}
+			if (str_len != -1)
+			{	let have_bytes = this.buffer_end - this.buffer_start;
+				if (have_bytes >= all_len)
+				{	let len_in_cur_packet = this.payload_length - this.packet_offset;
+					if (len_in_cur_packet >= all_len)
+					{	this.buffer_start += all_len;
+						this.packet_offset += all_len;
+						return this.buffer.subarray(this.buffer_start-str_len, this.buffer_start);
+					}
+					else if (have_bytes >= all_len+4) // across packet boundary: count 4-byte header
+					{	let value = new Uint8Array(str_len);
+						let num_len = all_len - str_len;
+						value.set(this.buffer.subarray(this.buffer_start+num_len, this.buffer_start+len_in_cur_packet));
+						this.buffer_start += len_in_cur_packet;
+						str_len -= len_in_cur_packet - num_len;
+						this.read_packet_header();
+						value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+str_len), len_in_cur_packet-num_len);
+						this.buffer_start += str_len;
+						debug_assert(this.buffer_start <= this.buffer_end);
+						return value;
 					}
 				}
 			}
 		}
 	}
 
-	/**	Reads blob with length-encoded length. The blob must be not longer than BUFFER_LEN bytes, or error will be thrown.
+	/**	Reads blob with length-encoded length. The blob must be not longer than BUFFER_LEN-4 bytes, or error will be thrown.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 		Null value (0xFB) will be returned as empty buffer.
 	 **/
 	protected async read_short_lenenc_bytes_async()
 	{	let len = this.read_lenenc_int() ?? await this.read_lenenc_int_async();
-		if (len > BUFFER_LEN)
-		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN/1024} kib`);
+		if (len > BUFFER_LEN-4)
+		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
 		}
 		let n = Number(len);
 		if (n <= -1)
@@ -540,7 +647,7 @@ export class MyProtocolReader
 	 **/
 	protected async read_short_eof_bytes_async()
 	{	let len = this.payload_length - this.packet_offset;
-		debug_assert(this.buffer_end-this.buffer_start < len);
+		debug_assert(this.buffer_end-this.buffer_start < len); // use read_short_eof_bytes() first
 		await this.recv_at_least(len);
 		this.buffer_start += len;
 		this.packet_offset += len;
@@ -551,49 +658,37 @@ export class MyProtocolReader
 		return bytes;
 	}
 
-	/**	Iterates over byte-chunks, till len bytes read.
-		Yields subarrays of buffer. Copy them if willing to use after next iteration.
-	 **/
-	/*protected async *read_bytes(len: number)
-	{	this.packet_offset += len;
-		if (this.buffer_end > this.buffer_start)
-		{	len -= this.buffer_end - this.buffer_start;
-			yield this.buffer.subarray(this.buffer_start, this.buffer_end);
-		}
-		while (len > 0)
-		{	let n_read = await this.conn.read(this.buffer);
-			if (n_read == null)
-			{	throw new ServerDisconnectedError('Server disconnected');
-			}
-			yield this.buffer.subarray(0, Math.min(n_read, len));
-			len -= n_read;
-		}
-		this.buffer_start = 0;
-		this.buffer_end = -len;
-	}*/
-
 	/**	Copies bytes to provided buffer.
 	 **/
 	protected async read_bytes_to_buffer(dest: Uint8Array)
 	{	let pos = 0;
-		if (this.buffer_end > this.buffer_start)
-		{	pos = Math.min(this.buffer_end-this.buffer_start, dest.length);
-			dest.set(this.buffer.subarray(this.buffer_start, this.buffer_start+pos));
-			this.packet_offset += pos;
-			if (pos >= dest.length)
-			{	this.buffer_start += pos;
-				return;
-			}
-			this.buffer_start = 0;
-			this.buffer_end = 0;
-		}
 		while (pos < dest.length)
-		{	let n = await this.conn.read(dest.subarray(pos));
-			if (n == null)
-			{	throw new ServerDisconnectedError('Server disconnected');
+		{	let len_in_cur_packet = this.payload_length - this.packet_offset;
+			if (len_in_cur_packet == 0)
+			{	this.read_packet_header() || await this.read_packet_header_async();
+				len_in_cur_packet = this.payload_length - this.packet_offset;
 			}
-			pos += n;
-			this.packet_offset += n;
+			let have_bytes = this.buffer_end - this.buffer_start;
+			while (have_bytes>0 && len_in_cur_packet>0 && pos<dest.length)
+			{	let len = Math.min(have_bytes, len_in_cur_packet, dest.length-pos);
+				dest.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len), pos);
+				pos += len;
+				this.packet_offset += len;
+				this.buffer_start += len;
+				have_bytes -= len;
+				len_in_cur_packet -= len;
+			}
+			while (len_in_cur_packet>0 && pos<dest.length)
+			{	let n = await this.conn.read(dest.subarray(pos, Math.min(dest.length, pos+len_in_cur_packet)));
+				if (n == null)
+				{	throw new ServerDisconnectedError('Server disconnected');
+				}
+				pos += n;
+				this.packet_offset += n;
+				this.buffer_start = 0;
+				this.buffer_end = 0;
+				len_in_cur_packet -= n;
+			}
 		}
 	}
 
@@ -603,7 +698,7 @@ export class MyProtocolReader
 	/**	If buffer contains len bytes, skip them and return true. Else return false.
 	 **/
 	protected read_void(len: number)
-	{	if (this.buffer_end-this.buffer_start >= len)
+	{	if (this.buffer_end-this.buffer_start >= len && this.packet_offset <= 0xFFFFFF-len)
 		{	this.buffer_start += len;
 			this.packet_offset += len;
 			return true;
@@ -615,20 +710,26 @@ export class MyProtocolReader
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_void_async(len: number)
-	{	debug_assert(this.buffer_end-this.buffer_start < len);
-		this.packet_offset += len;
-		if (this.buffer_end > this.buffer_start)
-		{	len -= this.buffer_end - this.buffer_start;
-		}
-		while (len > 0)
-		{	let n_read = await this.conn.read(this.buffer);
-			if (n_read == null)
-			{	throw new ServerDisconnectedError('Server disconnected');
+	{	while (len > 0)
+		{	if (this.packet_offset > 0xFFFFFF-1)
+			{	await this.correct_near_packet_boundary();
 			}
-			len -= n_read;
+			let len_in_cur_packet = Math.min(len, this.payload_length-this.packet_offset);
+			len -= len_in_cur_packet;
+			this.packet_offset += len_in_cur_packet;
+			if (this.buffer_end > this.buffer_start)
+			{	len_in_cur_packet -= this.buffer_end - this.buffer_start;
+			}
+			while (len_in_cur_packet > 0)
+			{	let n_read = await this.conn.read(this.buffer);
+				if (n_read == null)
+				{	throw new ServerDisconnectedError('Server disconnected');
+				}
+				len_in_cur_packet -= n_read;
+			}
+			this.buffer_start = 0;
+			this.buffer_end = -len_in_cur_packet;
 		}
-		this.buffer_start = 0;
-		this.buffer_end = -len;
 	}
 
 
@@ -637,22 +738,37 @@ export class MyProtocolReader
 	/**	If buffer contains full fixed-length string, consume it. Else return undefined.
 	 **/
 	protected read_short_string(len: number)
-	{	if (this.buffer_end-this.buffer_start >= len)
-		{	this.buffer_start += len;
-			this.packet_offset += len;
-			return this.decoder.decode(this.buffer.subarray(this.buffer_start-len, this.buffer_start));
+	{	let bytes = this.read_short_bytes(len);
+		if (bytes != undefined)
+		{	return this.decoder.decode(bytes);
 		}
 	}
 
-	/**	To read a fixed-length string that can fit BUFFER_LEN, do: read_short_string() ?? await read_short_string_async().
+	/**	To read a fixed-length string that can fit BUFFER_LEN-4, do: read_short_string() ?? await read_short_string_async().
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_short_string_async(len: number)
-	{	debug_assert(this.buffer_end-this.buffer_start < len);
-		await this.recv_at_least(len);
-		this.buffer_start += len;
-		this.packet_offset += len;
-		return this.decoder.decode(this.buffer.subarray(this.buffer_start-len, this.buffer_start));
+	{	debug_assert(len <= BUFFER_LEN-4); // use read_short_bytes() first
+		let len_in_cur_packet = this.payload_length - this.packet_offset;
+		if (len_in_cur_packet >= len)
+		{	await this.recv_at_least(len);
+			this.buffer_start += len;
+			this.packet_offset += len;
+			return this.decoder.decode(this.buffer.subarray(this.buffer_start-len, this.buffer_start));
+		}
+		else
+		{	await this.recv_at_least(len_in_cur_packet + 4);
+			let value = new Uint8Array(len);
+			value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len_in_cur_packet));
+			this.buffer_start += len_in_cur_packet;
+			len -= len_in_cur_packet;
+			this.read_packet_header();
+			await this.recv_at_least(len);
+			value.set(this.buffer.subarray(this.buffer_start, this.buffer_start+len), len_in_cur_packet);
+			this.buffer_start += len;
+			debug_assert(this.buffer_start <= this.buffer_end);
+			return this.decoder.decode(value);
+		}
 	}
 
 	/**	If buffer contains full nul-string, consume it. Else return undefined.
@@ -663,6 +779,7 @@ export class MyProtocolReader
 		{	let value = this.decoder.decode(this.buffer.subarray(this.buffer_start, i));
 			this.packet_offset += i - this.buffer_start + 1;
 			this.buffer_start = i + 1;
+			debug_assert(this.packet_offset <= this.payload_length); // only call this function where the string is known not to cross packet boundary
 			return value;
 		}
 	}
@@ -676,6 +793,7 @@ export class MyProtocolReader
 		let value = this.decoder.decode(this.buffer.subarray(this.buffer_start, i));
 		this.packet_offset += i - this.buffer_start + 1;
 		this.buffer_start = i + 1;
+		debug_assert(this.packet_offset <= this.payload_length); // only call this function where the string is known not to cross packet boundary
 		return value;
 	}
 
@@ -689,14 +807,14 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a fixed-length string that can fit BUFFER_LEN, do: read_short_lenenc_string() ?? await read_short_lenenc_string_async().
+	/**	To read a fixed-length string that can fit BUFFER_LEN-4, do: read_short_lenenc_string() ?? await read_short_lenenc_string_async().
 		This allows to avoid unnecessary promise awaiting.
 		Null value (0xFB) will be returned as ''.
 	 **/
 	protected async read_short_lenenc_string_async()
 	{	let len = this.read_lenenc_int() ?? await this.read_lenenc_int_async();
-		if (len > BUFFER_LEN)
-		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN/1024} kib`);
+		if (len > BUFFER_LEN-4)
+		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
 		}
 		let n = Number(len);
 		if (n <= -1)
@@ -725,7 +843,7 @@ export class MyProtocolReader
 	 **/
 	protected async read_short_eof_string_async()
 	{	let len = this.payload_length - this.packet_offset;
-		debug_assert(this.buffer_end-this.buffer_start < len);
+		debug_assert(this.buffer_end-this.buffer_start < len); // use read_short_eof_string() first
 		await this.recv_at_least(len);
 		this.buffer_start += len;
 		this.packet_offset += len;
@@ -736,37 +854,3 @@ export class MyProtocolReader
 		return this.decoder.decode(bytes);
 	}
 }
-
-/*function parse_lenenc(for_data: {data: Uint8Array})
-{	let {data} = for_data;
-	if (data.length == 0)
-	{	return 0;
-	}
-	switch (data[0])
-	{	case 0xFE:
-		{	let value = Number(new DataView(data).getBigUint64(1, true));
-			for_data.data = data.subarray(9);
-			return value;
-		}
-		case 0xFD:
-		{	let view = new DataView(data);
-			let value = view.getUint16(1, true) | (view.getUint8(3) << 16);
-			for_data.data = data.subarray(4);
-			return value;
-		}
-		case 0xFC:
-		{	let value = new DataView(data).getUint16(1, true);
-			for_data.data = data.subarray(3);
-			return value;
-		}
-		case 0xFB:
-		{	for_data.data = data.subarray(1);
-			return -1; // null value
-		}
-		default:
-		{	let value = data[0];
-			for_data.data = data.subarray(1);
-			return value;
-		}
-	}
-}*/

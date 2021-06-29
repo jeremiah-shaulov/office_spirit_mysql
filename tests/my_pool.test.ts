@@ -632,11 +632,12 @@ Deno.test
 Deno.test
 (	'Load big dump',
 	async () =>
-	{	let pool = new MyPool(DSN);
-
-		for (let read_to_memory of [false, true])
-		{	for (let SIZE of [100, 8*1024 + 100, 2**24 + 8*1024 + 100])
-			{	try
+	{	for (let read_to_memory of [false, true])
+		{	for (let SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
+			{	let dsn = new Dsn(DSN);
+				dsn.maxColumnLen = SIZE;
+				let pool = new MyPool(dsn);
+				try
 				{	pool.forConn
 					(	async (conn) =>
 						{	let max_allowed_packet = await conn.queryCol("SELECT @@max_allowed_packet").first();
@@ -702,6 +703,10 @@ Deno.test
 
 									// SELECT Length()
 									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id=1").first(), SIZE);
+
+									let row = await conn.query("SELECT message, id FROM t_log WHERE id=1", read_to_memory ? undefined : []).first();
+									assertEquals(row.message.length, SIZE);
+									assertEquals(row.id, 1);
 
 									// SELECT from table to new file
 									let filename_2 = await Deno.makeTempFile();
