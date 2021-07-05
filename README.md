@@ -46,13 +46,13 @@ interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-	allowedSqlIdents?: string[];
+	sqlPolicy?: SqlPolicy;
 }
 ```
 - `dsn` - Default data source name of this pool.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection request will wait.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
-- `allowedSqlIdents` - whitelisted SQL identifiers, that will not be automatically quoted in SQL fragments, when using `sql` template literal to generate an SQL string (see below).
+- `sqlPolicy` - whitelisted or blacklisted SQL identifiers and functions for SQL fragments, when using `sql` template literal to generate an SQL string (see below).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
@@ -326,7 +326,7 @@ The `sql` template function provides the following functionality:
 
 1. To quote values, surround the parameter with apostrophes, like `'${param}'`. If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()`). If the value is a number, quotes around it will be removed. If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal. If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively. `Date` objects will be printed as MySQL dates. Typed arrays will be printed like `x'0102...'`.
 2. To quote identifiers (column, table, routine names, etc.) surround the parameter with backticks or double quotes, like `"${param}"`. Double quotes will be replaced with backticks.
-3. It's possible to insert safe SQL expressions. If the parameter is not surrounded with single or double quotes or backticks, it's considered to be an SQL fragment. This fragment will be validated not to contain the following characters (unless quoted): `; @ [ ] { }`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted, except those that whitelisted. By default whitelisted identifiers include: `AND OR NULL IN BETWEEN CASE DISTINCT Count Concat`, and many others. Also identifiers that contain digits, dollars or unicode chars will not be quoted. They're considered safe, because there're no MySQL keywords that contain such characters. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
+3. To insert a safe SQL expression, surround the parameter with parentheses. The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `; @ [ ] { }`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
 
 The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
 
@@ -336,40 +336,37 @@ Sql.toString(noBackslashEscapes=false): string
 Sql.encode(noBackslashEscapes=false, useBuffer?: Uint8Array): Uint8Array
 ```
 
-Also the `Sql` object has public property called `allowedSqlIdents`, that allow to whitelist identifiers in SQL fragments.
+Also the `Sql` object has public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.
 
 ```ts
-Sql.allowedSqlIdents: AllowedSqlIdents
+Sql.sqlPolicy: SqlPolicy | undefined
 ```
 
 ```ts
-import {sql, AllowedSqlIdents} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+import {sql, SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 const value1 = "The string is: 'name'. The backslash is: \\";
 const value2 = 123.4;
 const value3 = null;
 const expr1 = "id=10 AND value IS NOT NULL";
 
-let select = sql`SELECT '${value1}', '${value2}', '${value3}' FROM t WHERE ${expr1}`;
+let select = sql`SELECT '${value1}', '${value2}', '${value3}' FROM t WHERE (${expr1})`;
 
-console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE `id`=10 AND `value` IS NOT NULL
-console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL FROM t WHERE `id`=10 AND `value` IS NOT NULL
+console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE (`id`=10 AND `value` IS NOT NULL)
+console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL FROM t WHERE (`id`=10 AND `value` IS NOT NULL)
 
-// print all the whitelisted idents
-console.log(select.allowedSqlIdents.idents);
-
-select.allowedSqlIdents = new AllowedSqlIdents(['id']);
-console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE id=10 `AND` `value` `IS` `NOT` `NULL`
+select.sqlPolicy = new SqlPolicy('id not');
+console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE (id=10 `AND` `value` `IS` NOT `NULL`)
 ```
 
-If you pass the `Sql` object (the result of calling `sql` template function) to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on `conn.noBackslashEscapes`. The whitelisted SQL identifiers in SQL fragments (`allowedSqlIdents`) can be provided to `Pool` before starting to create connections.
+If you pass the `Sql` object (the result of calling `sql` template function) to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on `conn.noBackslashEscapes`. The `sqlPolicy` can be provided to the `Pool` object after it's creation, and before starting to create connections.
 
 ```ts
-import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+import {MyPool, sql, SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
-pool.options({allowedSqlIdents: ['AND', 'OR', 'XOR', 'NOT']});
+pool.options({sqlPolicy: new SqlPolicy('AND OR XOR NOT')});
 
 pool.forConn
 (	async (conn) =>
@@ -386,6 +383,31 @@ pool.forConn
 
 await pool.onEnd();
 pool.closeIdle();
+```
+
+The `SqlPolicy` object allows to specify how to quote raw identifiers and functions in SQL fragments.
+
+```ts
+SqlPolicy.constructor(idents?: string, functions?: string)
+```
+
+If `idents` and/or `functions` argument is omitted or `undefined`, the default value is used.
+
+For `idents` the default value is: `NOT AND OR XOR BETWEEN SEPARATOR IS NULL DISTINCT LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END`.
+
+For `functions` is: `! SELECT VALUES`.
+
+The policy is specified by whitespace-separated list of identifiers. If the first character is `!`, so it's a blacklist policy. Otherwise it's whitelist.
+
+To print the default policy, you can do:
+
+```ts
+import {SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let policy = new SqlPolicy;
+
+console.log('Identifiers policy: ', policy.idents);
+console.log('Functions policy: ', policy.functions);
 ```
 
 ## Reading long BLOBs

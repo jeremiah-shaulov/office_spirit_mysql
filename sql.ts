@@ -1,11 +1,14 @@
 import {debug_assert} from './debug_assert.ts';
-import {AllowedSqlIdents, DEFAULT_ALLOWED_SQL_IDENTS} from './allowed_sql_idents.ts';
+import {SqlPolicy} from './sql_policy.ts';
 
 const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
 const C_BACKSLASH = '\\'.charCodeAt(0);
 const C_SPACE = ' '.charCodeAt(0);
+const C_TAB = '\t'.charCodeAt(0);
+const C_CR = '\r'.charCodeAt(0);
+const C_LF = '\n'.charCodeAt(0);
 const C_MINUS = '-'.charCodeAt(0);
 const C_DOT = '.'.charCodeAt(0);
 const C_COLON = ':'.charCodeAt(0);
@@ -38,6 +41,8 @@ const NUMBER_ALLOC_CHAR_LEN = Math.max((Number.MIN_SAFE_INTEGER+'').length, (Num
 const BIGINT_ALLOC_CHAR_LEN = Math.max((0x8000_0000_0000_0000n+'').length, (0x7FFF_FFFF_FFFF_FFFFn+'').length);
 const DATE_ALLOC_CHAR_LEN = '2000-01-01 00:00:00.000'.length;
 
+const DEFAULT_SQL_POLICY = new SqlPolicy;
+
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
 
@@ -60,7 +65,7 @@ const enum Change
 }
 
 export class Sql
-{	allowedSqlIdents: AllowedSqlIdents = DEFAULT_ALLOWED_SQL_IDENTS;
+{	sqlPolicy: SqlPolicy | undefined;
 	readonly estimateByteLength: number;
 
 	constructor(private strings: TemplateStringsArray, private params: any[])
@@ -258,8 +263,11 @@ export class Sql
 					want = Want.NOTHING;
 				}
 			}
+			else if (qt!=C_PAREN_OPEN || strings[i+1].charCodeAt(0)!=C_PAREN_CLOSE)
+			{	throw new Error(`Inappropriately enclosed parameter`);
+			}
 			else
-			{	// not quoted (part of SQL)
+			{	// SQL fragment
 				from = pos;
 				// Append param, as is
 				param += '';
@@ -317,29 +325,68 @@ export class Sql
 									{	throw new Error(`Comment in SQL fragment: ${param}`);
 									}
 									break;
-								default:
-									if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP)
-									{	let j_from = j;
-										let want_quot = true;
-										while (j < pos)
-										{	c = result[++j];
-											if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE)
-											{	continue;
-											}
-											if (c>=C_ZERO && c<=C_NINE || c==C_DOLLAR || c>=0x80)
-											{	want_quot = false;
-												continue;
+								case C_DOT:
+									while (++j < pos)
+									{	c = result[j];
+										if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+										{	// skip identifier that follows this dot
+											while (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c>=C_ZERO && c<=C_NINE || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
+											{	c = result[++j] | 0;
 											}
 											break;
 										}
-										if (want_quot)
-										{	if (!this.allowedSqlIdents.isAllowed(result.subarray(j_from, j)))
-											{	changes[changes.length] = {j_from: j_from-1, j_to: j-1};
-												n_add += 2;
+									}
+									j--; // will j++ on next iter
+									break;
+								default:
+								{	let has_nondigit = c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80;
+									if (has_nondigit || c>=C_ZERO && c<=C_NINE)
+									{	let j_from = j;
+										while (j < pos)
+										{	c = result[++j];
+											if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
+											{	has_nondigit = true;
+												continue;
+											}
+											if (c>=C_ZERO && c<=C_NINE)
+											{	continue;
+											}
+											break;
+										}
+										if (has_nondigit)
+										{	// skip space following this identifier
+											let j_space = j;
+											while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
+											{	c = result[++j] | 0;
+											}
+											// is function?
+											let is_function = c == C_PAREN_OPEN;
+											// is allowed?
+											let name = result.subarray(j_from, j_space);
+											let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
+											if (!is_function)
+											{	if (!sql_policy.isIdentAllowed(name))
+												{	changes[changes.length] = {j_from: j_from-1, j_to: j_space-1};
+													n_add += 2;
+												}
+											}
+											else
+											{	if (!sql_policy.isFunctionAllowed(name))
+												{	changes[changes.length] = {j_from: j_from-1, j_to: j_space-1};
+													n_add += 2;
+												}
+												else if (j_space < j)
+												{	// put '(' right after function name
+													debug_assert(result[j] == C_PAREN_OPEN);
+													result[j] = result[j_space];
+													result[j_space] = C_PAREN_OPEN;
+													paren_level++;
+												}
 											}
 										}
-										j--;
+										j--; // will j++ on next iter
 									}
+								}
 							}
 							break;
 						case State.APOS:
@@ -437,6 +484,7 @@ export class Sql
 					}
 					pos += n_add;
 				}
+				want = Want.NOTHING;
 			}
 		}
 		// 3. Append the last string

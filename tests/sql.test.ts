@@ -1,6 +1,6 @@
 import {MyPool, sql} from '../mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
-import {AllowedSqlIdents} from '../allowed_sql_idents.ts';
+import {SqlPolicy} from '../sql_policy.ts';
 
 const {DSN} = Deno.env.toObject();
 
@@ -41,6 +41,9 @@ Deno.test
 		assertEquals(sql`"${'One`Two`'}"` + '', '`One``Two```');
 
 		assertEquals(sql`"${'ф'.repeat(100)}"` + '', '`'+'ф'.repeat(100)+'`'); // many 2-byte chars cause buffer of guessed size to realloc
+
+		let s = sql`фффффффффффффффффффффффффффффф "${'``'}"`;
+		assertEquals(s+'', "фффффффффффффффффффффффффффффф ``````");
 
 		// json
 		try
@@ -89,55 +92,71 @@ Deno.test
 (	'SQL exprs',
 	async () =>
 	{	let expr = `The string: 'It''s string \\'`;
-		let s = sql`A.${expr}.B`;
-		assertEquals(s+'', `A.\`The\` \`string\`: 'It''s string \\\\'.B`);
-		assertEquals(s.toString(true), `A.\`The\` \`string\`: 'It''s string \\'.B`);
+		let s = sql`A.(${expr}).B`;
+		assertEquals(s+'', `A.(\`The\` \`string\`: 'It''s string \\\\').B`);
+		assertEquals(s.toString(true), `A.(\`The\` \`string\`: 'It''s string \\').B`);
+
+		expr = `EXISTS(SELECT 1)`;
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (EXISTS(\`SELECT\` 1))`);
+		assertEquals(s.toString(true), `SELECT (EXISTS(\`SELECT\` 1))`);
+
+		s.sqlPolicy = new SqlPolicy(undefined, '!EXISTS');
+		assertEquals(s+'', `SELECT (\`EXISTS\`(\`SELECT\` 1))`);
+		s.sqlPolicy = new SqlPolicy('on select', '!EXISTS');
+		assertEquals(s+'', `SELECT (\`EXISTS\`(SELECT 1))`);
+
+		expr = `EXISTS(SELECT (1))`;
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (EXISTS(\`SELECT\` (1)))`);
+		s.sqlPolicy = new SqlPolicy(undefined, '!HELLO');
+		assertEquals(s+'', `SELECT (EXISTS(SELECT( 1)))`);
+
+		expr = `Count (*)`;
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (Count( *))`);
+		s.sqlPolicy = new SqlPolicy(undefined, '!Count');
+		assertEquals(s+'', `SELECT (\`Count\` (*))`);
+
+		expr = "id=10 AND value IS NOT NULL";
+		s = sql`SELECT '${null}' (${expr})`;
+		assertEquals(s+'', `SELECT NULL (\`id\`=10 AND \`value\` IS NOT NULL)`);
 
 		expr = `name AND Count(*)`;
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND Count(*)`);
-		assertEquals(s.toString(true), `SELECT \`name\` AND Count(*)`);
-
-		expr = `name AND Count(*)`;
-		s = sql`SELECT ${expr}`;
-		s.allowedSqlIdents.disallow(['AND']);
-		assertEquals(s+'', `SELECT \`name\` \`AND\` Count(*)`);
-		s.allowedSqlIdents.allow(['AND']);
-		assertEquals(s+'', `SELECT \`name\` AND Count(*)`);
-		s.allowedSqlIdents = new AllowedSqlIdents(['and']);
-		assertEquals(s+'', `SELECT \`name\` AND \`Count\`(*)`);
-		s.allowedSqlIdents = new AllowedSqlIdents(['count']);
-		assertEquals(s+'', `SELECT \`name\` \`AND\` Count(*)`);
+		s = sql`SELECT (${expr})`;
+		s.sqlPolicy = new SqlPolicy('and');
+		assertEquals(s+'', `SELECT (\`name\` AND Count(*))`);
+		s.sqlPolicy = new SqlPolicy('', 'count');
+		assertEquals(s+'', `SELECT (\`name\` \`AND\` Count(*))`);
+		s.sqlPolicy = new SqlPolicy('name', 'count');
+		assertEquals(s+'', `SELECT (name \`AND\` Count(*))`);
+		s.sqlPolicy = new SqlPolicy('name', '');
+		assertEquals(s+'', `SELECT (name \`AND\` \`Count\`(*))`);
+		s.sqlPolicy = new SqlPolicy('!name');
+		assertEquals(s+'', `SELECT (\`name\` AND Count(*))`);
 
 		expr = `name AND \`Count\`(*)`;
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND \`Count\`(*)`);
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (\`name\` AND \`Count\`(*))`);
 
 		expr = `name AND "Count"(*)`;
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND \`Count\`(*)`);
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (\`name\` AND \`Count\`(*))`);
 
 		expr = `name AND \`Count(\`\`*\`\`)\`(*)`;
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND \`Count(\`\`*\`\`)\`(*)`);
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (\`name\` AND \`Count(\`\`*\`\`)\`(*))`);
 
 		expr = `name AND "Count(""*"")"(*)`;
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND \`Count("*")\`(*)`);
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', `SELECT (\`name\` AND \`Count("*")\`(*))`);
 
-		expr = `name AND Count2(*)`; // Count2 will not be quoted, as it contains a digit (or a dollar or a unicode char)
-		s = sql`SELECT ${expr}`;
-		assertEquals(s+'', `SELECT \`name\` AND Count2(*)`);
-
-		s = sql`SELECT ${'"The `90s"'}`;
-		assertEquals(s+'', "SELECT `The ``90s`");
-
-		s = sql`фффффффффффффффффффффффффффффф "${'``'}"`;
-		assertEquals(s+'', "фффффффффффффффффффффффффффффф ``````");
+		s = sql`SELECT (${'"The `90s"'})`;
+		assertEquals(s+'', "SELECT (`The ``90s`)");
 
 		let error;
 		try
-		{	'' + sql`SELECT ${`A ' B`}`;
+		{	'' + sql`SELECT (${`A ' B`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -146,7 +165,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`A -- B`}`;
+		{	'' + sql`SELECT (${`A -- B`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -155,7 +174,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`A # B`}`;
+		{	'' + sql`SELECT (${`A # B`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -164,7 +183,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`A /* B`}`;
+		{	'' + sql`SELECT (${`A /* B`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -173,7 +192,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`Char_length(@var)`}`;
+		{	'' + sql`SELECT (${`Char_length(@var)`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -182,7 +201,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`10/3; DROP ALL`}`;
+		{	'' + sql`SELECT (${`10/3; DROP ALL`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -191,7 +210,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`name[0`}`;
+		{	'' + sql`SELECT (${`name[0`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -200,7 +219,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`0]`}`;
+		{	'' + sql`SELECT (${`0]`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -209,7 +228,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`name{0`}`;
+		{	'' + sql`SELECT (${`name{0`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -218,7 +237,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`0}`}`;
+		{	'' + sql`SELECT (${`0}`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -227,7 +246,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`Count(* + 1`}`;
+		{	'' + sql`SELECT (${`Count(* + 1`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -236,7 +255,7 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`Count(*) - 1)`}`;
+		{	'' + sql`SELECT (${`Count(*) - 1)`})`;
 		}
 		catch (e)
 		{	error = e;
@@ -245,14 +264,14 @@ Deno.test
 
 		error = undefined;
 		try
-		{	'' + sql`SELECT ${`name, Count(*)`}`;
+		{	'' + sql`SELECT (${`name, Count(*)`})`;
 		}
 		catch (e)
 		{	error = e;
 		}
 		assertEquals(error?.message, `Comma in SQL fragment: name, Count(*)`);
 
-		assertEquals('' + sql`SELECT ${`Count(name, value)`}`, `SELECT Count(\`name\`, \`value\`)`);
+		assertEquals('' + sql`SELECT (${`Count(name, "value")`})`, `SELECT (Count(\`name\`, \`value\`))`);
 	}
 );
 
