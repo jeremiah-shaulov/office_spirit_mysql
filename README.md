@@ -46,11 +46,13 @@ interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+	allowedSqlIdents?: string[];
 }
 ```
 - `dsn` - Default data source name of this pool.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection request will wait.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
+- `allowedSqlIdents` - whitelisted SQL identifiers, that will not be automatically quoted in SQL fragments, when using `sql` template literal to generate an SQL string (see below).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
@@ -65,9 +67,9 @@ Or: `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`
 Possible parameters:
 - `keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number) - how many times at most to recycle each connection
-- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL
-- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets
-- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names
+- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
+- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
+- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
 - `multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
 
 Connection from the pool can be asked with `pool.forConn()` function:
