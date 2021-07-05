@@ -126,6 +126,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.buffer_end += bytes.byteLength;
 	}
 
+	protected write_lenenc_bytes(bytes: Uint8Array)
+	{	this.write_lenenc_int(bytes.length);
+		this.write_bytes(bytes);
+	}
+
 	protected write_nul_bytes(bytes: Uint8Array)
 	{	let z = bytes.indexOf(0);
 		if (z == -1)

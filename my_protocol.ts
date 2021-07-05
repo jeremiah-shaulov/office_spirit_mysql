@@ -624,7 +624,7 @@ L:		while (true)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
-				{	if (param.length <= 8)
+				{	if (param.length > 8)
 					{	this.start_writing_new_packet(true);
 						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.write_uint32(stmt_id);
@@ -774,7 +774,7 @@ L:		while (true)
 					}
 					else if (param.buffer instanceof ArrayBuffer)
 					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes length
-						this.write_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+						this.write_lenenc_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
 					}
 					else
 					{	debug_assert(typeof(param.read) == 'function');

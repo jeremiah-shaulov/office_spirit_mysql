@@ -72,7 +72,7 @@ Deno.test
 					assert(!conn.schema || conn.schema=='test2');
 
 					// CREATE TABLE
-					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");
+					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp(3) NOT NULL, message text)");
 
 					// INSERT
 					let now = Date.now();
@@ -173,34 +173,46 @@ Deno.test
 					assertEquals(res.affectedRows, 1);
 					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=5`).first(), {time: new Date(now+5000), message: value});
 
-					let filename = await Deno.makeTempFile();
-					try
-					{	let fh = await Deno.open(filename, {write: true, read: true});
+					for (let id of [6, 7])
+					{	let filename = await Deno.makeTempFile();
 						try
-						{	await writeAll(fh, new TextEncoder().encode('Message 6'));
-							await fh.seek(0, Deno.SeekMode.Start);
-							res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+6000), fh]);
-							assertEquals(res.lastInsertId, 6);
-							assertEquals(res.affectedRows, 1);
-							assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=6`).first(), {time: new Date(now+6000), message: 'Message 6'});
+						{	let fh = await Deno.open(filename, {write: true, read: true});
+							try
+							{	await writeAll(fh, new TextEncoder().encode(id==6 ? '' : 'Message '+id));
+								await fh.seek(0, Deno.SeekMode.Start);
+								res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
+								assertEquals(res.lastInsertId, id);
+								assertEquals(res.affectedRows, 1);
+								assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id='${id}'`).first(), {time: new Date(now+id*1000), message: id==6 ? '' : 'Message '+id});
+							}
+							finally
+							{	fh.close();
+							}
 						}
 						finally
-						{	fh.close();
+						{	await Deno.remove(filename);
 						}
 					}
-					finally
-					{	await Deno.remove(filename);
-					}
 
-					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+7000), new TextEncoder().encode('Message 7')]);
-					assertEquals(res.lastInsertId, 7);
-					assertEquals(res.affectedRows, 1);
-					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=7`).first(), {time: new Date(now+7000), message: 'Message 7'});
-
-					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+8000), {value: 'Message 8'}]);
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+8000), new TextEncoder().encode('Message 8')]);
 					assertEquals(res.lastInsertId, 8);
 					assertEquals(res.affectedRows, 1);
-					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=8`).first(), {time: new Date(now+8000), message: JSON.stringify({value: 'Message 8'})});
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=8`).first(), {time: new Date(now+8000), message: 'Message 8'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+9000), {value: 'Message 9'}]);
+					assertEquals(res.lastInsertId, 9);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=9`).first(), {time: new Date(now+9000), message: JSON.stringify({value: 'Message 9'})});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+10001), new TextEncoder().encode('-')]);
+					assertEquals(res.lastInsertId, 10);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [10]).first(), {time: new Date(now+10001), message: '-'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+11000), 123n]);
+					assertEquals(res.lastInsertId, 11);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [11]).first(), {time: new Date(now+11000), message: '123'});
 				}
 			);
 		}
