@@ -39,14 +39,14 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.buffer_end += 2;
 	}
 
-	protected write_uint24(value: number)
+	/*protected write_uint24(value: number)
 	{	if (BUFFER_LEN-this.buffer_end < 3)
 		{	throw new Error('Packet is too long');
 		}
 		this.data_view.setUint16(this.buffer_end, value&0xFFFF, true);
 		this.buffer_end += 2;
 		this.buffer[this.buffer_end++] = value >> 16;
-	}
+	}*/
 
 	protected write_uint32(value: number)
 	{	if (BUFFER_LEN-this.buffer_end < 4)

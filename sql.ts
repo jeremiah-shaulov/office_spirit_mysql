@@ -54,6 +54,11 @@ const enum State
 	BACKTICK,
 }
 
+const enum Change
+{	DOUBLE_BACKSLASH = -2,
+	DOUBLE_BACKTICK = -1,
+}
+
 export class Sql
 {	allowedSqlIdents: AllowedSqlIdents = DEFAULT_ALLOWED_SQL_IDENTS;
 	readonly estimateByteLength: number;
@@ -349,7 +354,7 @@ export class Sql
 									break;
 								case C_BACKSLASH:
 									if (!no_backslash_escapes)
-									{	changes[changes.length] = {j_from: -1, j_to: j};
+									{	changes[changes.length] = {j_from: Change.DOUBLE_BACKSLASH, j_to: j};
 										n_add++;
 									}
 							}
@@ -379,6 +384,9 @@ export class Sql
 										state = State.SQL;
 									}
 									break;
+								case C_BACKTICK:
+									changes[changes.length] = {j_from: Change.DOUBLE_BACKTICK, j_to: j};
+									n_add++;
 							}
 							break;
 					}
@@ -397,11 +405,17 @@ export class Sql
 					for (let j=pos-1, k=j+n_add; true; k--, j--)
 					{	let c = result[j];
 						if (j == j_to)
-						{	if (j_from == -1) // if is backslash
+						{	if (j_from == Change.DOUBLE_BACKSLASH) // if is backslash
 							{	// backslash to double
 								debug_assert(c == C_BACKSLASH);
 								result[k--] = C_BACKSLASH;
 								result[k] = C_BACKSLASH;
+							}
+							else if (j_from == Change.DOUBLE_BACKTICK) // if is backslash
+							{	// backtick to double
+								debug_assert(c == C_BACKTICK);
+								result[k--] = C_BACKTICK;
+								result[k] = C_BACKTICK;
 							}
 							else
 							{	// identifier to quote

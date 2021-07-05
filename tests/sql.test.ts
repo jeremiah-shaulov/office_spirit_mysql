@@ -100,6 +100,10 @@ Deno.test
 
 		expr = `name AND Count(*)`;
 		s = sql`SELECT ${expr}`;
+		s.allowedSqlIdents.disallow(['AND']);
+		assertEquals(s+'', `SELECT \`name\` \`AND\` Count(*)`);
+		s.allowedSqlIdents.allow(['AND']);
+		assertEquals(s+'', `SELECT \`name\` AND Count(*)`);
 		s.allowedSqlIdents = new AllowedSqlIdents(['and']);
 		assertEquals(s+'', `SELECT \`name\` AND \`Count\`(*)`);
 		s.allowedSqlIdents = new AllowedSqlIdents(['count']);
@@ -124,6 +128,12 @@ Deno.test
 		expr = `name AND Count2(*)`; // Count2 will not be quoted, as it contains a digit (or a dollar or a unicode char)
 		s = sql`SELECT ${expr}`;
 		assertEquals(s+'', `SELECT \`name\` AND Count2(*)`);
+
+		s = sql`SELECT ${'"The `90s"'}`;
+		assertEquals(s+'', "SELECT `The ``90s`");
+
+		s = sql`фффффффффффффффффффффффффффффф "${'``'}"`;
+		assertEquals(s+'', "фффффффффффффффффффффффффффффф ``````");
 
 		let error;
 		try

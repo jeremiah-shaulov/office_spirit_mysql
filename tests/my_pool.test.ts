@@ -172,6 +172,35 @@ Deno.test
 					assertEquals(res.lastInsertId, 5);
 					assertEquals(res.affectedRows, 1);
 					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=5`).first(), {time: new Date(now+5000), message: value});
+
+					let filename = await Deno.makeTempFile();
+					try
+					{	let fh = await Deno.open(filename, {write: true, read: true});
+						try
+						{	await writeAll(fh, new TextEncoder().encode('Message 6'));
+							await fh.seek(0, Deno.SeekMode.Start);
+							res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+6000), fh]);
+							assertEquals(res.lastInsertId, 6);
+							assertEquals(res.affectedRows, 1);
+							assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=6`).first(), {time: new Date(now+6000), message: 'Message 6'});
+						}
+						finally
+						{	fh.close();
+						}
+					}
+					finally
+					{	await Deno.remove(filename);
+					}
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+7000), new TextEncoder().encode('Message 7')]);
+					assertEquals(res.lastInsertId, 7);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=7`).first(), {time: new Date(now+7000), message: 'Message 7'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+8000), {value: 'Message 8'}]);
+					assertEquals(res.lastInsertId, 8);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=8`).first(), {time: new Date(now+8000), message: JSON.stringify({value: 'Message 8'})});
 				}
 			);
 		}

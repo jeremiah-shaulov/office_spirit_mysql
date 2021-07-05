@@ -1,3 +1,5 @@
+export const SUSPECT_PACKET_ERROR_IF_PACKET_SIZE = 1*1024*1024;
+
 export class SqlError extends Error
 {	constructor(message: string, public errorCode=0, public sqlState='')
 	{	super(message);
@@ -24,6 +26,6 @@ export class CanceledError extends Error
  **/
 export class SendWithDataError extends Error
 {	constructor(message: string, public packetSize: number)
-	{	super(packetSize<1*1024*1024 ? message : `${message} - Please make sure that this server accepts packets of this size: ${packetSize} bytes. See "SHOW VARIABLES LIKE 'max_allowed_packet'"`);
+	{	super(packetSize<SUSPECT_PACKET_ERROR_IF_PACKET_SIZE ? message : `${message} - Please make sure that this server accepts packets of this size: ${packetSize} bytes. See "SHOW VARIABLES LIKE 'max_allowed_packet'"`);
 	}
 }
