@@ -5,6 +5,8 @@ import {SqlSource} from './my_protocol_reader_writer.ts';
 import {SqlError, BusyError, CanceledError, SendWithDataError} from './errors.ts';
 import {Resultsets, ResultsetsDriver, ResultsetsPromise} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
+import {Sql} from './sql.ts';
+import {AllowedSqlIdents} from './allowed_sql_idents.ts';
 
 const DO_QUERY_ATTEMPTS = 3;
 
@@ -27,7 +29,8 @@ export class MyConn
 	constructor
 	(	private dsn: Dsn,
 		private onbegin: (dsn: Dsn) => Promise<MyProtocol>,
-		private onend: (dsn: Dsn, protocol: MyProtocol) => void
+		private onend: (dsn: Dsn, protocol: MyProtocol) => void,
+		private allowed_sql_idents: AllowedSqlIdents
 	)
 	{
 	}
@@ -255,6 +258,9 @@ export class MyConn
 	private async do_query(sql: SqlSource, params: object|true|null|undefined, row_type: RowType): Promise<ResultsetsDriver>
 	{	if (this.cur_idle_resultsets)
 		{	throw new BusyError(`Please, read previous resultsets first`);
+		}
+		if (sql instanceof Sql)
+		{	sql.allowedSqlIdents = this.allowed_sql_idents;
 		}
 		for (let n_attempt=1; true; n_attempt++)
 		{	let protocol = this.protocol ?? await this.get_protocol();

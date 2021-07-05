@@ -357,7 +357,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	private set_character_set_client(value: string)
 	{	if (value.slice(0, 4) != 'utf8')
-		{	throw new Error(`Cannot use this value for character_set_client: ${value}`);
+		{	throw new Error(`Cannot use this value for character_set_client: ${value}. Can only use utf8.`);
 		}
 	}
 
@@ -394,7 +394,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 					this.decoder = new TextDecoder('euc-jp');
 					break;
 				default:
-					throw new Error(`Cannot use this value for character_set_results: ${value}`);
+					throw new Error(`Cannot use this value for character_set_results: ${value}. Options: utf8, utf8mb4, latin1, latin2, latin3, latin4, cp866, cp1250, cp1251, cp1256, cp1257, big5, gb2312, gb18030, greek, hebrew, sjis, koi8r, koi8u, eucjpms.`);
 			}
 		}
 	}

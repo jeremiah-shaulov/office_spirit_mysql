@@ -687,7 +687,8 @@ Deno.test
 									// Read INSERT from file
 									try
 									{	if (!read_to_memory)
-										{	await conn.query(fh);
+										{	await fh.seek(0, Deno.SeekMode.Start);
+											await conn.query(fh);
 										}
 										else
 										{	await conn.query(await Deno.readTextFile(filename));

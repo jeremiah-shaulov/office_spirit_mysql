@@ -2,6 +2,7 @@ import {debug_assert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {MyConn} from './my_conn.ts';
 import {MyProtocol} from './my_protocol.ts';
+import {AllowedSqlIdents, DEFAULT_ALLOWED_SQL_IDENTS} from './allowed_sql_idents.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
@@ -13,6 +14,7 @@ export interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+	allowedSqlIdents?: string[];
 }
 
 class MyPoolConns
@@ -28,6 +30,7 @@ export class MySession
 		private default_dsn: Dsn|undefined,
 		protected get_conn: (dsn: Dsn) => Promise<MyProtocol>,
 		protected return_conn: (dsn: Dsn, conn: MyProtocol) => void,
+		private allowedSqlIdents: AllowedSqlIdents,
 	)
 	{
 	}
@@ -48,7 +51,7 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	let conn = new MyConn(dsn, this.get_conn, this.return_conn);
+		{	let conn = new MyConn(dsn, this.get_conn, this.return_conn, this.allowedSqlIdents);
 			conns[conns.length] = conn;
 			return conn;
 		}
@@ -80,6 +83,7 @@ export class MyPool
 	private dsn: Dsn|undefined;
 	private maxConns: number;
 	private onLoadFile: ((filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>) | undefined;
+	private allowedSqlIdents = DEFAULT_ALLOWED_SQL_IDENTS;
 
 	constructor(options?: MyPoolOptions|Dsn|string)
 	{	if (typeof(options) == 'string')
@@ -94,6 +98,9 @@ export class MyPool
 		{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn;
 			this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
 			this.onLoadFile = options?.onLoadFile;
+			if (options?.allowedSqlIdents)
+			{	this.allowedSqlIdents = new AllowedSqlIdents(options.allowedSqlIdents);
+			}
 		}
 	}
 
@@ -103,8 +110,12 @@ export class MyPool
 	{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn ?? this.dsn;
 		this.maxConns = options?.maxConns ?? this.maxConns;
 		this.onLoadFile = options && 'onLoadFile' in options ? options.onLoadFile : this.onLoadFile;
+		if (options?.allowedSqlIdents)
+		{	this.allowedSqlIdents = new AllowedSqlIdents(options.allowedSqlIdents);
+		}
 		let {dsn, maxConns, onLoadFile} = this;
-		return {dsn, maxConns, onLoadFile};
+		let allowedSqlIdents = this.allowedSqlIdents.idents;
+		return {dsn, maxConns, onLoadFile, allowedSqlIdents};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
@@ -158,7 +169,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this));
+	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this), this.allowedSqlIdents);
 		try
 		{	this.n_sessions_or_conns++;
 			return await callback(session);
@@ -181,7 +192,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this));
+		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this), this.allowedSqlIdents);
 		try
 		{	this.n_sessions_or_conns++;
 			return await callback(conn);

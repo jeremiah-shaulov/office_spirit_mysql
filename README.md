@@ -12,7 +12,7 @@ Features:
 Basic example:
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -101,7 +101,7 @@ MySession.conn(dsn?: Dsn|string, fresh=false): MyConn
 With `true` second argument, always new connection is returned. Otherwise, if there's already a connection to the same DSN in this session, it will be picked up.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root@localhost');
 
@@ -153,7 +153,7 @@ If there're rows, you need to iterate them to the end, before you can execute an
 You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -178,7 +178,7 @@ It returns the first row itself, not an array of rows.
 And it skips all further rows, if they exist.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -205,7 +205,7 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 ```
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -238,7 +238,7 @@ pool.closeIdle();
 - `MyConn.queryCol()` method iterates over first column values of each row.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -264,7 +264,7 @@ This library doesn't parse the provided SQL string, but uses MySQL built-in func
 Placeholders can appear only in places where expressions are allowed.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -289,7 +289,7 @@ To execute such query, another pre-query is sent to the server, like `SET @days=
 Parameter names will override session variables with the same names.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -307,14 +307,67 @@ await pool.onEnd();
 pool.closeIdle();
 ```
 
-### Make SQL string with quoted parameters
+### Generate SQL string with quoted parameters
 
 This library also provides string-template function that escapes SQL values in strings and quoted literals.
 
 ```ts
-import {MyPool, sql} from './mod.ts';
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let message = `It's the message`;
+let number = 0.1;
+let column = 'The number';
+console.log('' + sql`SELECT '${message}', '${number}' AS "${column}"`); // prints: SELECT 'It''s the message', 0.1 AS `The number`
+```
+
+The `sql` template function provides the following functionality:
+
+1. To quote values, surround the parameter with apostrophes, like `'${param}'`. If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()`). If the value is a number, quotes around it will be removed. If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal. If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively. `Date` objects will be printed as MySQL dates. Typed arrays will be printed like `x'0102...'`.
+2. To quote identifiers (column, table, routine names, etc.) surround the parameter with backticks or double quotes, like `"${param}"`. Double quotes will be replaced with backticks.
+3. It's possible to insert safe SQL expressions. If the parameter is not surrounded with single or double quotes or backticks, it's considered to be an SQL fragment. This fragment will be validated not to contain the following characters (unless quoted): `; @ [ ] { }`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted, except those that whitelisted. By default whitelisted identifiers include: `AND OR NULL IN BETWEEN CASE DISTINCT Count Concat`, and many others. Also identifiers that contain digits, dollars or unicode chars will not be quoted. They're considered safe, because there're no MySQL keywords that contain such characters. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
+
+The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
+
+```ts
+Sql.toString(noBackslashEscapes=false): string
+
+Sql.encode(noBackslashEscapes=false, useBuffer?: Uint8Array): Uint8Array
+```
+
+Also the `Sql` object has public property called `allowedSqlIdents`, that allow to whitelist identifiers in SQL fragments.
+
+```ts
+Sql.allowedSqlIdents: AllowedSqlIdents
+```
+
+```ts
+import {sql, AllowedSqlIdents} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const value1 = "The string is: 'name'. The backslash is: \\";
+const value2 = 123.4;
+const value3 = null;
+const expr1 = "id=10 AND value IS NOT NULL";
+
+let select = sql`SELECT '${value1}', '${value2}', '${value3}' FROM t WHERE ${expr1}`;
+
+console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE `id`=10 AND `value` IS NOT NULL
+console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL FROM t WHERE `id`=10 AND `value` IS NOT NULL
+
+// print all the whitelisted idents
+console.log(select.allowedSqlIdents.idents);
+
+select.allowedSqlIdents = new AllowedSqlIdents(['id']);
+console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE id=10 `AND` `value` `IS` `NOT` `NULL`
+```
+
+If you pass the `Sql` object (the result of calling `sql` template function) to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on `conn.noBackslashEscapes`. The whitelisted SQL identifiers in SQL fragments (`allowedSqlIdents`) can be provided to `Pool` before starting to create connections.
+
+```ts
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
+
+pool.options({allowedSqlIdents: ['AND', 'OR', 'XOR', 'NOT']});
 
 pool.forConn
 (	async (conn) =>
@@ -333,39 +386,12 @@ await pool.onEnd();
 pool.closeIdle();
 ```
 
-Double-quoted and backtick-quoted parameters represent column or table names, and are replaced with backtick-quoted escaped names.
-
-Apostrophe-quoted parameters represent string values, and strings inside apostrophes are escaped, or the quoted string is replaced with a raw literal, like NULL, or a number.
-
-The `sql` literal evaluates to `Sql` object that can be stringified, or converted to bytes.
-
-```ts
-Sql.toString(noBackslashEscapes=false): string
-
-Sql.encode(noBackslashEscapes=false): Uint8Array
-```
-
-```ts
-import {sql} from './mod.ts';
-
-const value1 = "The string is: 'name'. The backslash is: \\";
-const value2 = 123.4;
-const value3 = null;
-
-let select = sql`SELECT '${value1}', '${value2}', '${value3}'`;
-
-console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL
-console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL
-```
-
-The proper value for `noBackslashEscapes` can be found on `MyConn` object: `conn.noBackslashEscapes`.
-
 ## Reading long BLOBs
 
 This library tries to have everything needed in real life usage. It's possible to read long data without storing it in memory.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -388,7 +414,7 @@ pool.closeIdle();
 Query parameter values can be of various types, including `Deno.Reader`. If some parameter is `Deno.Reader`, the parameter value will be read from this reader (without storing the whole BLOB in memory).
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -425,7 +451,7 @@ MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise;
 This allows to read SQL from files.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
 
@@ -470,7 +496,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 ```
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -503,7 +529,7 @@ pool.closeIdle();
 If this feature is enabled on your server, you can register a custom handler that will take `LOAD DATA LOCAL INFILE` requests.
 
 ```ts
-import {MyPool, sql} from './mod.ts';
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 import {dirname} from "https://deno.land/std@0.97.0/path/mod.ts";
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
@@ -587,7 +613,7 @@ If there are no more resultsets, `await resultsets.nextResultset()` returns fals
 And you must read or discard all the resultsets before being able to issue next queries.
 
 ```ts
-import {MyPool} from './mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
 

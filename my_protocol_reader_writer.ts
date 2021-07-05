@@ -182,7 +182,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	 **/
 	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean)
 	{	if (data instanceof Sql)
-		{	data = data.encode(no_backslash_escapes);
+		{	data = data.encode(no_backslash_escapes, this.buffer.subarray(this.buffer_end));
+			if (data.buffer == this.buffer.buffer)
+			{	this.buffer_end += data.length;
+				await this.send();
+				return;
+			}
 		}
 		else if (typeof(data) == 'string' && data.length <= BUFFER_LEN)
 		{	data = encoder.encode(data);
@@ -218,12 +223,14 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 		else if (typeof(data) != 'string') // Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number}
 		{	let size: number;
-			if ('seek' in data)
-			{	size = await data.seek(0, Deno.SeekMode.End);
-				await data.seek(0, Deno.SeekMode.Start);
+			if ('size' in data)
+			{	size = data.size;
 			}
 			else
-			{	size = data.size;
+			{	let pos = await data.seek(0, Deno.SeekMode.Current);
+				size = await data.seek(0, Deno.SeekMode.End);
+				await data.seek(pos, Deno.SeekMode.Start);
+				size -= pos;
 			}
 			let packet_size = this.buffer_end - 4 + size;
 			while (this.buffer_end-4 + size >= 0xFFFFFF)
