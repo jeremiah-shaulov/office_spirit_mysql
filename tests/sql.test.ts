@@ -1,6 +1,6 @@
 import {MyPool, sql} from '../mod.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 import {SqlPolicy} from '../sql_policy.ts';
+import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 
 const {DSN} = Deno.env.toObject();
 
@@ -271,7 +271,36 @@ Deno.test
 		}
 		assertEquals(error?.message, `Comma in SQL fragment: name, Count(*)`);
 
+		error = undefined;
+		try
+		{	'' + sql`SELECT (${`name, Count(*)`}`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+		error = undefined;
+		try
+		{	'' + sql`SELECT ${`name, Count(*)`})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+		error = undefined;
+		try
+		{	'' + sql`SELECT ${`name, Count(*)`}`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+
 		assertEquals('' + sql`SELECT (${`Count(name, "value")`})`, `SELECT (Count(\`name\`, \`value\`))`);
+
+		expr = `a.and and b. or or c .col_1_ф`;
+		s = sql`SELECT (${expr})`;
+		assertEquals(s+'', "SELECT (`a`.and and `b`. or or `c` .col_1_ф)");
 	}
 );
 

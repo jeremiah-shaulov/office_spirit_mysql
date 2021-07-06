@@ -1,4 +1,4 @@
-MySQL and MariahDB driver for Deno. Tested on: MySQL 5.6, 8.0, MariaDB 5.5, 10.0, 10.2, 10.5.
+MySQL and MariaDB driver for Deno. Tested on: MySQL 5.6, 8.0, MariaDB 5.5, 10.0, 10.2, 10.5.
 
 Features:
 - Prepared statements.
@@ -326,7 +326,7 @@ The `sql` template function provides the following functionality:
 
 1. To quote values, surround the parameter with apostrophes, like `'${param}'`. If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()`). If the value is a number, quotes around it will be removed. If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal. If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively. `Date` objects will be printed as MySQL dates. Typed arrays will be printed like `x'0102...'`.
 2. To quote identifiers (column, table, routine names, etc.) surround the parameter with backticks or double quotes, like `"${param}"`. Double quotes will be replaced with backticks.
-3. To insert a safe SQL expression, surround the parameter with parentheses. The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `; @ [ ] { }`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
+3. To insert a safe SQL expression, surround the parameter with parentheses. The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `@ [ ] { } ;`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
 
 The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
 
@@ -448,12 +448,14 @@ pool.forConn
 
 		let file = await Deno.open('/etc/passwd', {read: true});
 		try
-		{	await conn.execute("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
+		{	// Write the file to db
+			await conn.execute("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
 		}
 		finally
 		{	file.close();
 		}
 
+		// Read the contents back from db
 		let row = await conn.makeLastColumnReader("SELECT `time`, message FROM t_log WHERE id=1");
 		await Deno.copy(row.message, Deno.stdout);
 	}
@@ -468,9 +470,9 @@ pool.closeIdle();
 Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms.
 
 ```ts
-type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
-
 MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise;
+
+type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
 ```
 This allows to read SQL from files.
 
@@ -630,7 +632,7 @@ Initially these variables can be empty. They are set after actual connection to 
 `conn.execute()`, and `conn.query*()` methods all return `Resultsets` object, that contains information about your query result.
 Also this object allows to iterate over rows that the query returned.
 
-If your query returned multiple resultsets, `conn.execute()` skips them, and returns only the last one.
+If your query returned multiple resultsets, `conn.execute()` skips them, and returns only the status of the last one.
 
 `conn.query*()` functions don't skip resultsets, and `await resultsets.nextResultset()` will advance to the next result, and return true.
 If there are no more resultsets, `await resultsets.nextResultset()` returns false.
