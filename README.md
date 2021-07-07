@@ -500,8 +500,8 @@ pool.forConn
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
 
-		let row = await conn.makeLastColumnReader("SELECT `time`, message FROM t_log WHERE id=1");
-		await Deno.copy(row.message, Deno.stdout);
+		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
+		await Deno.copy(row!.message, Deno.stdout);
 	}
 );
 
@@ -532,8 +532,8 @@ pool.forConn
 		}
 
 		// Read the contents back from db
-		let row = await conn.makeLastColumnReader("SELECT `time`, message FROM t_log WHERE id=1");
-		await Deno.copy(row.message, Deno.stdout);
+		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
+		await Deno.copy(row!.message, Deno.stdout);
 	}
 );
 
