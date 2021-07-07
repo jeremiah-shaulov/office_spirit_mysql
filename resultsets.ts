@@ -1,7 +1,11 @@
 import {FieldType, Charset} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 
-export class ResultsetsPromise extends Promise<Resultsets>
+export type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+export type Param = any;
+export type Params = Param[] | Record<string, Param> | null | undefined;
+
+export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 {	async all()
 	{	let resultsets = await this;
 		let rows = [];
@@ -17,11 +21,11 @@ export class ResultsetsPromise extends Promise<Resultsets>
 		let {value, done} = await it.next();
 		if (!done)
 		{	while (!(await it.next()).done);
-			return value;
+			return value===undefined ? undefined : value; // void -> undefined
 		}
 	}
 
-	async forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|undefined>
+	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
 	{	let resultsets = await this;
 		let result: T|undefined;
 		for await (let row of resultsets)
@@ -31,7 +35,7 @@ export class ResultsetsPromise extends Promise<Resultsets>
 	}
 }
 
-export class Resultsets
+export class Resultsets<Row>
 {	lastInsertId: number|bigint = 0;
 	affectedRows: number|bigint = 0;
 	foundRows: number|bigint = 0;
@@ -47,7 +51,7 @@ export class Resultsets
 	{	return this instanceof ResultsetsDriver ? this.has_more : false;
 	}
 
-	exec(params: any[])
+	exec(params: Param[])
 	{	if (this instanceof ResultsetsDriver)
 		{	return this.stmt_execute(params);
 		}
@@ -59,7 +63,7 @@ export class Resultsets
 	async *[Symbol.asyncIterator]()
 	{	if (this instanceof ResultsetsDriver)
 		{	while (true)
-			{	let row = await this.fetch();
+			{	let row: Row = await this.fetch();
 				if (row == undefined)
 				{	break;
 				}
@@ -81,11 +85,11 @@ export class Resultsets
 		let {value, done} = await it.next();
 		if (!done)
 		{	while (!(await it.next()).done);
-			return value;
+			return value as Row;
 		}
 	}
 
-	async forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|undefined>
+	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
 	{	let result: T|undefined;
 		for await (let row of this)
 		{	result = await callback(row);
@@ -121,12 +125,12 @@ export class Resultsets
 	}
 }
 
-export class ResultsetsDriver extends Resultsets
+export class ResultsetsDriver<Row> extends Resultsets<Row>
 {	stmt_id = -1;
 	has_more_rows = false;
 	has_more = false;
-	stmt_execute: (params: any[]) => Promise<void> = () => Promise.resolve();
-	fetch: () => Promise<any | undefined> = () => Promise.resolve(undefined);
+	stmt_execute: (params: Param[]) => Promise<void> = () => Promise.resolve();
+	fetch: () => Promise<Row | undefined> = () => Promise.resolve(undefined);
 	next_resultset: () => Promise<boolean> = () => Promise.resolve(false);
 
 	reset_fields()

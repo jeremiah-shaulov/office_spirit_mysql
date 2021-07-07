@@ -1,11 +1,10 @@
-import {CapabilityFlags, StatusFlags, PacketType, FieldType, Command, CursorType, Charset} from '../constants.ts';
 import {Dsn} from '../dsn.ts';
 import {MyPool} from '../my_pool.ts';
 import {sql} from "../sql.ts";
 import {BusyError, CanceledError} from "../errors.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 import * as semver from "https://deno.land/x/semver@v1.4.0/mod.ts";
-import {writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {writeAll, readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
 
 const {DSN} = Deno.env.toObject();
 
@@ -106,7 +105,7 @@ Deno.test
 					);
 
 					// SELECT forEach
-					let rows: any[] = [];
+					let rows: Record<string, any>[] = [];
 					let the_hello = await conn.query("SELECT * FROM t_log").forEach
 					(	row =>
 						{	rows.push(row);
@@ -139,13 +138,47 @@ Deno.test
 						]
 					);
 
+					// queryMap
+					let rows2 = await conn.queryMap("SELECT * FROM t_log").all()
+					assertEquals
+					(	rows2,
+						[	new Map(Object.entries({id: 1, time: new Date(now+1000), message: 'Message 1'})),
+							new Map(Object.entries({id: 2, time: new Date(now+2000), message: 'Message 2'})),
+							new Map(Object.entries({id: 3, time: new Date(now+3000), message: 'Message 3'})),
+							new Map(Object.entries({id: 4, time: new Date(now+4000), message: 'Message 4'})),
+						]
+					);
+
+					// queryArr
+					let rows3 = await conn.queryArr("SELECT id, `time`, message FROM t_log").all()
+					assertEquals
+					(	rows3,
+						[	[1, new Date(now+1000), 'Message 1'],
+							[2, new Date(now+2000), 'Message 2'],
+							[3, new Date(now+3000), 'Message 3'],
+							[4, new Date(now+4000), 'Message 4'],
+						]
+					);
+
+					// makeLastColumnReader - text protocol
+					let row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=2");
+					let message = row?.message;
+					assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
+					assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 2');
+
+					// makeLastColumnReader - binary protocol
+					row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=?", [3]);
+					message = row?.message;
+					assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
+					assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 3');
+
 					// SELECT discard
-					res = await conn.query("SELECT * FROM t_log");
-					assertEquals(res.hasMore, true);
-					await res.discard();
-					assertEquals(res.hasMore, false);
-					await res.discard();
-					assertEquals(res.hasMore, false);
+					let res2 = await conn.query("SELECT * FROM t_log");
+					assertEquals(res2.hasMore, true);
+					await res2.discard();
+					assertEquals(res2.hasMore, false);
+					await res2.discard();
+					assertEquals(res2.hasMore, false);
 
 					// SELECT
 					assertEquals(await conn.queryCol("SELECT message FROM t_log", []).first(), 'Message 1');
@@ -397,7 +430,7 @@ Deno.test
 					assertEquals(res.hasMore, true);
 					assertEquals(await res.nextResultset(), true);
 
-					let expected_row: any =
+					let expected_row: Record<string, any> =
 					{	id: 1,
 						c_null: null,
 						c_tinyint: 1,
@@ -584,11 +617,11 @@ Deno.test
 					assertEquals(error instanceof BusyError, true);
 					assertEquals(await value, 10);
 
-					value = conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+					let promise = conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 					conn.end();
 					error = undefined;
 					try
-					{	await value; // cannot get Resultsets, because end() routine reads and discards it before returning the connection to the pool
+					{	await promise; // cannot get Resultsets, because end() routine reads and discards it before returning the connection to the pool
 					}
 					catch (e)
 					{	error = e;
@@ -681,7 +714,7 @@ Deno.test
 				try
 				{	pool.forConn
 					(	async (conn) =>
-						{	let max_allowed_packet = await conn.queryCol("SELECT @@max_allowed_packet").first();
+						{	let max_allowed_packet = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
 							if (max_allowed_packet < SIZE+100)
 							{	let want_size = SIZE + 100;
 								let size_rounded = 1;
@@ -691,7 +724,7 @@ Deno.test
 								}
 								await conn.execute("SET GLOBAL max_allowed_packet = ?", [size_rounded]);
 								conn.end();
-								assert((await conn.queryCol("SELECT @@max_allowed_packet").first()) >= want_size);
+								assert(Number(await conn.queryCol("SELECT @@max_allowed_packet").first()) >= want_size);
 							}
 
 							let filename = await Deno.makeTempFile();
@@ -747,8 +780,8 @@ Deno.test
 									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id=1").first(), SIZE);
 
 									let row = await conn.query("SELECT message, id FROM t_log WHERE id=1", read_to_memory ? undefined : []).first();
-									assertEquals(row.message.length, SIZE);
-									assertEquals(row.id, 1);
+									assertEquals(typeof(row?.message)=='string' ? row.message.length : -1, SIZE);
+									assertEquals(row?.id, 1);
 
 									// SELECT from table to new file
 									let filename_2 = await Deno.makeTempFile();
@@ -756,7 +789,7 @@ Deno.test
 									{	let fh_2 = await Deno.open(filename_2, {write: true, read: true});
 										try
 										{	let row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id=1");
-											await Deno.copy(row.message, fh_2);
+											await Deno.copy(row?.message as any, fh_2);
 
 											// Validate the new file size
 											let size_2 = await fh_2.seek(0, Deno.SeekMode.End);

@@ -1,9 +1,10 @@
 import {debug_assert} from './debug_assert.ts';
-import {StatusFlags, Charset, CapabilityFlags} from './constants.ts';
+import {StatusFlags} from './constants.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {SqlError, BusyError, CanceledError, SendWithDataError} from './errors.ts';
 import {Resultsets, ResultsetsDriver, ResultsetsPromise} from './resultsets.ts';
+import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 import {Sql} from './sql.ts';
 import {SqlPolicy} from './sql_policy.ts';
@@ -22,7 +23,7 @@ export class MyConn
 
 	private state = State.IDLE_FRESH;
 	private state_id = 1;
-	private cur_idle_resultsets: ResultsetsDriver|undefined;
+	private cur_idle_resultsets: ResultsetsDriver<unknown>|undefined;
 	private cur_stmt_id = -1;
 	private want_close_cur_stmt = false;
 
@@ -133,7 +134,7 @@ export class MyConn
 		}
 	}
 
-	private async protocol_op<T>(protocol: MyProtocol, can_redo_n_attempt: number, orig_state_id: number, callback: () => Promise<T>): Promise<T|boolean>
+	private async protocol_op<T>(protocol: MyProtocol, can_redo_n_attempt: number, orig_state_id: number, callback: () => Promise<T>): Promise<T|undefined>
 	{	let {state} = this;
 		if (this.state==State.QUERYING || this.state==State.CONNECTING)
 		{	throw new BusyError(`Previous operation is still in progress`);
@@ -158,7 +159,7 @@ export class MyConn
 			{	this.end();
 				if (state==State.IDLE_FRESH && can_redo_n_attempt!=-1 && can_redo_n_attempt<DO_QUERY_ATTEMPTS && (e instanceof SendWithDataError))
 				{	// maybe connection was killed while it was idle in pool
-					return false; // redo COM_QUERY or COM_STMT_PREPARE
+					return; // redo COM_QUERY or COM_STMT_PREPARE
 				}
 			}
 			if (this.want_close_cur_stmt)
@@ -178,54 +179,54 @@ export class MyConn
 			this.cur_stmt_id = -1;
 			this.want_close_cur_stmt = false;
 		}
-		return can_redo_n_attempt==-1 ? result : true;
+		return result;
 	}
 
-	query(sql: SqlSource, params?: object|null)
-	{	return new ResultsetsPromise
+	query(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Record<string, ColumnValue>>
 		(	(y, n) =>
-			{	this.do_query(sql, params, RowType.OBJECT).then(y, n);
+			{	this.do_query<Record<string, ColumnValue>>(sql, params, RowType.OBJECT).then(y, n);
 			}
 		);
 	}
 
-	queryMap(sql: SqlSource, params?: object|null)
-	{	return new ResultsetsPromise
+	queryMap(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Map<string, ColumnValue>>
 		(	(y, n) =>
-			{	this.do_query(sql, params, RowType.MAP).then(y, n);
+			{	this.do_query<Map<string, ColumnValue>>(sql, params, RowType.MAP).then(y, n);
 			}
 		);
 	}
 
-	queryArr(sql: SqlSource, params?: object|null)
-	{	return new ResultsetsPromise
+	queryArr(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnValue[]>
 		(	(y, n) =>
-			{	this.do_query(sql, params, RowType.ARRAY).then(y, n);
+			{	this.do_query<ColumnValue[]>(sql, params, RowType.ARRAY).then(y, n);
 			}
 		);
 	}
 
-	queryCol(sql: SqlSource, params?: object|null)
-	{	return new ResultsetsPromise
+	queryCol(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnValue>
 		(	(y, n) =>
-			{	this.do_query(sql, params, RowType.FIRST_COLUMN).then(y, n);
+			{	this.do_query<ColumnValue>(sql, params, RowType.FIRST_COLUMN).then(y, n);
 			}
 		);
 	}
 
-	async makeLastColumnReader(sql: SqlSource, params?: object|null)
-	{	let resultsets = await this.do_query(sql, params, RowType.LAST_COLUMN_READER);
+	async makeLastColumnReader(sql: SqlSource, params?: Params)
+	{	let resultsets = await this.do_query<Record<string, ColumnValue|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		let it = resultsets[Symbol.asyncIterator]();
 		let {value} = await it.next();
-		return value;
+		return value===undefined ? undefined : value; // void -> undefined
 	}
 
-	async forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Promise<T>
+	async forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnValue>>) => Promise<T>): Promise<T>
 	{	if (this.cur_stmt_id != -1)
 		{	throw new BusyError(`Another prepared statement is active`);
 		}
 		let {state_id} = this;
-		let prepared = await this.do_query(sql, true, RowType.OBJECT);
+		let prepared = await this.do_query<Record<string, ColumnValue>>(sql, true, RowType.OBJECT);
 		try
 		{	if (this.state_id == state_id)
 			{	this.cur_stmt_id = prepared.stmt_id;
@@ -249,13 +250,13 @@ export class MyConn
 		throw new CanceledError(`Operation cancelled: end() called during query`);
 	}
 
-	async execute(sql: SqlSource, params?: object|null): Promise<Resultsets>
-	{	let resultsets = await this.do_query(sql, params, RowType.FIRST_COLUMN);
+	async execute(sql: SqlSource, params?: Params)
+	{	let resultsets = await this.do_query<void>(sql, params, RowType.FIRST_COLUMN);
 		await resultsets.discard();
 		return resultsets;
 	}
 
-	private async do_query(sql: SqlSource, params: object|true|null|undefined, row_type: RowType): Promise<ResultsetsDriver>
+	private async do_query<Row>(sql: SqlSource, params: Params|true, row_type: RowType): Promise<ResultsetsDriver<Row>>
 	{	if (this.cur_idle_resultsets)
 		{	throw new BusyError(`Please, read previous resultsets first`);
 		}
@@ -265,7 +266,7 @@ export class MyConn
 		for (let n_attempt=1; true; n_attempt++)
 		{	let protocol = this.protocol ?? await this.get_protocol();
 			let {state_id} = this;
-			let resultsets = new ResultsetsDriver;
+			let resultsets = new ResultsetsDriver<Row>();
 			let ok = false;
 
 			if (!params)
@@ -277,12 +278,13 @@ export class MyConn
 					async () =>
 					{	await protocol.send_com_query(sql);
 						await protocol.read_com_query_response(resultsets);
+						return true;
 					}
 				);
 			}
 			else if (params === true)
 			{	// Prepare for later execution
-				resultsets.stmt_execute = async (params: any[]) =>
+				resultsets.stmt_execute = async (params: Param[]) =>
 				{	await this.protocol_op(protocol, -1, state_id, () => protocol.send_com_stmt_execute(resultsets, params));
 					this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
 				};
@@ -294,6 +296,7 @@ export class MyConn
 					async () =>
 					{	await protocol.send_com_stmt_prepare(sql);
 						await protocol.read_com_stmt_prepare_response(resultsets);
+						return true;
 					}
 				);
 			}
@@ -307,13 +310,14 @@ export class MyConn
 					{	await protocol.send_com_stmt_prepare(sql);
 						await protocol.read_com_stmt_prepare_response(resultsets);
 						await protocol.send_com_stmt_execute(resultsets, params);
+						return true;
 					}
 				);
 			}
 			else
 			{	// Prepare to execute immediately: named parameters
 				let sql_set = "";
-				let params_set: any[] = [];
+				let params_set: Param[] = [];
 				for (let [n, v] of Object.entries(params))
 				{	sql_set += !sql_set.length ? "SET @`" : "`=?,@`";
 					sql_set += n.replaceAll('`', '``');
@@ -335,6 +339,7 @@ export class MyConn
 						await protocol.send_com_stmt_prepare(sql);
 						await protocol.read_com_stmt_prepare_response(resultsets);
 						await protocol.send_com_stmt_execute(resultsets, []);
+						return true;
 					}
 				);
 			}
@@ -348,7 +353,7 @@ export class MyConn
 		}
 	}
 
-	private set_cur_idle_resultsets(protocol: MyProtocol, orig_state_id: number, resultsets: ResultsetsDriver, row_type: RowType)
+	private set_cur_idle_resultsets<Row>(protocol: MyProtocol, orig_state_id: number, resultsets: ResultsetsDriver<Row>, row_type: RowType)
 	{	if (resultsets.has_more)
 		{	this.cur_idle_resultsets = resultsets;
 			if (row_type != RowType.LAST_COLUMN_READER)

@@ -1,4 +1,5 @@
 import {FieldType} from './constants.ts';
+import type {ColumnValue} from './resultsets.ts';
 
 const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
 const C_MINUS = '-'.charCodeAt(0);
@@ -12,7 +13,7 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function conv_column_value(value: Uint8Array, type: FieldType, decoder: TextDecoder)
+export function conv_column_value(value: Uint8Array, type: FieldType, decoder: TextDecoder): ColumnValue
 {	switch (type)
 	{	case FieldType.MYSQL_TYPE_NULL:
 			return null;

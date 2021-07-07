@@ -50,7 +50,8 @@ Deno.test
 		{	pool.forConn
 			(	async (conn) =>
 				{	const value = {a: 1, b: 'the b'};
-					assertEquals(JSON.parse(await conn.queryCol(sql`SELECT '${value}' AS v`).first()), value);
+					const got_value = await conn.queryCol(sql`SELECT '${value}' AS v`).first();
+					assertEquals(typeof(got_value)=='string' ? JSON.parse(got_value) : undefined, value);
 				}
 			);
 		}

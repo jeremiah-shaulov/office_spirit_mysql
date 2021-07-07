@@ -134,19 +134,24 @@ At the end of callback all active connections will be returned to the pool. Howe
 `MyConn` object has the following methods for making simple queries:
 
 ```ts
-MyConn.execute(sql: SqlSource, params?: object|null): Promise<Resultsets>
-MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise
-MyConn.queryMap(sql: SqlSource, params?: object|null): ResultsetsPromise
-MyConn.queryArr(sql: SqlSource, params?: object|null): ResultsetsPromise
-MyConn.queryCol(sql: SqlSource, params?: object|null): ResultsetsPromise
+MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
+MyConn.query(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnValue>>
+MyConn.queryMap(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnValue>>
+MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnValue[]>
+MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnValue>
+
+type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+type Params = any[] | Record<string, any> | null;
+class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
+type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
 ```
 `execute` method executes it's query and discards returned rows.
 Returned `Resultsets` object contains `lastInsertId`, `affectedRows`, and more such information about the query.
 If there were multiple resultsets, it will contain only information about the last one.
 
-`query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
-Awaiting it gives you `Resultsets` object.
-Iterating over `Resultsets` yields rows.
+`query*` methods return `ResultsetsPromise<Row>` which is subclass of `Promise<Resultsets<Row>>`.
+Awaiting it gives you `Resultsets<Row>` object.
+Iterating over `Resultsets<Row>` yields rows, where each row is of `Row` type.
 
 If the query you executed didn't return rows (query like `INSERT`), then zero rows will be yielded, and `resultsets.columns` will be empty array.
 `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
@@ -164,11 +169,13 @@ pool.forConn
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		console.log(await conn.query("SELECT * FROM t_log").all()); // ResultsetsPromise.all()
+		// use ResultsetsPromise.all()
+		console.log(await conn.query("SELECT * FROM t_log").all());
 
+		// use Resultsets.all()
 		let res = await conn.query("SELECT * FROM t_log");
 		console.log(res.columns);
-		console.log(await res.all()); // Resultsets.all()
+		console.log(await res.all());
 	}
 );
 
@@ -189,11 +196,13 @@ pool.forConn
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		console.log(await conn.query("SELECT Count(*) FROM t_log").first()); // ResultsetsPromise.all()
+		// use ResultsetsPromise.first()
+		console.log(await conn.query("SELECT Count(*) FROM t_log").first());
 
+		// use Resultsets.first()
 		let res = await conn.query("SELECT Count(*) FROM t_log");
 		console.log(res.columns);
-		console.log(await res.first()); // Resultsets.all()
+		console.log(await res.first());
 	}
 );
 

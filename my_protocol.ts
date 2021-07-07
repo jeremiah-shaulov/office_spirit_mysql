@@ -6,6 +6,7 @@ import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsDriver} from './resultsets.ts';
+import type {Param, ColumnValue} from './resultsets.ts';
 import {BUFFER_LEN} from "./my_protocol_reader.ts";
 import {conv_column_value} from "./conv_column_value.ts";
 
@@ -411,7 +412,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		return this.send();
 	}
 
-	private init_resultsets(resultsets: ResultsetsDriver)
+	private init_resultsets(resultsets: ResultsetsDriver<unknown>)
 	{	resultsets.lastInsertId = this.last_insert_id;
 		resultsets.warnings = this.warnings;
 		resultsets.statusInfo = this.status_info;
@@ -426,7 +427,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private async read_query_response(resultsets: ResultsetsDriver, mode: ReadPacketMode)
+	private async read_query_response(resultsets: ResultsetsDriver<unknown>, mode: ReadPacketMode)
 	{	debug_assert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
 		debug_assert(resultsets.stmt_id == -1);
 L:		while (true)
@@ -601,11 +602,11 @@ L:		while (true)
 		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
 	}
 
-	read_com_query_response(resultsets: ResultsetsDriver)
+	read_com_query_response(resultsets: ResultsetsDriver<unknown>)
 	{	return this.read_query_response(resultsets, ReadPacketMode.REGULAR);
 	}
 
-	read_com_stmt_prepare_response(resultsets: ResultsetsDriver)
+	read_com_stmt_prepare_response(resultsets: ResultsetsDriver<unknown>)
 	{	return this.read_query_response(resultsets, ReadPacketMode.PREPARED_STMT);
 	}
 
@@ -616,7 +617,7 @@ L:		while (true)
 		return this.send();
 	}
 
-	async send_com_stmt_execute(resultsets: ResultsetsDriver, params: any[])
+	async send_com_stmt_execute(resultsets: ResultsetsDriver<unknown>, params: Param[])
 	{	let {stmt_id, placeholders} = resultsets;
 		let n_placeholders = placeholders.length;
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
@@ -640,7 +641,7 @@ L:		while (true)
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
-							await this.send_with_data(param, false);
+							await this.send_with_data(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false);
 							placeholders[i].flags |= BLOB_SENT_FLAG;
 						}
 					}
@@ -812,7 +813,7 @@ L:		while (true)
 		}
 	}
 
-	async fetch(resultsets: ResultsetsDriver, row_type: RowType, onreadend?: () => Promise<void>)
+	async fetch<Row>(resultsets: ResultsetsDriver<Row>, row_type: RowType, onreadend?: () => Promise<void>): Promise<Row | undefined>
 	{	debug_assert(resultsets.has_more_rows && resultsets.has_more);
 		let {stmt_id, columns} = resultsets;
 		let n_columns = columns.length;
@@ -852,7 +853,7 @@ L:		while (true)
 				{	throw new Error(`Field is too long: ${len} bytes`);
 				}
 				len = Number(len);
-				let value = null;
+				let value: ColumnValue = null;
 				if (len != -1) // if not a null value
 				{	if (row_type==RowType.LAST_COLUMN_READER && i+1==n_columns)
 					{	last_column_reader_len = len;
@@ -899,7 +900,7 @@ L:		while (true)
 			let null_bits_i = 0;
 			let null_bit_mask = 4; // starts from bit offset 1 << 2, according to protocol definition
 			for (let i=0; i<n_columns; i++)
-			{	let value = null;
+			{	let value: ColumnValue = null;
 				let is_null = null_bits[null_bits_i] & null_bit_mask;
 				if (null_bit_mask != 0x80)
 				{	null_bit_mask <<= 1;
@@ -1019,7 +1020,6 @@ L:		while (true)
 						}
 				}
 			}
-			this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
 		}
 		if (row_type == RowType.LAST_COLUMN_READER)
 		{	let that = this;
@@ -1052,7 +1052,7 @@ L:		while (true)
 		return row;
 	}
 
-	async next_resultset(resultsets: ResultsetsDriver)
+	async next_resultset(resultsets: ResultsetsDriver<unknown>)
 	{	let mode = resultsets.stmt_id==-1 ? ReadPacketMode.REGULAR : ReadPacketMode.PREPARED_STMT;
 		if (resultsets.has_more_rows)
 		{	while (true)
