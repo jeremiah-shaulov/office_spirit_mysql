@@ -4,5 +4,6 @@ export {Dsn} from './dsn.ts';
 export {SqlError, ServerDisconnectedError, BusyError, CanceledError} from './errors.ts';
 export {MyConn} from './my_conn.ts';
 export {ResultsetsPromise, Resultsets, Column} from './resultsets.ts';
+export type {ColumnValue} from './resultsets.ts';
 export {sql} from './sql.ts';
 export {SqlPolicy} from './sql_policy.ts';

@@ -182,51 +182,51 @@ export class MyConn
 		return result;
 	}
 
-	query(sql: SqlSource, params?: Params)
-	{	return new ResultsetsPromise<Record<string, ColumnValue>>
+	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.do_query<Record<string, ColumnValue>>(sql, params, RowType.OBJECT).then(y, n);
+			{	this.do_query<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
 			}
 		);
 	}
 
-	queryMap(sql: SqlSource, params?: Params)
-	{	return new ResultsetsPromise<Map<string, ColumnValue>>
+	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.do_query<Map<string, ColumnValue>>(sql, params, RowType.MAP).then(y, n);
+			{	this.do_query<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
 			}
 		);
 	}
 
-	queryArr(sql: SqlSource, params?: Params)
-	{	return new ResultsetsPromise<ColumnValue[]>
+	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.do_query<ColumnValue[]>(sql, params, RowType.ARRAY).then(y, n);
+			{	this.do_query<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
 			}
 		);
 	}
 
-	queryCol(sql: SqlSource, params?: Params)
-	{	return new ResultsetsPromise<ColumnValue>
+	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.do_query<ColumnValue>(sql, params, RowType.FIRST_COLUMN).then(y, n);
+			{	this.do_query<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
 			}
 		);
 	}
 
-	async makeLastColumnReader(sql: SqlSource, params?: Params)
-	{	let resultsets = await this.do_query<Record<string, ColumnValue|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	let resultsets = await this.do_query<Record<string, ColumnType|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		let it = resultsets[Symbol.asyncIterator]();
 		let {value} = await it.next();
 		return value===undefined ? undefined : value; // void -> undefined
 	}
 
-	async forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnValue>>) => Promise<T>): Promise<T>
+	async forQuery<ColumnType=ColumnValue>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<unknown>): Promise<unknown>
 	{	if (this.cur_stmt_id != -1)
 		{	throw new BusyError(`Another prepared statement is active`);
 		}
 		let {state_id} = this;
-		let prepared = await this.do_query<Record<string, ColumnValue>>(sql, true, RowType.OBJECT);
+		let prepared = await this.do_query<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
 		try
 		{	if (this.state_id == state_id)
 			{	this.cur_stmt_id = prepared.stmt_id;

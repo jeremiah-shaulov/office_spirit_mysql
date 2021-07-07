@@ -707,7 +707,7 @@ Deno.test
 (	'Load big dump',
 	async () =>
 	{	for (let read_to_memory of [false, true])
-		{	for (let SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
+		{	for (let SIZE of [100, 8*1024 + 100, /* 2**24 - 8, 2**24 + 8*1024 + 100 */]) // uncomment for full test, that covers more lines
 			{	let dsn = new Dsn(DSN);
 				dsn.maxColumnLen = SIZE;
 				let pool = new MyPool(dsn);

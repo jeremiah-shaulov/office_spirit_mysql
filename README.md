@@ -134,24 +134,19 @@ At the end of callback all active connections will be returned to the pool. Howe
 `MyConn` object has the following methods for making simple queries:
 
 ```ts
-MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-MyConn.query(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnValue>>
-MyConn.queryMap(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnValue>>
-MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnValue[]>
-MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnValue>
-
-type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
-type Params = any[] | Record<string, any> | null;
-class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
-type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets>
+MyConn.query(sql: SqlSource, params?: Params): ResultsetsPromise
+MyConn.queryMap(sql: SqlSource, params?: Params): ResultsetsPromise
+MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise
+MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise
 ```
 `execute` method executes it's query and discards returned rows.
 Returned `Resultsets` object contains `lastInsertId`, `affectedRows`, and more such information about the query.
 If there were multiple resultsets, it will contain only information about the last one.
 
-`query*` methods return `ResultsetsPromise<Row>` which is subclass of `Promise<Resultsets<Row>>`.
-Awaiting it gives you `Resultsets<Row>` object.
-Iterating over `Resultsets<Row>` yields rows, where each row is of `Row` type.
+`query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
+Awaiting it gives you `Resultsets` object.
+Iterating over `Resultsets` yields rows.
 
 If the query you executed didn't return rows (query like `INSERT`), then zero rows will be yielded, and `resultsets.columns` will be empty array.
 `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
@@ -248,6 +243,8 @@ pool.closeIdle();
 - `MyConn.queryArr()` method iterates over rows as `Array`s with column values without column names.
 - `MyConn.queryCol()` method iterates over first column values of each row.
 
+For example, using `queryCol().first()` you can get the result of `SELECT Count(*)` as a single number value:
+
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
@@ -258,7 +255,77 @@ pool.forConn
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints 3
+		let count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
+		console.log(count); // prints 3
+	}
+);
+
+await pool.onEnd();
+pool.closeIdle();
+```
+
+Here is the complete definition of query functions:
+
+```ts
+MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>> {...}
+MyConn.query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnType>> {...}
+MyConn.queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnType>> {...}
+MyConn.queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType[]> {...}
+MyConn.queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType> {...}
+
+type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+type Params = any[] | Record<string, any> | null;
+class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
+type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+```
+
+By default `query*()` functions produce rows where each column is of `ColumnValue` type.
+
+```ts
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let pool = new MyPool('mysql://root:hello@localhost/tests');
+
+pool.forConn
+(	async (conn) =>
+	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+
+		let row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
+		if (row)
+		{	// The type of `row` here is `Record<string, ColumnValue>`
+			let message = '';
+			// Remember that the `message` column can also be null
+			if (typeof(row.message) == 'string') // Without this check, the error will be: Type 'ColumnValue' is not assignable to type 'string'
+			{	message = row.message;
+			}
+			console.log(message); // Prints 'Message 1'
+		}
+	}
+);
+
+await pool.onEnd();
+pool.closeIdle();
+```
+
+If you're sure about column types, you can override the column type with `any` (or something else), so each column value will be assumed to have this type.
+
+```ts
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let pool = new MyPool('mysql://root:hello@localhost/tests');
+
+pool.forConn
+(	async (conn) =>
+	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+
+		let row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
+		if (row)
+		{	// The type of `row` here is `Record<string, any>`
+			let message: string = row.message;
+			console.log(message); // Prints 'Message 1'
+		}
 	}
 );
 
