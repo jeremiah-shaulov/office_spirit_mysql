@@ -635,7 +635,17 @@ L:		while (true)
 					}
 				}
 				else if (typeof(param) == 'object')
-				{	if (param.buffer instanceof ArrayBuffer)
+				{	if (param instanceof Uint8Array)
+					{	if (param.byteLength > 8)
+						{	this.start_writing_new_packet(true);
+							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
+							this.write_uint32(stmt_id);
+							this.write_uint16(i);
+							await this.send_with_data(param, false);
+							placeholders[i].flags |= BLOB_SENT_FLAG;
+						}
+					}
+					else if (param.buffer instanceof ArrayBuffer)
 					{	if (param.byteLength > 8)
 						{	this.start_writing_new_packet(true);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
@@ -773,8 +783,12 @@ L:		while (true)
 						{	this.write_uint32(frac * 1000);
 						}
 					}
+					else if (param instanceof Uint8Array)
+					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes long
+						this.write_lenenc_bytes(param);
+					}
 					else if (param.buffer instanceof ArrayBuffer)
-					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes length
+					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes long
 						this.write_lenenc_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
 					}
 					else
