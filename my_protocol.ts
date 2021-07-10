@@ -10,10 +10,12 @@ import type {Param, ColumnValue} from './resultsets.ts';
 import {BUFFER_LEN} from "./my_protocol_reader.ts";
 import {conv_column_value} from "./conv_column_value.ts";
 
-const MAX_COLUMN_LEN = 10*1024*1024;
-const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can use other bits for myself
+const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
+const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can exploit other bits for myself
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
+
+const MAX_PLACEHOLDERS = Math.floor((BUFFER_LEN - 15) / 28); // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 28
 
 export const enum ReadPacketMode
 {	REGULAR,
@@ -46,7 +48,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private last_insert_id: number|bigint = 0;
 	private status_info = '';
 
-	private max_column_len = MAX_COLUMN_LEN;
+	private max_column_len = DEFAULT_MAX_COLUMN_LEN;
 	private onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 
 	static async inst(dsn: Dsn, use_buffer?: Uint8Array, onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>): Promise<MyProtocol>
@@ -596,10 +598,10 @@ L:		while (true)
 		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
 	}
 
-	send_com_stmt_prepare(sql: SqlSource)
+	send_com_stmt_prepare(sql: SqlSource, put_params_to?: any[])
 	{	this.start_writing_new_packet(true);
 		this.write_uint8(Command.COM_STMT_PREPARE);
-		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
+		return this.send_with_data(sql, (this.status_flags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, false, put_params_to);
 	}
 
 	read_com_query_response(resultsets: ResultsetsDriver<unknown>)
@@ -620,45 +622,46 @@ L:		while (true)
 	async send_com_stmt_execute(resultsets: ResultsetsDriver<unknown>, params: Param[])
 	{	let {stmt_id, placeholders} = resultsets;
 		let n_placeholders = placeholders.length;
+		let packet_start = 0;
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
 		for (let i=0; i<n_placeholders; i++)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
 				{	if (param.length > 8)
-					{	this.start_writing_new_packet(true);
+					{	this.start_writing_new_packet(true, packet_start);
 						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.write_uint32(stmt_id);
 						this.write_uint16(i);
-						await this.send_with_data(param, false);
+						packet_start = await this.send_with_data(param, false, true);
 						placeholders[i].flags |= BLOB_SENT_FLAG;
 					}
 				}
 				else if (typeof(param) == 'object')
 				{	if (param instanceof Uint8Array)
 					{	if (param.byteLength > 8)
-						{	this.start_writing_new_packet(true);
+						{	this.start_writing_new_packet(true, packet_start);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
-							await this.send_with_data(param, false);
+							packet_start = await this.send_with_data(param, false, true);
 							placeholders[i].flags |= BLOB_SENT_FLAG;
 						}
 					}
 					else if (param.buffer instanceof ArrayBuffer)
 					{	if (param.byteLength > 8)
-						{	this.start_writing_new_packet(true);
+						{	this.start_writing_new_packet(true, packet_start);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
-							await this.send_with_data(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false);
+							packet_start = await this.send_with_data(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
 							placeholders[i].flags |= BLOB_SENT_FLAG;
 						}
 					}
 					else if (typeof(param.read) == 'function')
 					{	let is_empty = true;
 						while (true)
-						{	this.start_writing_new_packet(is_empty);
+						{	this.start_writing_new_packet(is_empty, packet_start);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
@@ -668,6 +671,7 @@ L:		while (true)
 								break;
 							}
 							await this.send();
+							packet_start = 0;
 							is_empty = false;
 						}
 						if (!is_empty)
@@ -675,18 +679,27 @@ L:		while (true)
 						}
 					}
 					else if (!(param instanceof Date))
-					{	this.start_writing_new_packet(true);
+					{	this.start_writing_new_packet(true, packet_start);
 						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.write_uint32(stmt_id);
 						this.write_uint16(i);
-						await this.send_with_data(JSON.stringify(param), false);
+						packet_start = await this.send_with_data(JSON.stringify(param), false, true);
 						placeholders[i].flags |= BLOB_SENT_FLAG;
 					}
 				}
 			}
 		}
+		// Flush, if not enuogh space in buffer for the placeholders packet
+		if (n_placeholders > MAX_PLACEHOLDERS)
+		{	throw new Error(`Too many parameters in query: ${n_placeholders}. Max supported: ${MAX_PLACEHOLDERS}`);
+		}
+		let pax_expected_packet_size_including_header = 15 + n_placeholders*32; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) = 28
+		if (packet_start + pax_expected_packet_size_including_header > BUFFER_LEN)
+		{	await this.send();
+			packet_start = 0;
+		}
 		// Send params in binary protocol
-		this.start_writing_new_packet(true);
+		this.start_writing_new_packet(true, packet_start);
 		this.write_uint8(Command.COM_STMT_EXECUTE);
 		this.write_uint32(stmt_id);
 		this.write_uint8(CursorType.NO_CURSOR);
@@ -754,14 +767,11 @@ L:		while (true)
 					{	this.write_uint8(param ? 1 : 0);
 					}
 					else if (typeof(param) == 'number')
-					{	if (param % 1)
-						{	this.write_double(param);
-						}
-						else if (param>=-0x80000000 && param<=0x7FFFFFFF)
+					{	if (Number.isInteger(param) && param>=-0x80000000 && param<=0x7FFFFFFF)
 						{	this.write_uint32(param);
 						}
 						else
-						{	this.write_uint64(BigInt(param));
+						{	this.write_double(param);
 						}
 					}
 					else if (typeof(param) == 'bigint')

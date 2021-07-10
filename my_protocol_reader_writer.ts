@@ -5,23 +5,25 @@ import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Sql} from './sql.ts';
 
+const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
+
 export type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
 
 const encoder = new TextEncoder;
 
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	protected start_writing_new_packet(reset_sequence_id=false)
-	{	debug_assert(this.buffer_end == this.buffer_start); // must read all before starting to write
-		this.buffer_start = 0;
-		this.buffer_end = 4; // after header
+{	protected start_writing_new_packet(reset_sequence_id=false, packet_start=0)
+	{	debug_assert(this.buffer_end==this.buffer_start || packet_start>0); // must read all before starting to write
+		this.buffer_start = packet_start;
+		this.buffer_end = packet_start + 4; // after header
 		if (reset_sequence_id)
 		{	this.sequence_id = 0;
 		}
 	}
 
 	protected discard_packet()
-	{	debug_assert(this.buffer_start==0 && this.buffer_end>=4);
-		this.buffer_end = 0; // after header
+	{	debug_assert(this.buffer_end >= this.buffer_start+4);
+		this.buffer_end = this.buffer_start;
 	}
 
 	protected write_uint8(value: number)
@@ -170,11 +172,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	private set_header(payload_length: number)
 	{	let header = payload_length | (this.sequence_id << 24);
 		this.sequence_id++;
-		this.data_view.setUint32(0, header, true);
+		this.data_view.setUint32(this.buffer_start, header, true);
 	}
 
 	protected send()
-	{	this.set_header(this.buffer_end - 4);
+	{	this.set_header(this.buffer_end - this.buffer_start - 4);
 		let n = this.buffer_end;
 		// prepare for reader
 		this.buffer_start = 0;
@@ -185,40 +187,52 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
-	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean)
+	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean, can_wait=false, put_params_to?: any[])
 	{	if (data instanceof Sql)
-		{	data = data.encode(no_backslash_escapes, this.buffer.subarray(this.buffer_end));
+		{	data = data.encode(no_backslash_escapes, put_params_to, this.buffer.subarray(this.buffer_end));
 			if (data.buffer == this.buffer.buffer)
 			{	this.buffer_end += data.length;
+				debug_assert(!can_wait); // after sending Sql queries response always follows
 				await this.send();
-				return;
+				return 0;
 			}
 		}
 		else if (typeof(data) == 'string' && data.length <= BUFFER_LEN)
 		{	data = encoder.encode(data);
 		}
 		if (data instanceof Uint8Array)
-		{	let packet_size = this.buffer_end - 4 + data.length;
+		{	let packet_size = this.buffer_end - this.buffer_start - 4 + data.length;
 			try
-			{	while (this.buffer_end-4 + data.length >= 0xFFFFFF)
+			{	let size = packet_size;
+				while (size >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
-					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
 					this.set_header(0xFFFFFF);
-					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
+					let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
 					await writeAll(this.conn, data.subarray(0, data_chunk_len));
 					data = data.subarray(data_chunk_len);
+					size -= data_chunk_len;
+					this.buffer_start = 0;
 					this.buffer_end = 4; // after header
 				}
-				let len = this.buffer_end-4 + data.length;
-				debug_assert(len < 0xFFFFFF);
-				this.set_header(len);
-				if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
+				debug_assert(size < 0xFFFFFF);
+				this.set_header(size);
+				if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
 				{	this.buffer.set(data, this.buffer_end);
 					this.buffer_end += data.length;
+					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+					{	return this.buffer_end;
+					}
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				else
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
+					if (can_wait && data.length<=BUFFER_LEN/2)
+					{	this.buffer.set(data);
+						this.buffer_start = data.length;
+						this.buffer_end = data.length;
+						return this.buffer_end;
+					}
 					await writeAll(this.conn, data);
 				}
 			}
@@ -227,28 +241,30 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 		}
 		else if (typeof(data) != 'string') // Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number}
-		{	let size: number;
+		{	let data_length: number;
 			if ('size' in data)
-			{	size = data.size;
+			{	data_length = data.size;
 			}
 			else
 			{	let pos = await data.seek(0, Deno.SeekMode.Current);
-				size = await data.seek(0, Deno.SeekMode.End);
+				data_length = await data.seek(0, Deno.SeekMode.End);
 				await data.seek(pos, Deno.SeekMode.Start);
-				size -= pos;
+				data_length -= pos;
 			}
-			let packet_size = this.buffer_end - 4 + size;
-			while (this.buffer_end-4 + size >= 0xFFFFFF)
+			let packet_size = this.buffer_end - this.buffer_start - 4 + data_length;
+			let size = packet_size;
+			while (size >= 0xFFFFFF)
 			{	// send current packet part + data chunk = 0xFFFFFF
 				this.set_header(0xFFFFFF);
 				try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packet_size);
 				}
-				let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
+				let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
 				size -= data_chunk_len;
+				data_length -= data_chunk_len;
 				while (data_chunk_len > 0)
 				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
 					if (n == null)
@@ -262,19 +278,22 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 					data_chunk_len -= n;
 				}
+				this.buffer_start = 0;
 				this.buffer_end = 4; // after header
 			}
-			let len = this.buffer_end-4 + size;
-			debug_assert(len < 0xFFFFFF);
-			this.set_header(len);
-			if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
-			{	while (size > 0)
+			debug_assert(size < 0xFFFFFF);
+			this.set_header(size);
+			if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
+			{	while (data_length > 0)
 				{	let n = await data.read(this.buffer.subarray(this.buffer_end));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
 					this.buffer_end += n;
-					size -= n;
+					data_length -= n;
+				}
+				if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+				{	return this.buffer_end;
 				}
 				try
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
@@ -285,13 +304,13 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 			else
 			{	try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packet_size);
 				}
-				while (size > 0)
-				{	let n = await data.read(this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
+				while (data_length > 0)
+				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_length, BUFFER_LEN)));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
@@ -301,45 +320,55 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					catch (e)
 					{	throw new SendWithDataError(e.message, packet_size);
 					}
-					size -= n;
+					data_length -= n;
 				}
 			}
 		}
 		else // long string
-		{	let size = utf8_string_length(data);
-			let packet_size = this.buffer_end - 4 + size;
+		{	let data_length = utf8_string_length(data);
+			let packet_size = this.buffer_end - this.buffer_start - 4 + data_length;
 			try
-			{	while (this.buffer_end-4 + size >= 0xFFFFFF)
+			{	let size = packet_size;
+				while (size >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.set_header(0xFFFFFF);
-					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-					let data_chunk_len = 0xFFFFFF - (this.buffer_end - 4);
-					size -= data_chunk_len;
+					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
+					let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
+					data_length -= data_chunk_len;
 					while (data_chunk_len > 0)
 					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
 						data = data.slice(read);
 						await writeAll(this.conn, this.buffer.subarray(0, written));
 						data_chunk_len -= written;
 					}
+					size -= data_chunk_len;
+					this.buffer_start = 0;
 					this.buffer_end = 4; // after header
 				}
-				let len = this.buffer_end-4 + size;
-				debug_assert(len < 0xFFFFFF);
-				this.set_header(len);
-				if (4+len <= BUFFER_LEN) // if header+payload can fit my buffer
+				debug_assert(size < 0xFFFFFF);
+				this.set_header(size);
+				if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
 				{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
 					debug_assert(read == data.length);
-					debug_assert(written == size);
+					debug_assert(written == data_length);
 					this.buffer_end += written;
+					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+					{	return this.buffer_end;
+					}
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				else
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
-					while (size > 0)
-					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(size, BUFFER_LEN)));
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
+					while (data_length > 0)
+					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_length, BUFFER_LEN)));
 						data = data.slice(read);
+						data_length -= written;
+						if (can_wait && data_length==0 && written<=BUFFER_LEN/2)
+						{	this.buffer_start = written;
+							this.buffer_end = written;
+							return this.buffer_end;
+						}
 						await writeAll(this.conn, this.buffer.subarray(0, written));
-						size -= written;
 					}
 				}
 			}
@@ -350,5 +379,6 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		// prepare for reader
 		this.buffer_start = 0;
 		this.buffer_end = 0;
+		return 0;
 	}
 }

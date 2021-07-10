@@ -33,6 +33,7 @@ const C_TIMES = '*'.charCodeAt(0);
 const C_AMP = '&'.charCodeAt(0);
 const C_PIPE = '|'.charCodeAt(0);
 const C_EQ = '='.charCodeAt(0);
+const C_QUEST = '?'.charCodeAt(0);
 const C_PAREN_OPEN = '('.charCodeAt(0);
 const C_PAREN_CLOSE = ')'.charCodeAt(0);
 const C_SQUARE_OPEN = '['.charCodeAt(0);
@@ -78,10 +79,11 @@ const enum Change
 
 export class Sql
 {	sqlPolicy: SqlPolicy | undefined;
-	readonly estimatedByteLength: number;
+	estimatedByteLength: number;
 
-	constructor(private strings: TemplateStringsArray, private params: any[])
-	{	let len = 0;
+	constructor(private strings: TemplateStringsArray|string[], private params: any[])
+	{	this.strings = strings;
+		let len = 0;
 		for (let s of strings)
 		{	len += s.length + 10; // if byte length of s is longer than s.length+10, will realloc later
 		}
@@ -134,13 +136,27 @@ export class Sql
 		this.estimatedByteLength = (len | 7) + 1;
 	}
 
+	concat(other: Sql)
+	{	let strings = [...this.strings];
+		strings[strings.length-1] += other.strings[0];
+		for (let i=1, i_end=other.strings.length, j=strings.length; i<i_end; i++, j++)
+		{	strings[j] = other.strings[i];
+		}
+		let sql = new Sql([], []);
+		sql.strings = strings;
+		sql.params = this.params.concat(other.params);
+		sql.sqlPolicy = this.sqlPolicy ?? other.sqlPolicy;
+		sql.estimatedByteLength = this.estimatedByteLength + other.estimatedByteLength;
+		return sql;
+	}
+
 	/**	If `useBuffer` is provided, and it has enough size, will encode to it, and return a `useBuffer.subarray(0, N)`.
 		Else, will return a subarray of a new Uint8Array.
 	 **/
-	encode(no_backslash_escapes=false, use_buffer?: Uint8Array): Uint8Array
+	encode(no_backslash_escapes=false, put_params_to?: any[], use_buffer?: Uint8Array): Uint8Array
 	{	let {strings, params} = this;
 		// 1. Allocate the buffer
-		let serializer = new Serializer(use_buffer && use_buffer.length>=this.estimatedByteLength ? use_buffer : new Uint8Array(this.estimatedByteLength), no_backslash_escapes, this.sqlPolicy);
+		let serializer = new Serializer(use_buffer && use_buffer.length>=this.estimatedByteLength ? use_buffer : new Uint8Array(this.estimatedByteLength), no_backslash_escapes, put_params_to, this.sqlPolicy);
 		// 2. Append strings (except the last one) and params to the buffer
 		let want = Want.NOTHING;
 		let i_end = strings.length - 1;
@@ -268,7 +284,7 @@ class Serializer
 {	private pos = 0;
 	private buffer_for_parent_name: Uint8Array | undefined;
 
-	constructor(private result: Uint8Array, private no_backslash_escapes: boolean, private sqlPolicy: SqlPolicy|undefined)
+	constructor(private result: Uint8Array, private no_backslash_escapes: boolean, private put_params_to: any[]|undefined, private sqlPolicy: SqlPolicy|undefined)
 	{
 	}
 
@@ -387,22 +403,22 @@ class Serializer
 			this.append_raw_bytes(LIT_NULL);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else if (param === false)
+		if (param === false)
 		{	this.pos--; // backspace '
 			this.append_raw_bytes(LIT_FALSE);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else if (param === true)
+		if (param === true)
 		{	this.pos--; // backspace '
 			this.append_raw_bytes(LIT_TRUE);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else if (typeof(param) == 'number')
-		{	this.pos--; // backspace '
-			this.append_raw_string(param+'');
+		if (this.put_params_to)
+		{	this.result[this.pos - 1] = C_QUEST; // ' -> ?
+			this.put_params_to.push(param);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else if (typeof(param) == 'bigint')
+		if (typeof(param)=='number' || typeof(param)=='bigint')
 		{	this.pos--; // backspace '
 			this.append_raw_string(param+'');
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
@@ -466,25 +482,20 @@ class Serializer
 	{	let n_items_added = 0;
 		for (let p of param)
 		{	if (n_items_added++ != 0)
-			{	this.ensure_room(1);
-				this.result[this.pos++] = C_COMMA;
+			{	this.append_raw_char(C_COMMA);
 			}
 			if (typeof(p)!='object' || (p instanceof Date) || (p.buffer instanceof ArrayBuffer))
-			{	this.ensure_room(3);
-				this.result[this.pos++] = C_APOS;
+			{	this.append_raw_char(C_APOS);
 				if (this.append_sql_value(p) != Want.REMOVE_APOS_OR_BRACE_CLOSE)
-				{	this.ensure_room(1);
-					this.result[this.pos++] = C_APOS;
+				{	this.append_raw_char(C_APOS);
 				}
 			}
 			else if (Symbol.iterator in p)
-			{	this.ensure_room(3);
-				this.result[this.pos++] = C_PAREN_OPEN;
+			{	this.append_raw_char(C_PAREN_OPEN);
 				if (this.append_iterable(p) == 0)
 				{	this.append_raw_bytes(LIT_NULL);
 				}
-				this.ensure_room(1);
-				this.result[this.pos++] = C_PAREN_CLOSE;
+				this.append_raw_char(C_PAREN_CLOSE);
 			}
 			else
 			{	this.append_raw_bytes(LIT_NULL);

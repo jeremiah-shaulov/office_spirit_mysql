@@ -307,7 +307,7 @@ export class MyConn
 					n_attempt,
 					state_id,
 					async () =>
-					{	await protocol.send_com_stmt_prepare(sql);
+					{	await protocol.send_com_stmt_prepare(sql, params.length==0 ? params : undefined);
 						await protocol.read_com_stmt_prepare_response(resultsets);
 						await protocol.send_com_stmt_execute(resultsets, params);
 						return true;
