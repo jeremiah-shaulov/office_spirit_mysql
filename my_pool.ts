@@ -1,7 +1,7 @@
 import {debug_assert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {MyConn} from './my_conn.ts';
-import {MyProtocol} from './my_protocol.ts';
+import {MyProtocol, MAX_PLACEHOLDERS} from './my_protocol.ts';
 import {SqlPolicy} from './sql_policy.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
@@ -70,7 +70,9 @@ class MySessionInternal extends MySession
 }
 
 export class MyPool
-{	private conns_pool = new Map<string, MyPoolConns>();
+{	static MAX_PLACEHOLDERS = MAX_PLACEHOLDERS;
+
+	private conns_pool = new Map<string, MyPoolConns>();
 	private unused_buffers: Uint8Array[] = [];
 	private n_idle_all = 0;
 	private n_busy_all = 0;

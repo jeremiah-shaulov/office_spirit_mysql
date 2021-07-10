@@ -72,9 +72,11 @@ const enum State
 }
 
 const enum Change
-{	DOUBLE_BACKSLASH = -3,
-	DOUBLE_BACKTICK = -2,
-	INSERT_PARENT_NAME = -1,
+{	DOUBLE_BACKSLASH,
+	DOUBLE_BACKTICK,
+	INSERT_PARENT_NAME,
+	QUOTE_IDENT,
+	QUOTE_PARENT_NAME,
 }
 
 export class Sql
@@ -271,8 +273,8 @@ export class Sql
 		return serializer.get_result();
 	}
 
-	toString(no_backslash_escapes=false)
-	{	return decoder.decode(this.encode(no_backslash_escapes));
+	toString(no_backslash_escapes=false, put_params_to?: any[])
+	{	return decoder.decode(this.encode(no_backslash_escapes, put_params_to));
 	}
 }
 
@@ -537,7 +539,7 @@ class Serializer
 		let {result, pos} = this;
 		let state = State.SQL;
 		let paren_level = 0;
-		let changes: {j_from: number, j_to: number}[] = [];
+		let changes: {change: Change, change_from: number, change_to: number}[] = [];
 		let n_add = 0;
 		for (let j=from; j<pos; j++)
 		{	let c = result[j];
@@ -563,14 +565,14 @@ class Serializer
 							break;
 						case C_BACKTICK:
 							if (parent_name)
-							{	changes[changes.length] = {j_from: Change.INSERT_PARENT_NAME, j_to: j-1};
+							{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j-1, change_to: j-1};
 								n_add += parent_name.length + 3; // plus ``.
 							}
 							state = State.BACKTICK;
 							break;
 						case C_QUOT:
 							if (parent_name)
-							{	changes[changes.length] = {j_from: Change.INSERT_PARENT_NAME, j_to: j-1};
+							{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j-1, change_to: j-1};
 								n_add += parent_name.length + 3; // plus ``.
 							}
 							result[j] = C_BACKTICK;
@@ -610,7 +612,7 @@ class Serializer
 						default:
 						{	let has_nondigit = c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80;
 							if (has_nondigit || c>=C_ZERO && c<=C_NINE)
-							{	let j_from = j;
+							{	let change_from = j;
 								while (j < pos)
 								{	c = result[++j];
 									if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
@@ -624,32 +626,35 @@ class Serializer
 								}
 								if (has_nondigit)
 								{	// skip space following this identifier
-									let j_space = j;
+									let j_after_ident = j;
 									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
 									{	c = result[++j] | 0;
 									}
-									// is function?
-									let is_function = c == C_PAREN_OPEN;
 									// is allowed?
-									let name = result.subarray(j_from, j_space);
-									let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
-									if (!is_function)
-									{	if (!sql_policy.isIdentAllowed(name))
-										{	changes[changes.length] = {j_from: j_from-1, j_to: j_space-1};
+									let name = result.subarray(change_from, j_after_ident);
+									if (c == C_PAREN_OPEN) // if is function
+									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
+										if (!sql_policy.isFunctionAllowed(name))
+										{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
 											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
 										}
-									}
-									else
-									{	if (!sql_policy.isFunctionAllowed(name))
-										{	changes[changes.length] = {j_from: j_from-1, j_to: j_space-1};
-											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
-										}
-										else if (j_space < j)
+										else if (j_after_ident < j)
 										{	// put '(' right after function name
 											debug_assert(result[j] == C_PAREN_OPEN);
-											result[j] = result[j_space];
-											result[j_space] = C_PAREN_OPEN;
+											result[j] = result[j_after_ident];
+											result[j_after_ident] = C_PAREN_OPEN;
 											paren_level++;
+										}
+									}
+									else if (c == C_DOT) // if is parent qualifier
+									{	changes[changes.length] = {change: Change.QUOTE_PARENT_NAME, change_from, change_to: j_after_ident-1};
+										n_add += 2; // ``
+									}
+									else
+									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
+										if (!sql_policy.isIdentAllowed(name))
+										{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
+											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
 										}
 									}
 								}
@@ -670,7 +675,7 @@ class Serializer
 							break;
 						case C_BACKSLASH:
 							if (!this.no_backslash_escapes)
-							{	changes[changes.length] = {j_from: Change.DOUBLE_BACKSLASH, j_to: j};
+							{	changes[changes.length] = {change: Change.DOUBLE_BACKSLASH, change_from: j, change_to: j};
 								n_add++;
 							}
 					}
@@ -701,7 +706,7 @@ class Serializer
 							}
 							break;
 						case C_BACKTICK:
-							changes[changes.length] = {j_from: Change.DOUBLE_BACKTICK, j_to: j};
+							changes[changes.length] = {change: Change.DOUBLE_BACKTICK, change_from: j, change_to: j};
 							n_add++;
 					}
 					break;
@@ -718,12 +723,12 @@ class Serializer
 		{	this.ensure_room(n_add);
 			result = this.result;
 			let n_change = changes.length;
-			var {j_from, j_to} = changes[--n_change];
+			var {change, change_from, change_to} = changes[--n_change];
 			for (let j=pos-1, k=j+n_add; true; k--, j--)
 			{	let c = result[j];
-				if (j == j_to)
+				if (j == change_to)
 				{	// take actions
-					switch (j_from)
+					switch (change)
 					{	case Change.DOUBLE_BACKSLASH:
 							// backslash to double
 							debug_assert(c == C_BACKSLASH);
@@ -745,17 +750,17 @@ class Serializer
 							result[k--] = C_BACKTICK;
 							result[k] = c;
 							break;
-						default:
+						case Change.QUOTE_IDENT:
 							// identifier to quote
 							if (!parent_name)
 							{	result[k--] = C_BACKTICK;
-								while (j != j_from)
+								while (j >= change_from)
 								{	result[k--] = result[j--];
 								}
 								result[k] = C_BACKTICK;
 							}
 							else
-							{	while (j != j_from)
+							{	while (j >= change_from)
 								{	result[k--] = result[j--];
 								}
 								result[k--] = C_DOT;
@@ -766,11 +771,22 @@ class Serializer
 								result[k] = C_BACKTICK;
 							}
 							j++; // will k--, j-- on next iter
+							break;
+						case Change.QUOTE_PARENT_NAME:
+							result[k--] = C_BACKTICK;
+							while (j >= change_from)
+							{	result[k--] = result[j--];
+							}
+							result[k] = C_BACKTICK;
+							j++; // will k--, j-- on next iter
+							break;
+						default:
+							debug_assert(false);
 					}
 					if (n_change <= 0)
 					{	break;
 					}
-					var {j_from, j_to} = changes[--n_change];
+					var {change, change_from, change_to} = changes[--n_change];
 				}
 				else
 				{	// copy char

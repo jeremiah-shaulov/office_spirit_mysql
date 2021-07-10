@@ -131,25 +131,31 @@ At the end of callback all active connections will be returned to the pool. Howe
 
 ## Making queries
 
-`MyConn` object has the following methods for making simple queries:
+To run a query that doesn't return rows, use `execute()`:
 
 ```ts
 MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets>
+```
+
+This method executes it's query and discards returned rows.
+Returned `Resultsets` object contains `lastInsertId`, `affectedRows`, and more such information about the query.
+If there were multiple resultsets, it will contain only information about the last one.
+
+To run a query, and read it's rows, use one of the following methods:
+
+```ts
 MyConn.query(sql: SqlSource, params?: Params): ResultsetsPromise
 MyConn.queryMap(sql: SqlSource, params?: Params): ResultsetsPromise
 MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise
 MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise
 ```
-`execute` method executes it's query and discards returned rows.
-Returned `Resultsets` object contains `lastInsertId`, `affectedRows`, and more such information about the query.
-If there were multiple resultsets, it will contain only information about the last one.
 
 `query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
 Awaiting it gives you `Resultsets` object.
 Iterating over `Resultsets` yields rows.
 
-If the query you executed didn't return rows (query like `INSERT`), then zero rows will be yielded, and `resultsets.columns` will be empty array.
-`resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
+If your query didn't return rows (query like `INSERT`), then these methods work exactly as `execute()`, so zero rows will be yielded, and `resultsets.columns` will be empty array,
+and `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
 
 If there're rows, you need to iterate them to the end, before you can execute another query.
 You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
@@ -337,9 +343,11 @@ pool.closeIdle();
 
 ### Positional parameters
 
-You can use `?` placeholders in SQL query strings, and supply array of parameter values to be substituted in place of them.
+You can use `?` placeholders in SQL query strings, and supply array of parameters to be substituted in place of them.
 This library doesn't parse the provided SQL string, but uses MySQL built-in functionality, so the parameters are substituted on MySQL side.
 Placeholders can appear only in places where expressions are allowed.
+
+This library supports up to 301 placeholders. This constant can be found as static field of `MyPool`: `MyPool.MAX_PLACEHOLDERS`.
 
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
@@ -398,18 +406,67 @@ let column = 'The number';
 console.log('' + sql`SELECT '${message}', '${number}' AS "${column}"`); // prints: SELECT 'It''s the message', 0.1 AS `The number`
 ```
 
-The `sql` template function provides the following functionality:
+How each parameter is escaped depends on quotes that you used in your SQL string, to quote this parameter.
 
-1. To quote values, surround the parameter with apostrophes, like `'${param}'`. If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()`). If the value is a number, quotes around it will be removed. If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal. If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively. `Date` objects will be printed as MySQL dates. Typed arrays will be printed like `x'0102...'`.
-2. To quote identifiers (column, table, routine names, etc.) surround the parameter with backticks or double quotes, like `"${param}"`. Double quotes will be replaced with backticks.
-3. To insert a safe SQL expression, surround the parameter with parentheses. The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `@ [ ] { } ;`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy. Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
+1. `'${param}'` - Escape an SQL value.
+
+If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()` - see below).
+
+If the value is a number, quotes around it will be removed.
+
+If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal.
+
+If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively.
+
+`Date` objects will be printed as MySQL dates.
+
+Typed arrays will be printed like `x'0102...'`.
+
+2. `"${param}"` - Escape an identifiers (column, table or routine name, etc.).
+
+Double quotes will be replaced with backticks.
+
+3. `(${param})` or `(alias.${param})` - Embed a safe SQL expression.
+
+The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `@ [ ] { } ;`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy (see below).
+
+Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const expr = "Char_length('Line\n')";
+let s = sql`SELECT (${expr})`;
+console.log('' + s);
+```
+
+It's possible to prefix identifiers with parent qualifier, instead of quoting them, and also to prefix already quoted ones:
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const expr = "article_id = 10 AND `article_version` = 1 AND a.name <> ''";
+let s = sql
+`	SELECT a.name, av.*
+	FROM articles AS a
+	INNER JOIN article_version AS av ON a.id = av.article_id
+	WHERE (av.${expr})
+`;
+console.log('' + s); // prints ...WHERE (`av`.article_id = 10 AND `av`.`article_version` = 1 AND `a`.name <> '')
+```
+
+4. `[${param}]` - Generate list of SQL values.
+
+5. `{alias.${param}}`, `{alias.${param},}`, `{alias.${param}&}`, `{alias.${param}|}` - Generate equations separated with commas, or "AND" / "OR" operations (alias is optional).
+
+#### About `Sql` object
 
 The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
 
 ```ts
-Sql.toString(noBackslashEscapes=false): string
+Sql.toString(noBackslashEscapes=false, put_params_to?: any[]): string
 
-Sql.encode(noBackslashEscapes=false, useBuffer?: Uint8Array): Uint8Array
+Sql.encode(noBackslashEscapes=false, put_params_to?: any[], useBuffer?: Uint8Array): Uint8Array
 ```
 
 Also the `Sql` object has public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.

@@ -15,7 +15,7 @@ const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can exploit other b
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
-const MAX_PLACEHOLDERS = Math.floor((BUFFER_LEN - 15) / 28); // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 28
+export const MAX_PLACEHOLDERS = Math.floor((BUFFER_LEN - 16) / 27.125); // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) + placeholders mask partial byte (1-byte) = 16; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 27.125
 
 export const enum ReadPacketMode
 {	REGULAR,
