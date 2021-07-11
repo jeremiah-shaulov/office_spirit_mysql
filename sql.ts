@@ -60,8 +60,10 @@ const DELIM_OR_BACKTICK = encoder.encode(' OR `');
 const enum Want
 {	NOTHING,
 	REMOVE_APOS_OR_BRACE_CLOSE,
+	REMOVE_A_CHAR_AND_BRACE_CLOSE,
 	CONVERT_QUOT_TO_BACKTICK,
 	CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE,
+	CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE,
 }
 
 const enum State
@@ -244,7 +246,7 @@ export class Sql
 					{	if (n_items_added != 0)
 						{	serializer.append_raw_char(C_COMMA);
 						}
-						want = Want.REMOVE_APOS_OR_BRACE_CLOSE;
+						want = Want.REMOVE_A_CHAR_AND_BRACE_CLOSE;
 					}
 					else if (param_type_descriminator == C_BRACE_CLOSE)
 					{	if (n_items_added == 0)
@@ -255,11 +257,10 @@ export class Sql
 					else if (n_items_added == 0)
 					{	serializer.backspace();
 						serializer.append_raw_bytes(param_type_descriminator==C_AMP ? LIT_TRUE : LIT_FALSE);
-						want = Want.REMOVE_APOS_OR_BRACE_CLOSE;
+						want = Want.REMOVE_A_CHAR_AND_BRACE_CLOSE;
 					}
 					else
-					{	serializer.append_raw_char(C_PAREN_CLOSE);
-						want = Want.CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE;
+					{	want = Want.CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE;
 					}
 				}
 				else
@@ -344,6 +345,11 @@ class Serializer
 				this.append_raw_string(s.slice(1));
 				break;
 			}
+			case Want.REMOVE_A_CHAR_AND_BRACE_CLOSE:
+			{	debug_assert(s.charAt(1) == "}");
+				this.append_raw_string(s.slice(2));
+				break;
+			}
 			case Want.CONVERT_QUOT_TO_BACKTICK:
 			{	let from = this.pos;
 				this.append_raw_string(s);
@@ -354,6 +360,14 @@ class Serializer
 			case Want.CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE:
 			{	let from = this.pos;
 				this.append_raw_string(s);
+				debug_assert(this.result[from]==C_SQUARE_CLOSE || this.result[from]==C_BRACE_CLOSE);
+				this.result[from] = C_PAREN_CLOSE;
+				break;
+			}
+			case Want.CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE:
+			{	debug_assert(s.charAt(1) == "}");
+				let from = this.pos;
+				this.append_raw_string(s.slice(1));
 				debug_assert(this.result[from]==C_SQUARE_CLOSE || this.result[from]==C_BRACE_CLOSE);
 				this.result[from] = C_PAREN_CLOSE;
 				break;

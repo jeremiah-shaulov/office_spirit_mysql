@@ -347,8 +347,6 @@ You can use `?` placeholders in SQL query strings, and supply array of parameter
 This library doesn't parse the provided SQL string, but uses MySQL built-in functionality, so the parameters are substituted on MySQL side.
 Placeholders can appear only in places where expressions are allowed.
 
-This library supports up to 301 placeholders. This constant can be found as static field of `MyPool`: `MyPool.MAX_PLACEHOLDERS`.
-
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
@@ -449,7 +447,7 @@ const expr = "article_id = 10 AND `article_version` = 1 AND a.name <> ''";
 let s = sql
 `	SELECT a.name, av.*
 	FROM articles AS a
-	INNER JOIN article_version AS av ON a.id = av.article_id
+	INNER JOIN article_versions AS av ON a.id = av.article_id
 	WHERE (av.${expr})
 `;
 console.log('' + s); // prints ...WHERE (`av`.article_id = 10 AND `av`.`article_version` = 1 AND `a`.name <> '')
@@ -457,7 +455,72 @@ console.log('' + s); // prints ...WHERE (`av`.article_id = 10 AND `av`.`article_
 
 4. `[${param}]` - Generate list of SQL values.
 
-5. `{alias.${param}}`, `{alias.${param},}`, `{alias.${param}&}`, `{alias.${param}|}` - Generate equations separated with commas, or "AND" / "OR" operations (alias is optional).
+Square brackets will be replaced with parentheses. The parameter must be iterable. If items in the collection are also iterable, this will generate multidimensional collection.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const ids = [10, 11, 12];
+let s = sql`SELECT * FROM articles WHERE id IN [${ids}]`;
+console.log('' + s); // prints: SELECT * FROM articles WHERE id IN (10,11,12)
+```
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const list = [[10, 1], [11, 3], [12, 8]];
+let s = sql
+`	SELECT *
+	FROM articles AS a
+	INNER JOIN article_versions AS av ON a.id = av.article_id
+	WHERE (av.article_id, av.article_version) IN [${list}]
+`;
+console.log('' + s); // prints: ...WHERE (av.article_id, av.article_version) IN ((10,1),(11,3),(12,8))
+```
+
+5. `{alias.${param}}`, `{alias.${param},}` - Generate equations separated with commas (the alias is optional).
+
+The first form throws exception, if there are no fields in the param. THe Second form doesn't complain, and prints comma after the last field.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const row = {name: 'About all', author: 'Johnny'};
+let s = sql`UPDATE articles AS a SET {a.${row}} WHERE id=1`;
+console.log('' + s); // prints: UPDATE articles AS a SET `name`='About all', `author`='Johnny' WHERE id=1
+```
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const row = {name: 'About all', author: 'Johnny'};
+let s = sql`UPDATE articles AS a SET {a.${row},} article_date=Now() WHERE id=1`;
+console.log('' + s); // prints: UPDATE articles AS a SET `name`='About all', `author`='Johnny', article_date=Now() WHERE id=1
+```
+
+6. `{alias.${param}&}` - Generate equations separated with "AND" operations (the alias is optional).
+
+Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `FALSE` literal.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const row = {name: 'About all', author: 'Johnny'};
+let s = sql`SELECT * FROM articles AS a WHERE {a.${row}&}`;
+console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' AND `author`='Johnny')
+```
+
+7. `{alias.${param}|}` - Generate equations separated with "OR" operations (the alias is optional).
+
+Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `TRUE` literal.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const row = {name: 'About all', author: 'Johnny'};
+let s = sql`SELECT * FROM articles AS a WHERE {a.${row}|}`;
+console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' OR `author`='Johnny')
+```
 
 #### About `Sql` object
 

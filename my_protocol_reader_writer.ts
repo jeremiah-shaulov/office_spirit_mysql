@@ -1,6 +1,6 @@
 import {debug_assert} from './debug_assert.ts';
 import {utf8_string_length} from './utf8_string_length.ts';
-import {MyProtocolReader, BUFFER_LEN} from './my_protocol_reader.ts';
+import {MyProtocolReader} from './my_protocol_reader.ts';
 import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Sql} from './sql.ts';
@@ -27,41 +27,31 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	}
 
 	protected write_uint8(value: number)
-	{	if (this.buffer_end >= BUFFER_LEN)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer_end < this.buffer.length); // please, call ensure_room() if writing long packet
 		this.buffer[this.buffer_end++] = value;
 	}
 
 	protected write_uint16(value: number)
-	{	if (BUFFER_LEN-this.buffer_end < 2)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= 2); // please, call ensure_room() if writing long packet
 		this.data_view.setUint16(this.buffer_end, value, true);
 		this.buffer_end += 2;
 	}
 
 	/*protected write_uint24(value: number)
-	{	if (BUFFER_LEN-this.buffer_end < 3)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= 3); // please, call ensure_room() if writing long packet
 		this.data_view.setUint16(this.buffer_end, value&0xFFFF, true);
 		this.buffer_end += 2;
 		this.buffer[this.buffer_end++] = value >> 16;
 	}*/
 
 	protected write_uint32(value: number)
-	{	if (BUFFER_LEN-this.buffer_end < 4)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= 4); // please, call ensure_room() if writing long packet
 		this.data_view.setUint32(this.buffer_end, value, true);
 		this.buffer_end += 4;
 	}
 
 	protected write_uint64(value: bigint)
-	{	if (BUFFER_LEN-this.buffer_end < 8)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= 8); // please, call ensure_room() if writing long packet
 		this.data_view.setBigUint64(this.buffer_end, value, true);
 		this.buffer_end += 8;
 	}
@@ -71,23 +61,17 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		{	throw new Error('Must be nonnegative number');
 		}
 		else if (value < 0xFB)
-		{	if (this.buffer_end >= BUFFER_LEN)
-			{	throw new Error('Packet is too long');
-			}
+		{	debug_assert(this.buffer_end < this.buffer.length); // please, call ensure_room() if writing long packet
 			this.buffer[this.buffer_end++] = Number(value);
 		}
 		else if (value <= 0xFFFF)
-		{	if (BUFFER_LEN-this.buffer_end < 3)
-			{	throw new Error('Packet is too long');
-			}
+		{	debug_assert(this.buffer.length-this.buffer_end >= 3); // please, call ensure_room() if writing long packet
 			this.buffer[this.buffer_end++] = 0xFC;
 			this.data_view.setUint16(this.buffer_end, Number(value), true);
 			this.buffer_end += 2;
 		}
 		else if (value <= 0xFFFFFF)
-		{	if (BUFFER_LEN-this.buffer_end < 4)
-			{	throw new Error('Packet is too long');
-			}
+		{	debug_assert(this.buffer.length-this.buffer_end >= 4); // please, call ensure_room() if writing long packet
 			let n = Number(value);
 			this.buffer[this.buffer_end++] = 0xFD;
 			this.data_view.setUint16(this.buffer_end, n&0xFFFF, true);
@@ -95,9 +79,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			this.buffer[this.buffer_end++] = n >> 16;
 		}
 		else
-		{	if (BUFFER_LEN-this.buffer_end < 9)
-			{	throw new Error('Packet is too long');
-			}
+		{	debug_assert(this.buffer.length-this.buffer_end >= 9); // please, call ensure_room() if writing long packet
 			this.buffer[this.buffer_end++] = 0xFE;
 			this.data_view.setBigUint64(this.buffer_end, BigInt(value), true);
 			this.buffer_end += 8;
@@ -105,25 +87,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	}
 
 	protected write_double(value: number)
-	{	if (BUFFER_LEN-this.buffer_end < 8)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= 8); // please, call ensure_room() if writing long packet
 		this.data_view.setFloat64(this.buffer_end, value, true);
 		this.buffer_end += 8;
 	}
 
 	protected write_zero(n_bytes: number)
-	{	if (BUFFER_LEN-this.buffer_end < n_bytes)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= n_bytes); // please, call ensure_room() if writing long packet
 		this.buffer.fill(0, this.buffer_end, this.buffer_end+n_bytes);
 		this.buffer_end += n_bytes;
 	}
 
 	protected write_bytes(bytes: Uint8Array)
-	{	if (BUFFER_LEN-this.buffer_end < bytes.byteLength)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer.length-this.buffer_end >= bytes.byteLength); // please, call ensure_room() if writing long packet
 		this.buffer.set(bytes, this.buffer_end);
 		this.buffer_end += bytes.byteLength;
 	}
@@ -148,20 +124,18 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	{	this.write_bytes(encoder.encode(value));
 	}
 
-	protected write_lenenc_string(value: string)
+	/*protected write_lenenc_string(value: string)
 	{	let data = encoder.encode(value);
 		this.write_lenenc_int(data.length);
 		this.write_bytes(data);
-	}
+	}*/
 
 	protected write_nul_string(value: string)
 	{	this.write_nul_bytes(encoder.encode(value));
 	}
 
 	protected async write_read_chunk(value: Deno.Reader)
-	{	if (this.buffer_end >= BUFFER_LEN)
-		{	throw new Error('Packet is too long');
-		}
+	{	debug_assert(this.buffer_end < this.buffer.length); // please, call ensure_room() if writing long packet
 		let n = await value.read(this.buffer.subarray(this.buffer_end));
 		if (n != null)
 		{	this.buffer_end += n;
@@ -197,37 +171,37 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				return 0;
 			}
 		}
-		else if (typeof(data) == 'string' && data.length <= BUFFER_LEN)
+		else if (typeof(data) == 'string' && data.length <= this.buffer.length)
 		{	data = encoder.encode(data);
 		}
 		if (data instanceof Uint8Array)
 		{	let packet_size = this.buffer_end - this.buffer_start - 4 + data.length;
 			try
-			{	let size = packet_size;
-				while (size >= 0xFFFFFF)
+			{	let packet_size_remaining = packet_size;
+				while (packet_size_remaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.set_header(0xFFFFFF);
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
 					let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
 					await writeAll(this.conn, data.subarray(0, data_chunk_len));
 					data = data.subarray(data_chunk_len);
-					size -= data_chunk_len;
 					this.buffer_start = 0;
 					this.buffer_end = 4; // after header
+					packet_size_remaining = data.length;
 				}
-				debug_assert(size < 0xFFFFFF);
-				this.set_header(size);
-				if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
+				debug_assert(packet_size_remaining < 0xFFFFFF);
+				this.set_header(packet_size_remaining);
+				if (this.buffer_start+4+packet_size_remaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
 				{	this.buffer.set(data, this.buffer_end);
 					this.buffer_end += data.length;
-					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	return this.buffer_end;
 					}
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
 				}
 				else
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
-					if (can_wait && data.length<=BUFFER_LEN/2)
+					if (can_wait && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	this.buffer.set(data);
 						this.buffer_start = data.length;
 						this.buffer_end = data.length;
@@ -252,8 +226,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				data_length -= pos;
 			}
 			let packet_size = this.buffer_end - this.buffer_start - 4 + data_length;
-			let size = packet_size;
-			while (size >= 0xFFFFFF)
+			let packet_size_remaining = packet_size;
+			while (packet_size_remaining >= 0xFFFFFF)
 			{	// send current packet part + data chunk = 0xFFFFFF
 				this.set_header(0xFFFFFF);
 				try
@@ -263,10 +237,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	throw new SendWithDataError(e.message, packet_size);
 				}
 				let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
-				size -= data_chunk_len;
 				data_length -= data_chunk_len;
 				while (data_chunk_len > 0)
-				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
+				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_chunk_len, this.buffer.length)));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
@@ -280,10 +253,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 				this.buffer_start = 0;
 				this.buffer_end = 4; // after header
+				packet_size_remaining = data_length;
 			}
-			debug_assert(size < 0xFFFFFF);
-			this.set_header(size);
-			if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
+			debug_assert(packet_size_remaining < 0xFFFFFF);
+			this.set_header(packet_size_remaining);
+			if (this.buffer_start+4+packet_size_remaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
 			{	while (data_length > 0)
 				{	let n = await data.read(this.buffer.subarray(this.buffer_end));
 					if (n == null)
@@ -292,7 +266,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					this.buffer_end += n;
 					data_length -= n;
 				}
-				if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+				if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	return this.buffer_end;
 				}
 				try
@@ -310,7 +284,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	throw new SendWithDataError(e.message, packet_size);
 				}
 				while (data_length > 0)
-				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_length, BUFFER_LEN)));
+				{	let n = await data.read(this.buffer.subarray(0, Math.min(data_length, this.buffer.length)));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
@@ -328,31 +302,32 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		{	let data_length = utf8_string_length(data);
 			let packet_size = this.buffer_end - this.buffer_start - 4 + data_length;
 			try
-			{	let size = packet_size;
-				while (size >= 0xFFFFFF)
+			{	let packet_size_remaining = packet_size;
+				let for_encode = packet_size<=this.buffer.length ? this.buffer : new Uint8Array(Math.min(packet_size, 4*1024*1024));
+				while (packet_size_remaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.set_header(0xFFFFFF);
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
 					let data_chunk_len = 0xFFFFFF - (this.buffer_end - this.buffer_start - 4);
 					data_length -= data_chunk_len;
 					while (data_chunk_len > 0)
-					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_chunk_len, BUFFER_LEN)));
+					{	let {read, written} = encoder.encodeInto(data, for_encode.subarray(0, Math.min(data_chunk_len, for_encode.length)));
 						data = data.slice(read);
-						await writeAll(this.conn, this.buffer.subarray(0, written));
+						await writeAll(this.conn, for_encode.subarray(0, written));
 						data_chunk_len -= written;
 					}
-					size -= data_chunk_len;
 					this.buffer_start = 0;
 					this.buffer_end = 4; // after header
+					packet_size_remaining = data_length;
 				}
-				debug_assert(size < 0xFFFFFF);
-				this.set_header(size);
-				if (this.buffer_start+4+size <= BUFFER_LEN) // if previous packets + header + payload can fit my buffer
+				debug_assert(packet_size_remaining < 0xFFFFFF);
+				this.set_header(packet_size_remaining);
+				if (this.buffer_start+4+packet_size_remaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
 				{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.buffer_end));
 					debug_assert(read == data.length);
 					debug_assert(written == data_length);
 					this.buffer_end += written;
-					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES<=BUFFER_LEN)
+					if (can_wait && this.buffer_end+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	return this.buffer_end;
 					}
 					await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end));
@@ -360,15 +335,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				else
 				{	await writeAll(this.conn, this.buffer.subarray(0, this.buffer_end)); // send including packets before this.buffer_start
 					while (data_length > 0)
-					{	let {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(data_length, BUFFER_LEN)));
+					{	let {read, written} = encoder.encodeInto(data, for_encode.subarray(0, Math.min(data_length, for_encode.length)));
 						data = data.slice(read);
 						data_length -= written;
-						if (can_wait && data_length==0 && written<=BUFFER_LEN/2)
-						{	this.buffer_start = written;
-							this.buffer_end = written;
-							return this.buffer_end;
-						}
-						await writeAll(this.conn, this.buffer.subarray(0, written));
+						await writeAll(this.conn, for_encode.subarray(0, written));
 					}
 				}
 			}

@@ -5,6 +5,7 @@ import {BusyError, CanceledError} from "../errors.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 import * as semver from "https://deno.land/x/semver@v1.4.0/mod.ts";
 import {writeAll, readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {Resultsets} from "../resultsets.ts";
 
 const {DSN} = Deno.env.toObject();
 
@@ -232,20 +233,65 @@ Deno.test
 					assertEquals(res.affectedRows, 1);
 					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=8`).first(), {time: new Date(now+8000), message: 'Message 8'});
 
-					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+9000), {value: 'Message 9'}]);
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+9000), new Uint16Array(new TextEncoder().encode('Message 9*').buffer)]);
 					assertEquals(res.lastInsertId, 9);
 					assertEquals(res.affectedRows, 1);
-					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=9`).first(), {time: new Date(now+9000), message: JSON.stringify({value: 'Message 9'})});
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=9`).first(), {time: new Date(now+9000), message: 'Message 9*'});
 
-					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+10001), new TextEncoder().encode('-')]);
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+10000), {value: 'Message 10'}]);
 					assertEquals(res.lastInsertId, 10);
 					assertEquals(res.affectedRows, 1);
-					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [10]).first(), {time: new Date(now+10001), message: '-'});
+					assertEquals(await conn.query(sql`SELECT \`${'time'}\`, message FROM t_log WHERE id=10`).first(), {time: new Date(now+10000), message: JSON.stringify({value: 'Message 10'})});
 
-					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+11000), 123n]);
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+11001), new TextEncoder().encode('-')]);
 					assertEquals(res.lastInsertId, 11);
 					assertEquals(res.affectedRows, 1);
-					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [11]).first(), {time: new Date(now+11000), message: '123'});
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [11]).first(), {time: new Date(now+11001), message: '-'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+12001), new Uint16Array(new TextEncoder().encode('--').buffer)]);
+					assertEquals(res.lastInsertId, 12);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [12]).first(), {time: new Date(now+12001), message: '--'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+13000), 123n]);
+					assertEquals(res.lastInsertId, 13);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [13]).first(), {time: new Date(now+13000), message: '123'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+14000), null]);
+					assertEquals(res.lastInsertId, 14);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [14]).first(), {time: new Date(now+14000), message: null});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+15000), undefined]);
+					assertEquals(res.lastInsertId, 15);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [15]).first(), {time: new Date(now+15000), message: null});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+16000), () => {}]);
+					assertEquals(res.lastInsertId, 16);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [16]).first(), {time: new Date(now+16000), message: null});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+17000), Symbol.iterator]);
+					assertEquals(res.lastInsertId, 17);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [17]).first(), {time: new Date(now+17000), message: null});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+18000), false]);
+					assertEquals(res.lastInsertId, 18);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [18]).first(), {time: new Date(now+18000), message: '0'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+19000), true]);
+					assertEquals(res.lastInsertId, 19);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [19]).first(), {time: new Date(now+19000), message: '1'});
+
+					res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+20000), 123.5]);
+					assertEquals(res.lastInsertId, 20);
+					assertEquals(res.affectedRows, 1);
+					assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [20]).first(), {time: new Date(now+20000), message: '123.5'});
 				}
 			);
 		}
@@ -706,14 +752,22 @@ Deno.test
 Deno.test
 (	'Load big dump',
 	async () =>
-	{	for (let read_to_memory of [false, true])
-		{	for (let SIZE of [100, 8*1024 + 100, /* 2**24 - 8, 2**24 + 8*1024 + 100 */]) // uncomment for full test, that covers more lines
-			{	let dsn = new Dsn(DSN);
-				dsn.maxColumnLen = SIZE;
-				let pool = new MyPool(dsn);
-				try
-				{	pool.forConn
-					(	async (conn) =>
+	{	let dsn = new Dsn(DSN);
+		dsn.maxColumnLen = Number.MAX_SAFE_INTEGER;
+		let pool = new MyPool(dsn);
+		try
+		{	pool.forConn
+			(	async (conn) =>
+				{	// Createa and use db
+					await conn.query("DROP DATABASE IF EXISTS test1");
+					await conn.query("CREATE DATABASE `test1`");
+					await conn.query("USE test1");
+
+					// CREATE TABLE
+					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
+
+					for (let read_to_memory of [false, true])
+					{	for (let SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
 						{	let max_allowed_packet = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
 							if (max_allowed_packet < SIZE+100)
 							{	let want_size = SIZE + 100;
@@ -750,22 +804,18 @@ Deno.test
 									assertEquals(cur_size, SIZE);
 									await writeAll(fh, new TextEncoder().encode("'"));
 
-									// Createa and use db
-									await conn.query("DROP DATABASE IF EXISTS test1");
-									await conn.query("CREATE DATABASE `test1`");
-									await conn.query("USE test1");
-
-									// CREATE TABLE
-									await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
+									// DELETE
+									await conn.execute("DELETE FROM t_log");
 
 									// Read INSERT from file
+									let insert_status: Resultsets<any>|undefined;
 									try
 									{	if (!read_to_memory)
 										{	await fh.seek(0, Deno.SeekMode.Start);
-											await conn.query(fh);
+											insert_status = await conn.query(fh);
 										}
 										else
-										{	await conn.query(await Deno.readTextFile(filename));
+										{	insert_status = await conn.query(await Deno.readTextFile(filename));
 										}
 									}
 									catch (e)
@@ -775,20 +825,21 @@ Deno.test
 										console.warn('%cTest skipped: %c'+e.message, 'color:orange', 'color:inherit');
 										return;
 									}
+									let record_id = insert_status.lastInsertId;
 
 									// SELECT Length()
-									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id=1").first(), SIZE);
+									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id="+record_id).first(), SIZE);
 
-									let row = await conn.query("SELECT message, id FROM t_log WHERE id=1", read_to_memory ? undefined : []).first();
+									let row = await conn.query("SELECT message, id FROM t_log WHERE id="+record_id, read_to_memory ? undefined : []).first();
 									assertEquals(typeof(row?.message)=='string' ? row.message.length : -1, SIZE);
-									assertEquals(row?.id, 1);
+									assertEquals(row?.id, record_id);
 
 									// SELECT from table to new file
 									let filename_2 = await Deno.makeTempFile();
 									try
 									{	let fh_2 = await Deno.open(filename_2, {write: true, read: true});
 										try
-										{	let row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id=1");
+										{	let row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id="+record_id);
 											await Deno.copy(row?.message as any, fh_2);
 
 											// Validate the new file size
@@ -797,6 +848,8 @@ Deno.test
 											await fh_2.seek(0, Deno.SeekMode.Start);
 
 											// Validate the new file contents
+											let since = Date.now();
+											console.log('Started validating');
 											let buffer_2 = new Uint8Array(buffer.length);
 											while (size_2 > 0)
 											{	let pos = 0;
@@ -810,6 +863,7 @@ Deno.test
 												assertEquals(buffer.subarray(0, len), buffer_2.subarray(0, len));
 												size_2 -= len;
 											}
+											console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
 										}
 										finally
 										{	fh_2.close();
@@ -827,13 +881,13 @@ Deno.test
 							{	await Deno.remove(filename);
 							}
 						}
-					);
+					}
 				}
-				finally
-				{	await pool.onEnd();
-					pool.closeIdle();
-				}
-			}
+			);
+		}
+		finally
+		{	await pool.onEnd();
+			pool.closeIdle();
 		}
 	}
 );

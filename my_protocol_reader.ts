@@ -1,29 +1,49 @@
 import {debug_assert} from './debug_assert.ts';
 import {ServerDisconnectedError} from './errors.ts';
 
-export const BUFFER_LEN = 8*1024;
+const INIT_BUFFER_LEN = 8*1024;
+
+const STUB = new Uint8Array;
 
 export class MyProtocolReader
-{	protected buffer;
+{	protected buffer: Uint8Array;
 	protected buffer_start = 0;
 	protected buffer_end = 0;
 	protected sequence_id = 0;
 	protected payload_length = 0;
 	protected packet_offset = 0; // can be negative, if correct_near_packet_boundary() joined 2 packets
+	protected orig_buffer: Uint8Array;
 
 	protected data_view: DataView;
 
 	protected constructor(protected conn: Deno.Conn, protected decoder: TextDecoder, use_buffer: Uint8Array|undefined)
-	{	this.buffer = use_buffer ?? new Uint8Array(BUFFER_LEN);
+	{	this.buffer = use_buffer ?? new Uint8Array(INIT_BUFFER_LEN);
+		this.orig_buffer = this.buffer;
 		this.data_view = new DataView(this.buffer.buffer);
-		debug_assert(this.buffer.length == BUFFER_LEN);
+		debug_assert(this.buffer.length == INIT_BUFFER_LEN);
 	}
 
 	close()
 	{	this.conn.close();
-		let {buffer} = this;
-		this.buffer = new Uint8Array;
-		return buffer; // this buffer can be recycled
+		let {orig_buffer} = this;
+		this.orig_buffer = this.buffer = STUB;
+		this.data_view = new DataView(STUB.buffer);
+		return orig_buffer; // this buffer can be recycled
+	}
+
+	protected ensure_room(room: number)
+	{	let want_len = this.buffer_end + room;
+		if (want_len > this.buffer.length)
+		{	debug_assert(Number.isFinite(want_len));
+			let len = this.buffer.length * 2;
+			while (len < want_len)
+			{	len *= 2;
+			}
+			let new_buffer = new Uint8Array(len);
+			new_buffer.set(this.buffer);
+			this.buffer = new_buffer;
+			this.data_view = new DataView(new_buffer.buffer);
+		}
 	}
 
 	protected is_at_end_of_packet()
@@ -52,12 +72,12 @@ export class MyProtocolReader
 	// --- 1. recv_*
 
 	private async recv_at_least(n_bytes: number, can_eof=false)
-	{	debug_assert(n_bytes <= BUFFER_LEN);
+	{	debug_assert(n_bytes <= this.buffer.length);
 		if (this.buffer_start == this.buffer_end)
 		{	this.buffer_start = 0;
 			this.buffer_end = 0;
 		}
-		else if (this.buffer_start > BUFFER_LEN-n_bytes)
+		else if (this.buffer_start > this.buffer.length-n_bytes)
 		{	this.buffer.copyWithin(0, this.buffer_start, this.buffer_end);
 			this.buffer_end -= this.buffer_start;
 			this.buffer_start = 0;
@@ -77,7 +97,7 @@ export class MyProtocolReader
 	}
 
 	/**	Don't call if buffer.subarray(buffer_start, buffer_end).indexOf(0) != -1.
-		Only can read strings not longer than BUFFER_LEN, and not across packet boundary, or exception will be thrown.
+		Only can read strings not longer than buffer.length, and not across packet boundary, or exception will be thrown.
 		Returns i, where buffer[i] == 0, and buffer[buffer_start .. i] is the string.
 	 **/
 	private async recv_to_nul()
@@ -86,15 +106,15 @@ export class MyProtocolReader
 			this.buffer_end = 0;
 		}
 		while (true)
-		{	if (this.buffer_end == BUFFER_LEN)
+		{	if (this.buffer_end == this.buffer.length)
 			{	if (this.buffer_start == 0)
-				{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN/1024} kib`);
+				{	throw new Error(`String is too long for this operation. Longer than ${this.buffer.length/1024} kib`);
 				}
 				this.buffer_end -= this.buffer_start;
 				this.buffer.copyWithin(0, this.buffer_start);
 				this.buffer_start = 0;
 			}
-			debug_assert(this.buffer_end < BUFFER_LEN);
+			debug_assert(this.buffer_end < this.buffer.length);
 			let n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
 			if (n_read == null)
 			{	throw new ServerDisconnectedError('Server disconnected');
@@ -453,8 +473,8 @@ export class MyProtocolReader
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected read_short_bytes(len: number)
-	{	if (len > BUFFER_LEN-4) // minus 4 byte header
-		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
+	{	if (len > this.buffer.length-4) // minus 4 byte header
+		{	throw new Error(`String is too long for this operation. Longer than ${this.buffer.length-4} bytes`);
 		}
 		let have_bytes = this.buffer_end - this.buffer_start;
 		if (have_bytes >= len)
@@ -478,12 +498,12 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read len bytes, where len<=BUFFER_LEN-4, do: read_short_bytes() ?? await read_short_bytes_async().
+	/**	To read len bytes, where len<=buffer.length-4, do: read_short_bytes() ?? await read_short_bytes_async().
 		This allows to avoid unnecessary promise awaiting.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected async read_short_bytes_async(len: number)
-	{	debug_assert(len <= BUFFER_LEN-4); // use read_short_bytes() first
+	{	debug_assert(len <= this.buffer.length-4); // use read_short_bytes() first
 		let len_in_cur_packet = this.payload_length - this.packet_offset;
 		if (len_in_cur_packet >= len)
 		{	await this.recv_at_least(len);
@@ -520,9 +540,9 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a null-terminated blob that can fit BUFFER_LEN (not across packet boundary), do: read_short_nul_bytes() ?? await read_short_nul_bytes_async().
+	/**	To read a null-terminated blob that can fit buffer.length (not across packet boundary), do: read_short_nul_bytes() ?? await read_short_nul_bytes_async().
 		This allows to avoid unnecessary promise awaiting.
-		If the blob was longer than BUFFER_LEN, error is thrown.
+		If the blob was longer than buffer.length, error is thrown.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected async read_short_nul_bytes_async()
@@ -549,7 +569,7 @@ export class MyProtocolReader
 					}
 					debug_assert(this.payload_length-this.packet_offset >= 9);
 					let value = this.data_view.getBigUint64(this.buffer_start+1, true);
-					if (value <= BUFFER_LEN)
+					if (value <= this.buffer.length)
 					{	str_len = Number(value);
 						all_len = str_len + 9;
 					}
@@ -609,14 +629,14 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	Reads blob with length-encoded length. The blob must be not longer than BUFFER_LEN-4 bytes, or error will be thrown.
+	/**	Reads blob with length-encoded length. The blob must be not longer than buffer.length-4 bytes, or error will be thrown.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 		Null value (0xFB) will be returned as empty buffer.
 	 **/
 	protected async read_short_lenenc_bytes_async()
 	{	let len = this.read_lenenc_int() ?? await this.read_lenenc_int_async();
-		if (len > BUFFER_LEN-4)
-		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
+		if (len > this.buffer.length-4)
+		{	throw new Error(`String is too long for this operation. Longer than ${this.buffer.length-4} bytes`);
 		}
 		let n = Number(len);
 		if (n <= -1)
@@ -641,7 +661,7 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a blob that can fit BUFFER_LEN to end of packet, do: read_short_eof_bytes() ?? await read_short_eof_bytes_async().
+	/**	To read a blob that can fit buffer.length to end of packet, do: read_short_eof_bytes() ?? await read_short_eof_bytes_async().
 		This allows to avoid unnecessary promise awaiting.
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
@@ -744,11 +764,11 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a fixed-length string that can fit BUFFER_LEN-4, do: read_short_string() ?? await read_short_string_async().
+	/**	To read a fixed-length string that can fit buffer.length-4, do: read_short_string() ?? await read_short_string_async().
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_short_string_async(len: number)
-	{	debug_assert(len <= BUFFER_LEN-4); // use read_short_bytes() first
+	{	debug_assert(len <= this.buffer.length-4); // use read_short_bytes() first
 		let len_in_cur_packet = this.payload_length - this.packet_offset;
 		if (len_in_cur_packet >= len)
 		{	await this.recv_at_least(len);
@@ -784,9 +804,9 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a nul-string that can fit BUFFER_LEN, do: read_short_nul_string() ?? await read_short_nul_string_async().
+	/**	To read a nul-string that can fit buffer.length, do: read_short_nul_string() ?? await read_short_nul_string_async().
 		This allows to avoid unnecessary promise awaiting.
-		If the string was longer than BUFFER_LEN, error is thrown.
+		If the string was longer than buffer.length, error is thrown.
 	 **/
 	protected async read_short_nul_string_async()
 	{	let i = await this.recv_to_nul();
@@ -807,14 +827,14 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a fixed-length string that can fit BUFFER_LEN-4, do: read_short_lenenc_string() ?? await read_short_lenenc_string_async().
+	/**	To read a fixed-length string that can fit buffer.length-4, do: read_short_lenenc_string() ?? await read_short_lenenc_string_async().
 		This allows to avoid unnecessary promise awaiting.
 		Null value (0xFB) will be returned as ''.
 	 **/
 	protected async read_short_lenenc_string_async()
 	{	let len = this.read_lenenc_int() ?? await this.read_lenenc_int_async();
-		if (len > BUFFER_LEN-4)
-		{	throw new Error(`String is too long for this operation. Longer than ${BUFFER_LEN-4} bytes`);
+		if (len > this.buffer.length-4)
+		{	throw new Error(`String is too long for this operation. Longer than ${this.buffer.length-4} bytes`);
 		}
 		let n = Number(len);
 		if (n <= -1)
@@ -838,7 +858,7 @@ export class MyProtocolReader
 		}
 	}
 
-	/**	To read a string that can fit BUFFER_LEN to end of packet, do: read_short_eof_string() ?? await read_short_eof_string_async().
+	/**	To read a string that can fit buffer.length to end of packet, do: read_short_eof_string() ?? await read_short_eof_string_async().
 		This allows to avoid unnecessary promise awaiting.
 	 **/
 	protected async read_short_eof_string_async()

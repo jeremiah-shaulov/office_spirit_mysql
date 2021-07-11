@@ -7,15 +7,12 @@ import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsDriver} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
-import {BUFFER_LEN} from "./my_protocol_reader.ts";
 import {conv_column_value} from "./conv_column_value.ts";
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can exploit other bits for myself
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
-
-export const MAX_PLACEHOLDERS = Math.floor((BUFFER_LEN - 16) / 27.125); // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) + placeholders mask partial byte (1-byte) = 16; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 27.125
 
 export const enum ReadPacketMode
 {	REGULAR,
@@ -628,14 +625,12 @@ L:		while (true)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
-				{	if (param.length > 8)
-					{	this.start_writing_new_packet(true, packet_start);
-						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
-						this.write_uint32(stmt_id);
-						this.write_uint16(i);
-						packet_start = await this.send_with_data(param, false, true);
-						placeholders[i].flags |= BLOB_SENT_FLAG;
-					}
+				{	this.start_writing_new_packet(true, packet_start);
+					this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
+					this.write_uint32(stmt_id);
+					this.write_uint16(i);
+					packet_start = await this.send_with_data(param, false, true);
+					placeholders[i].flags |= BLOB_SENT_FLAG;
 				}
 				else if (typeof(param) == 'object')
 				{	if (param instanceof Uint8Array)
@@ -690,11 +685,8 @@ L:		while (true)
 			}
 		}
 		// Flush, if not enuogh space in buffer for the placeholders packet
-		if (n_placeholders > MAX_PLACEHOLDERS)
-		{	throw new Error(`Too many parameters in query: ${n_placeholders}. Max supported: ${MAX_PLACEHOLDERS}`);
-		}
-		let pax_expected_packet_size_including_header = 15 + n_placeholders*32; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) = 28
-		if (packet_start + pax_expected_packet_size_including_header > BUFFER_LEN)
+		let max_expected_packet_size_including_header = 15 + n_placeholders*32; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 28
+		if (packet_start + max_expected_packet_size_including_header > this.buffer.length)
 		{	await this.send();
 			packet_start = 0;
 		}
@@ -706,6 +698,7 @@ L:		while (true)
 		this.write_uint32(1); // iteration_count
 		if (n_placeholders > 0)
 		{	// Send null-bitmap for each param
+			this.ensure_room((n_placeholders >> 3) + 2 + (n_placeholders << 1)); // 1 bit per each placeholder (n_placeholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (n_placeholders*2 bytes)
 			let null_bits = 0;
 			let null_bit_mask = 1;
 			for (let i=0; i<n_placeholders; i++)
@@ -725,38 +718,53 @@ L:		while (true)
 			if (null_bit_mask != 1)
 			{	this.write_uint8(null_bits);
 			}
-			// Send type of each param
 			this.write_uint8(1); // new_params_bound_flag
+			// Send type of each param
+			let params_len = 0;
 			for (let i=0; i<n_placeholders; i++)
 			{	let param = params[i];
 				let type = FieldType.MYSQL_TYPE_STRING;
 				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 				{	if (typeof(param) == 'boolean')
 					{	type = FieldType.MYSQL_TYPE_TINY;
+						params_len++;
 					}
 					else if (typeof(param) == 'number')
-					{	if (param % 1)
-						{	type = FieldType.MYSQL_TYPE_DOUBLE;
+					{	if (Number.isInteger(param) && param>=-0x80000000 && param<=0x7FFFFFFF)
+						{	type = FieldType.MYSQL_TYPE_LONG;
+							params_len += 4;
 						}
 						else
-						{	type = param>=-0x80000000 && param<=0x7FFFFFFF ? FieldType.MYSQL_TYPE_LONG : FieldType.MYSQL_TYPE_LONGLONG;
+						{	type = FieldType.MYSQL_TYPE_DOUBLE;
+							params_len+= 8;
 						}
 					}
 					else if (typeof(param) == 'bigint')
 					{	type = FieldType.MYSQL_TYPE_LONGLONG;
+						params_len += 8;
 					}
 					else if (typeof(param) == 'object')
 					{	if (param instanceof Date)
 						{	type = FieldType.MYSQL_TYPE_DATETIME;
+							params_len += 12;
 						}
-						else if (param.buffer instanceof ArrayBuffer || typeof(param.read) == 'function')
+						else if (param.buffer instanceof ArrayBuffer)
 						{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+							params_len += param.byteLength;
 						}
+						else if (typeof(param.read) == 'function')
+						{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+							params_len++;
+						}
+					}
+					else
+					{	debug_assert(typeof(param)=='string' && (placeholders[i].flags & BLOB_SENT_FLAG));
 					}
 				}
 				this.write_uint16(type);
 			}
 			// Send value of each param
+			this.ensure_room(params_len);
 			for (let i=0; i<n_placeholders; i++)
 			{	let param = params[i];
 				if (placeholders[i].flags & BLOB_SENT_FLAG)
@@ -776,9 +784,6 @@ L:		while (true)
 					}
 					else if (typeof(param) == 'bigint')
 					{	this.write_uint64(param);
-					}
-					else if (typeof(param) == 'string')
-					{	this.write_lenenc_string(param+'');
 					}
 					else if (param instanceof Date)
 					{	let frac = param.getMilliseconds();
@@ -885,7 +890,7 @@ L:		while (true)
 					else if (len > this.max_column_len)
 					{	this.read_void(len) || this.read_void_async(len);
 					}
-					else if (len <= BUFFER_LEN)
+					else if (len <= this.buffer.length)
 					{	let v = this.read_short_bytes(len) ?? await this.read_short_bytes_async(len);
 						value = conv_column_value(v, columns[i].type, this.decoder);
 					}
@@ -1012,7 +1017,7 @@ L:		while (true)
 							else if (len > this.max_column_len)
 							{	this.read_void(len) || this.read_void_async(len);
 							}
-							else if (len <= BUFFER_LEN)
+							else if (len <= this.buffer.length)
 							{	value = this.read_short_string(len) ?? await this.read_short_string_async(len);
 							}
 							else
