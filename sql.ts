@@ -341,13 +341,23 @@ class Serializer
 	append_intermediate_sql_part(s: string, want: Want)
 	{	switch (want)
 		{	case Want.REMOVE_APOS_OR_BRACE_CLOSE:
-			{	debug_assert(s.charAt(0)=="'" || s.charAt(0)=="}");
-				this.append_raw_string(s.slice(1));
+			{	let from = --this.pos;
+				let c = this.result[from];
+				this.append_raw_string(s);
+				debug_assert(this.result[from]==C_APOS || this.result[from]==C_BRACE_CLOSE);
+				this.result[from] = c;
 				break;
 			}
 			case Want.REMOVE_A_CHAR_AND_BRACE_CLOSE:
 			{	debug_assert(s.charAt(1) == "}");
-				this.append_raw_string(s.slice(2));
+				this.pos -= 2;
+				let from = this.pos;
+				let c0 = this.result[from];
+				let c1 = this.result[from + 1];
+				this.append_raw_string(s);
+				debug_assert(this.result[from+1] == C_BRACE_CLOSE);
+				this.result[from] = c0;
+				this.result[from + 1] = c1;
 				break;
 			}
 			case Want.CONVERT_QUOT_TO_BACKTICK:
@@ -365,11 +375,12 @@ class Serializer
 				break;
 			}
 			case Want.CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE:
-			{	debug_assert(s.charAt(1) == "}");
-				let from = this.pos;
-				this.append_raw_string(s.slice(1));
-				debug_assert(this.result[from]==C_SQUARE_CLOSE || this.result[from]==C_BRACE_CLOSE);
-				this.result[from] = C_PAREN_CLOSE;
+			{	let from = --this.pos;
+				let c = this.result[from];
+				this.append_raw_string(s);
+				debug_assert(this.result[from+1] == C_BRACE_CLOSE);
+				this.result[from + 1] = C_PAREN_CLOSE;
+				this.result[from] = c;
 				break;
 			}
 			default:

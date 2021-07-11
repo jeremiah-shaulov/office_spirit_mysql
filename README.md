@@ -606,6 +606,17 @@ console.log('Identifiers policy: ', policy.idents);
 console.log('Functions policy: ', policy.functions);
 ```
 
+## MySQL binary protocol
+
+All you need to know about it, is that not all queries can be run in the MySQL binary protocol.
+
+This library uses Text protocol, if `params` are undefined in `conn.execute()` or `conn.query*()` functions.
+If the `params` argument is specified, even if it's an empty array, the Binary protocol is used.
+
+If the `params` is an empty array, and the first argument (sqlSource) is an `Sql` object, then the values in this object will be converted to `?`-placeholders, and they will be added to that empty array.
+
+Please, see [here](https://dev.mysql.com/worklog/task/?id=2871) what query types can run in the Binary protocol.
+
 ## Reading long BLOBs
 
 This library tries to have everything needed in real life usage. It's possible to read long data without storing it in memory.

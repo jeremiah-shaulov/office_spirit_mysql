@@ -303,7 +303,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			let packet_size = this.buffer_end - this.buffer_start - 4 + data_length;
 			try
 			{	let packet_size_remaining = packet_size;
-				let for_encode = packet_size<=this.buffer.length ? this.buffer : new Uint8Array(Math.min(packet_size, 4*1024*1024));
+				let for_encode = this.buffer_start+4+packet_size <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(data_length, 4*1024*1024));
 				while (packet_size_remaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.set_header(0xFFFFFF);
