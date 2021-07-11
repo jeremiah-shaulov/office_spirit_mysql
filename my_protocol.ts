@@ -685,7 +685,7 @@ L:		while (true)
 			}
 		}
 		// Flush, if not enuogh space in buffer for the placeholders packet
-		let max_expected_packet_size_including_header = 15 + n_placeholders*32; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be 8-char string (max 24 bytes) + lenenc string length (1 byte) + param type (2-byte) + null mask (1-bit) <= 28
+		let max_expected_packet_size_including_header = 15 + n_placeholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be lenenc number (max 9 bytes) + param type (2-byte) + null mask (1-bit) <= 12
 		if (packet_start + max_expected_packet_size_including_header > this.buffer.length)
 		{	await this.send();
 			packet_start = 0;
