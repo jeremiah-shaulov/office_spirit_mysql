@@ -480,7 +480,7 @@ console.log('' + s); // prints: ...WHERE (av.article_id, av.article_version) IN 
 
 5. `{alias.${param}}`, `{alias.${param},}` - Generate equations separated with commas (the alias is optional).
 
-The first form throws exception, if there are no fields in the param. THe Second form doesn't complain, and prints comma after the last field.
+The first form throws exception, if there are no fields in the param. The Second form doesn't complain, and prints comma after the last field.
 
 ```ts
 import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
@@ -527,9 +527,9 @@ console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About
 The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
 
 ```ts
-Sql.toString(noBackslashEscapes=false, put_params_to?: any[]): string
+Sql.toString(noBackslashEscapes=false, putParamsTo?: any[]): string
 
-Sql.encode(noBackslashEscapes=false, put_params_to?: any[], useBuffer?: Uint8Array): Uint8Array
+Sql.encode(noBackslashEscapes=false, putParamsTo?: any[], useBuffer?: Uint8Array): Uint8Array
 ```
 
 Also the `Sql` object has public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.

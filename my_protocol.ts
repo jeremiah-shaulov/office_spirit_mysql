@@ -625,12 +625,14 @@ L:		while (true)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
-				{	this.start_writing_new_packet(true, packet_start);
-					this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
-					this.write_uint32(stmt_id);
-					this.write_uint16(i);
-					packet_start = await this.send_with_data(param, false, true);
-					placeholders[i].flags |= BLOB_SENT_FLAG;
+				{	if (param.length != 0)
+					{	this.start_writing_new_packet(true, packet_start);
+						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
+						this.write_uint32(stmt_id);
+						this.write_uint16(i);
+						packet_start = await this.send_with_data(param, false, true);
+						placeholders[i].flags |= BLOB_SENT_FLAG;
+					}
 				}
 				else if (typeof(param) == 'object')
 				{	if (param instanceof Uint8Array)
@@ -758,7 +760,7 @@ L:		while (true)
 						}
 					}
 					else
-					{	debug_assert(typeof(param)=='string' && (placeholders[i].flags & BLOB_SENT_FLAG));
+					{	debug_assert(typeof(param)=='string' && ((placeholders[i].flags & BLOB_SENT_FLAG) || param.length == 0));
 					}
 				}
 				this.write_uint16(type);
@@ -784,6 +786,10 @@ L:		while (true)
 					}
 					else if (typeof(param) == 'bigint')
 					{	this.write_uint64(param);
+					}
+					else if (typeof(param) == 'string')
+					{	debug_assert(param.length == 0);
+						this.write_uint8(0);
 					}
 					else if (param instanceof Date)
 					{	let frac = param.getMilliseconds();
