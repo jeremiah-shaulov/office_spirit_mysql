@@ -1,5 +1,6 @@
 import {debug_assert} from './debug_assert.ts';
 import {SqlPolicy} from './sql_policy.ts';
+import {utf8_string_length} from "./utf8_string_length.ts";
 
 const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
@@ -40,6 +41,8 @@ const C_SQUARE_OPEN = '['.charCodeAt(0);
 const C_SQUARE_CLOSE = ']'.charCodeAt(0);
 const C_BRACE_OPEN = '{'.charCodeAt(0);
 const C_BRACE_CLOSE = '}'.charCodeAt(0);
+const C_LT = '<'.charCodeAt(0);
+const C_GT = '>'.charCodeAt(0);
 
 const NUMBER_ALLOC_CHAR_LEN = Math.max((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length, (Number.MAX_VALUE+'').length, (Number.MIN_VALUE+'').length);
 const BIGINT_ALLOC_CHAR_LEN = Math.max((0x8000_0000_0000_0000n+'').length, (0x7FFF_FFFF_FFFF_FFFFn+'').length);
@@ -49,6 +52,9 @@ const DEFAULT_SQL_POLICY = new SqlPolicy;
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
+const decoder_latin1 = new TextDecoder('latin1');
+
+const BUFFER_FOR_DATE = new Uint8Array(23);
 
 const LIT_NULL = encoder.encode('NULL');
 const LIT_FALSE = encoder.encode('FALSE');
@@ -56,13 +62,16 @@ const LIT_TRUE = encoder.encode('TRUE');
 const DELIM_COMMA_BACKTICK = encoder.encode(', `');
 const DELIM_AND_BACKTICK = encoder.encode(' AND `');
 const DELIM_OR_BACKTICK = encoder.encode(' OR `');
+const DELIM_PAREN_CLOSE_VALUES = encoder.encode(') VALUES\n');
+
+const MYSQL_MAX_PLACEHOLDERS = 2**16 - 1;
 
 const enum Want
 {	NOTHING,
 	REMOVE_APOS_OR_BRACE_CLOSE,
 	REMOVE_A_CHAR_AND_BRACE_CLOSE,
 	CONVERT_QUOT_TO_BACKTICK,
-	CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE,
+	CONVERT_CLOSE_TO_PAREN_CLOSE,
 	CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE,
 }
 
@@ -150,7 +159,8 @@ export class Sql
 		sql.strings = strings;
 		sql.params = this.params.concat(other.params);
 		sql.sqlPolicy = this.sqlPolicy ?? other.sqlPolicy;
-		sql.estimatedByteLength = this.estimatedByteLength + other.estimatedByteLength;
+		sql.estimatedByteLength = this.estimatedByteLength + other.estimatedByteLength - 10;
+		debug_assert(sql.estimatedByteLength >= 10);
 		return sql;
 	}
 
@@ -187,12 +197,23 @@ export class Sql
 			{	if (strings[i+1].charCodeAt(0) != C_SQUARE_CLOSE)
 				{	throw new Error(`Inappropriately enclosed parameter`);
 				}
-				serializer.set_char(-1, C_PAREN_OPEN); // [ -> (
-				if (typeof(param)!='object' || !(Symbol.iterator in param))
+				if (param==null || typeof(param)!='object' || !(Symbol.iterator in param))
 				{	throw new Error("In SQL fragment: parameter for [${...}] must be iterable");
 				}
+				serializer.set_char(-1, C_PAREN_OPEN); // [ -> (
 				serializer.append_iterable(param);
-				want = Want.CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE;
+				want = Want.CONVERT_CLOSE_TO_PAREN_CLOSE;
+			}
+			else if (qt == C_LT)
+			{	if (strings[i+1].charCodeAt(0) != C_GT)
+				{	throw new Error(`Inappropriately enclosed parameter`);
+				}
+				if (param==null || typeof(param)!='object' || !(Symbol.iterator in param))
+				{	throw new Error("In SQL fragment: parameter for <${...}> must be iterable");
+				}
+				serializer.set_char(-1, C_PAREN_OPEN); // < -> (
+				serializer.append_names_values(param);
+				want = Want.CONVERT_CLOSE_TO_PAREN_CLOSE;
 			}
 			else
 			{	// SQL fragment
@@ -215,7 +236,7 @@ export class Sql
 					if (param_type_descriminator!=C_BRACE_CLOSE && param_type_descriminator!=C_COMMA && param_type_descriminator!=C_AMP && param_type_descriminator!=C_PIPE)
 					{	throw new Error(`Inappropriately enclosed parameter`);
 					}
-					if (typeof(param) != 'object')
+					if (param==null || typeof(param)!='object')
 					{	throw new Error("In SQL fragment: parameter for {${...}} must be object");
 					}
 					let delim = DELIM_COMMA_BACKTICK;
@@ -233,6 +254,12 @@ export class Sql
 						}
 						else
 						{	serializer.append_raw_char(C_BACKTICK);
+						}
+						if (parent_name)
+						{	serializer.append_raw_bytes(parent_name);
+							serializer.append_raw_char(C_BACKTICK);
+							serializer.append_raw_char(C_DOT);
+							serializer.append_raw_char(C_BACKTICK);
 						}
 						serializer.append_quoted_ident(k);
 						serializer.append_raw_char(C_BACKTICK);
@@ -276,6 +303,71 @@ export class Sql
 
 	toString(no_backslash_escapes=false, put_params_to?: any[])
 	{	return decoder.decode(this.encode(no_backslash_escapes, put_params_to));
+	}
+
+	static quote(param: any, no_backslash_escapes=false)
+	{	if (param == null)
+		{	return 'NULL';
+		}
+		if (param === false)
+		{	return 'FALSE';
+		}
+		if (param === true)
+		{	return 'TRUE';
+		}
+		if (typeof(param)=='number' || typeof(param)=='bigint')
+		{	return param+'';
+		}
+		if (param instanceof Date)
+		{	let len = date_encode_into(param, BUFFER_FOR_DATE);
+			return decoder_latin1.decode(BUFFER_FOR_DATE.subarray(0, len));
+		}
+		if (param.buffer instanceof ArrayBuffer)
+		{	let param_len = param.byteLength;
+			let result = new Uint8Array(param_len*2 + 3);
+			result[0] = C_X;
+			result[1] = C_APOS;
+			let pos = 2;
+			for (let j=0; j<param_len; j++)
+			{	let byte = param[j];
+				let high = byte >> 4;
+				let low = byte & 0xF;
+				result[pos++] = high < 10 ? C_ZERO+high : high-10+C_A_CAP;
+				result[pos++] = low < 10 ? C_ZERO+low : low-10+C_A_CAP;
+			}
+			result[pos] = C_APOS;
+			return decoder_latin1.decode(result);
+		}
+		// Assume: param is string
+		if (typeof(param) == 'object')
+		{	param = JSON.stringify(param);
+		}
+		else
+		{	param += '';
+		}
+		let n_add = 0;
+		for (let j=0, j_end=param.length; j<j_end; j++)
+		{	let c = param.charCodeAt(j);
+			if (c==C_APOS || c==C_BACKSLASH && !no_backslash_escapes)
+			{	n_add++;
+			}
+		}
+		if (n_add == 0)
+		{	return "'" + param + "'";
+		}
+		let result = new Uint8Array(2 + utf8_string_length(param) + n_add);
+		let {read, written} = encoder.encodeInto(param, result.subarray(1));
+		debug_assert(read == param.length);
+		result[0] = C_APOS;
+		for (let j=written, k=j+n_add; k!=j; k--, j--)
+		{	let c = result[j];
+			if (c==C_APOS || c==C_BACKSLASH && !no_backslash_escapes)
+			{	result[k--] = c;
+			}
+			result[k] = c;
+		}
+		result[1 + written + n_add] = C_APOS;
+		return decoder.decode(result);
 	}
 }
 
@@ -367,10 +459,10 @@ class Serializer
 				this.result[from] = C_BACKTICK;
 				break;
 			}
-			case Want.CONVERT_SQUARE_OR_BRACE_CLOSE_TO_PAREN_CLOSE:
+			case Want.CONVERT_CLOSE_TO_PAREN_CLOSE:
 			{	let from = this.pos;
 				this.append_raw_string(s);
-				debug_assert(this.result[from]==C_SQUARE_CLOSE || this.result[from]==C_BRACE_CLOSE);
+				debug_assert(this.result[from]==C_SQUARE_CLOSE || this.result[from]==C_BRACE_CLOSE || this.result[from]==C_GT);
 				this.result[from] = C_PAREN_CLOSE;
 				break;
 			}
@@ -440,22 +532,22 @@ class Serializer
 			this.append_raw_bytes(LIT_TRUE);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		if (this.put_params_to)
-		{	this.result[this.pos - 1] = C_QUEST; // ' -> ?
-			this.put_params_to.push(param);
-			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
-		}
 		if (typeof(param)=='number' || typeof(param)=='bigint')
 		{	this.pos--; // backspace '
 			this.append_raw_string(param+'');
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else if (param instanceof Date)
+		if (param instanceof Date)
 		{	this.ensure_room(DATE_ALLOC_CHAR_LEN);
 			this.pos += date_encode_into(param, this.result.subarray(this.pos));
 			return Want.NOTHING;
 		}
-		else if (param.buffer instanceof ArrayBuffer)
+		if (this.put_params_to && this.put_params_to.length<MYSQL_MAX_PLACEHOLDERS)
+		{	this.result[this.pos - 1] = C_QUEST; // ' -> ?
+			this.put_params_to.push(param);
+			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
+		}
+		if (param.buffer instanceof ArrayBuffer)
 		{	this.pos--; // backspace '
 			let param_len = param.byteLength;
 			this.ensure_room(param_len*2 + 3); // like x'01020304'
@@ -472,34 +564,32 @@ class Serializer
 			result[this.pos++] = C_APOS;
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
 		}
-		else
-		{	param += '';
-			let from = this.pos;
-			// Append param, as is
-			this.append_raw_string(param);
-			// Escape chars in param
-			let {result, pos} = this;
-			let n_add = 0;
-			for (let j=from; j<pos; j++)
+		// Assume: param is string
+		param += '';
+		// Append param, as is
+		this.append_raw_string(param);
+		// Escape chars in param
+		let {result, pos} = this;
+		let n_add = 0;
+		for (let j=0, j_end=param.length; j<j_end; j++)
+		{	let c = param.charCodeAt(j);
+			if (c==C_APOS || c==C_BACKSLASH && !this.no_backslash_escapes)
+			{	n_add++;
+			}
+		}
+		if (n_add > 0)
+		{	this.ensure_room(n_add);
+			result = this.result;
+			for (let j=pos-1, k=j+n_add; k!=j; k--, j--)
 			{	let c = result[j];
 				if (c==C_APOS || c==C_BACKSLASH && !this.no_backslash_escapes)
-				{	n_add++;
+				{	result[k--] = c;
 				}
+				result[k] = c;
 			}
-			if (n_add > 0)
-			{	this.ensure_room(n_add);
-				result = this.result;
-				for (let j=pos-1, k=j+n_add; k!=j; k--, j--)
-				{	let c = result[j];
-					if (c==C_APOS || c==C_BACKSLASH && !this.no_backslash_escapes)
-					{	result[k--] = c;
-					}
-					result[k] = c;
-				}
-				this.pos = pos + n_add;
-			}
-			return Want.NOTHING;
+			this.pos = pos + n_add;
 		}
+		return Want.NOTHING;
 	}
 
 	/**	Append a [${param}].
@@ -511,7 +601,7 @@ class Serializer
 		{	if (n_items_added++ != 0)
 			{	this.append_raw_char(C_COMMA);
 			}
-			if (typeof(p)!='object' || (p instanceof Date) || (p.buffer instanceof ArrayBuffer))
+			if (typeof(p)!='object' && typeof(p)!='function' || (p instanceof Date) || (p.buffer instanceof ArrayBuffer))
 			{	this.append_raw_char(C_APOS);
 				if (this.append_sql_value(p) != Want.REMOVE_APOS_OR_BRACE_CLOSE)
 				{	this.append_raw_char(C_APOS);
@@ -519,16 +609,56 @@ class Serializer
 			}
 			else if (Symbol.iterator in p)
 			{	this.append_raw_char(C_PAREN_OPEN);
-				if (this.append_iterable(p) == 0)
-				{	this.append_raw_bytes(LIT_NULL);
-				}
+				this.append_iterable(p);
 				this.append_raw_char(C_PAREN_CLOSE);
 			}
 			else
 			{	this.append_raw_bytes(LIT_NULL);
 			}
 		}
-		return n_items_added;
+		if (n_items_added == 0)
+		{	this.append_raw_bytes(LIT_NULL);
+		}
+	}
+
+	/**	Append a <${param}>.
+		I assume that i'm after opening '<' char, that was converted to '('.
+	 **/
+	append_names_values(param: Iterable<any>)
+	{	let names: string[] | undefined;
+		for (let row of param)
+		{	if (!names)
+			{	names = Object.keys(row);
+				if (names.length == 0)
+				{	throw new Error("No fields for <${param}>");
+				}
+				this.append_raw_char(C_BACKTICK);
+				this.append_quoted_ident(names[0]);
+				this.append_raw_char(C_BACKTICK);
+				for (let i=1, i_end=names.length; i<i_end; i++)
+				{	this.append_raw_char(C_COMMA);
+					this.append_raw_char(C_SPACE);
+					this.append_raw_char(C_BACKTICK);
+					this.append_quoted_ident(names[i]);
+					this.append_raw_char(C_BACKTICK);
+				}
+				this.append_raw_bytes(DELIM_PAREN_CLOSE_VALUES);
+			}
+			else
+			{	this.append_raw_char(C_PAREN_CLOSE);
+				this.append_raw_char(C_COMMA);
+				this.append_raw_char(C_LF);
+			}
+			let delim = C_PAREN_OPEN;
+			for (let name of names)
+			{	this.append_raw_char(delim);
+				this.append_raw_char(C_APOS);
+				if (this.append_sql_value(row[name]) != Want.REMOVE_APOS_OR_BRACE_CLOSE)
+				{	this.append_raw_char(C_APOS);
+				}
+				delim = C_COMMA;
+			}
+		}
 	}
 
 	/**	Read the parent qualifier in (parent.${param}) or {parent.${param}}.
@@ -565,6 +695,7 @@ class Serializer
 		let state = State.SQL;
 		let paren_level = 0;
 		let changes: {change: Change, change_from: number, change_to: number}[] = [];
+		let j_from = -1;
 		let n_add = 0;
 		for (let j=from; j<pos; j++)
 		{	let c = result[j];
@@ -589,17 +720,11 @@ class Serializer
 							state = State.APOS;
 							break;
 						case C_BACKTICK:
-							if (parent_name)
-							{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j-1, change_to: j-1};
-								n_add += parent_name.length + 3; // plus ``.
-							}
+							j_from = j;
 							state = State.BACKTICK;
 							break;
 						case C_QUOT:
-							if (parent_name)
-							{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j-1, change_to: j-1};
-								n_add += parent_name.length + 3; // plus ``.
-							}
+							j_from = j;
 							result[j] = C_BACKTICK;
 							state = State.QUOT;
 							break;
@@ -713,6 +838,17 @@ class Serializer
 							}
 							else
 							{	state = State.SQL;
+								if (parent_name)
+								{	c = result[++j];
+									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
+									{	c = result[++j] | 0;
+									}
+									if (c != C_PAREN_OPEN)
+									{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j_from-1, change_to: j_from-1};
+										n_add += parent_name.length + 3; // plus ``.
+									}
+									j--; // will j++ on next iter
+								}
 							}
 							break;
 					}
@@ -728,6 +864,17 @@ class Serializer
 							else
 							{	result[j] = C_BACKTICK;
 								state = State.SQL;
+								if (parent_name)
+								{	c = result[++j];
+									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
+									{	c = result[++j] | 0;
+									}
+									if (c != C_PAREN_OPEN)
+									{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j_from-1, change_to: j_from-1};
+										n_add += parent_name.length + 3; // plus ``.
+									}
+									j--; // will j++ on next iter
+								}
 							}
 							break;
 						case C_BACKTICK:

@@ -51,7 +51,7 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	let conn = new MyConn(dsn, this.get_conn, this.return_conn, this.sqlPolicy);
+		{	let conn = new MyConn(dsn, this.get_conn, this.return_conn);
 			conns[conns.length] = conn;
 			return conn;
 		}
@@ -187,7 +187,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this), this.sqlPolicy);
+		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this));
 		try
 		{	this.n_sessions_or_conns++;
 			return await callback(conn);
@@ -224,7 +224,7 @@ export class MyPool
 		{	let conn;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await MyProtocol.inst(dsn, this.unused_buffers.pop(), this.onLoadFile);
+			{	conn = await MyProtocol.inst(dsn, this.sqlPolicy, this.unused_buffers.pop(), this.onLoadFile);
 			}
 			else if (conn.use_till <= now)
 			{	this.n_idle_all--;

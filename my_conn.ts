@@ -7,7 +7,6 @@ import {Resultsets, ResultsetsDriver, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 import {Sql} from './sql.ts';
-import {SqlPolicy} from './sql_policy.ts';
 
 const DO_QUERY_ATTEMPTS = 3;
 
@@ -31,7 +30,6 @@ export class MyConn
 	(	private dsn: Dsn,
 		private onbegin: (dsn: Dsn) => Promise<MyProtocol>,
 		private onend: (dsn: Dsn, protocol: MyProtocol) => void,
-		private sql_policy: SqlPolicy | undefined,
 	)
 	{
 	}
@@ -259,9 +257,6 @@ export class MyConn
 	private async do_query<Row>(sql: SqlSource, params: Params|true, row_type: RowType): Promise<ResultsetsDriver<Row>>
 	{	if (this.cur_idle_resultsets)
 		{	throw new BusyError(`Please, read previous resultsets first`);
-		}
-		if (sql instanceof Sql)
-		{	sql.sqlPolicy = this.sql_policy;
 		}
 		for (let n_attempt=1; true; n_attempt++)
 		{	let protocol = this.protocol ?? await this.get_protocol();

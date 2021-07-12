@@ -1,4 +1,4 @@
-import {MyPool, sql} from '../mod.ts';
+import {MyPool, sql, Sql} from '../mod.ts';
 import {SqlPolicy} from '../sql_policy.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 
@@ -90,7 +90,7 @@ Deno.test
 );
 
 Deno.test
-(	'SQL exprs',
+(	'SQL (${param})',
 	async () =>
 	{	let expr = `The string: 'It''s string \\'`;
 		let s = sql`A.(${expr}).B`;
@@ -154,6 +154,14 @@ Deno.test
 
 		s = sql`SELECT (${'"The `90s"'})`;
 		assertEquals(s+'', "SELECT (`The ``90s`)");
+
+		expr = `name AND \`Count\`(*) OR Sum(a=1)>10`;
+		s = sql`SELECT (ta.${expr})`;
+		assertEquals(s+'', "SELECT (`ta`.name AND `Count`(*) OR Sum(`ta`.a=1)>10)");
+
+		expr = `"name" AND "Count"(*) OR Sum(\`a\` = 1)>10`;
+		s = sql`SELECT (ta.${expr})`;
+		assertEquals(s+'', "SELECT (`ta`.`name` AND `Count`(*) OR Sum(`ta`.`a` = 1)>10)");
 
 		let error;
 		try
@@ -274,6 +282,78 @@ Deno.test
 
 		error = undefined;
 		try
+		{	'' + sql`SELECT "${null})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately quoted parameter`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT \`${null})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately quoted parameter`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT [${null})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT [${null}]`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'In SQL fragment: parameter for [${...}] must be iterable');
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT <${null})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT <${null}>`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'In SQL fragment: parameter for <${...}> must be iterable');
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT {${null})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Inappropriately enclosed parameter`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT {${null}}`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'In SQL fragment: parameter for {${...}} must be object');
+
+		error = undefined;
+		try
 		{	'' + sql`SELECT (${`name, Count(*)`}`;
 		}
 		catch (e)
@@ -305,3 +385,132 @@ Deno.test
 	}
 );
 
+Deno.test
+(	'SQL [${param}]',
+	async () =>
+	{	let list = [12.5, 'ABC\'D\'EF', new Date(2000, 0, 1)];
+		let s = sql`A[${list}]B`;
+		assertEquals(s+'', `A(12.5,'ABC''D''EF','2000-01-01')B`);
+
+		let list_2 = [[12.5, 13], ['ABC\'D\'EF'], new Date(2000, 0, 1)];
+		s = sql`A[${list_2}]B`;
+		assertEquals(s+'', `A((12.5,13),('ABC''D''EF'),'2000-01-01')B`);
+
+		s = sql`A[${[]}]B`;
+		assertEquals(s+'', `A(NULL)B`);
+
+		let list_3 = [[1, {}, () => {}]];
+		s = sql`A[${list_3}]B`;
+		assertEquals(s+'', `A((1,NULL,NULL))B`);
+	}
+);
+
+Deno.test
+(	'SQL put_params_to',
+	async () =>
+	{	let value = "Message 1";
+		let s = sql`A'${value}'B`;
+		let put_params_to: any[] = [];
+		assertEquals(s.toString(false, put_params_to), `A?B`);
+		assertEquals(put_params_to, [value]);
+	}
+);
+
+Deno.test
+(	'Sql.concat()',
+	async () =>
+	{	let s = sql`A, '${'B'}', C`;
+		s = s.concat(sql`, '${'D'}'`).concat(sql`.`).concat(sql``);
+		assertEquals(s+'', `A, 'B', C, 'D'.`);
+	}
+);
+
+Deno.test
+(	'SQL <${param}>',
+	async () =>
+	{	let rows =
+		[	{value: 10, name: 'text 1'},
+			{value: 11, name: 'text 2', junk: 'j'},
+		];
+		let s = sql`INSERT INTO t_log <${rows}>`;
+		assertEquals(s+'', "INSERT INTO t_log (`value`, `name`) VALUES\n(10,'text 1'),\n(11,'text 2')");
+
+		let error;
+		try
+		{	'' + sql`INSERT INTO t_log <${[{}]}>`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "No fields for <${param}>");
+	}
+);
+
+Deno.test
+(	'SQL {${param}}',
+	async () =>
+	{	let row = {a: 10, val: 'text 1'};
+		let s = sql`SET {${row}}`;
+		assertEquals(s+'', "SET `a`=10, `val`='text 1'");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {ta.${row}}`;
+		assertEquals(s+'', "SET `ta`.`a`=10, `ta`.`val`='text 1'");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {${row},}`;
+		assertEquals(s+'', "SET `a`=10, `val`='text 1',");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {ta.${row},}`;
+		assertEquals(s+'', "SET `ta`.`a`=10, `ta`.`val`='text 1',");
+
+		let error;
+		try
+		{	'' + sql`SET {${{}}}`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "In SQL fragment: 0 values for {${...}}");
+
+		let row_2 = {};
+		s = sql`SET {ta.${row_2},}`;
+		assertEquals(s+'', "SET ");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {ta.${row}&}`;
+		assertEquals(s+'', "SET (`ta`.`a`=10 AND `ta`.`val`='text 1')");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {ta.${row}|}`;
+		assertEquals(s+'', "SET (`ta`.`a`=10 OR `ta`.`val`='text 1')");
+
+		row_2 = {};
+		s = sql`SET {ta.${row_2}&}`;
+		assertEquals(s+'', "SET TRUE");
+
+		row_2 = {};
+		s = sql`SET {ta.${row_2}|}`;
+		assertEquals(s+'', "SET FALSE");
+	}
+);
+
+Deno.test
+(	'SQL Sql.quote()',
+	async () =>
+	{	assertEquals(Sql.quote(null), "NULL");
+		assertEquals(Sql.quote(false), "FALSE");
+		assertEquals(Sql.quote(true), "TRUE");
+		assertEquals(Sql.quote(0.0), "0");
+		assertEquals(Sql.quote(12.5), "12.5");
+		assertEquals(Sql.quote(-13n), "-13");
+		assertEquals(Sql.quote("Message 'One'"), "'Message ''One'''");
+		assertEquals(Sql.quote("This char \\ is backslash"), "'This char \\\\ is backslash'");
+		assertEquals(Sql.quote(new Date(2000, 0, 1)), "2000-01-01");
+		assertEquals(Sql.quote(new Date(2000, 0, 1, 2)), "2000-01-01 02:00:00");
+		assertEquals(Sql.quote(new Date(2000, 0, 1, 2, 3, 4, 567)), "2000-01-01 02:03:04.567");
+		assertEquals(Sql.quote(new Uint8Array([1, 2, 254, 255])), "x'0102FEFF'");
+		assertEquals(Sql.quote([{id: 10, value: 'Val 10'}]), `'[{"id":10,"value":"Val 10"}]'`);
+	}
+);

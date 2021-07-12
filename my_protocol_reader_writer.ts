@@ -124,11 +124,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	{	this.write_bytes(encoder.encode(value));
 	}
 
-	/*protected write_lenenc_string(value: string)
+	protected write_lenenc_string(value: string)
 	{	let data = encoder.encode(value);
 		this.write_lenenc_int(data.length);
 		this.write_bytes(data);
-	}*/
+	}
 
 	protected write_nul_string(value: string)
 	{	this.write_nul_bytes(encoder.encode(value));
@@ -163,7 +163,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	 **/
 	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean, can_wait=false, put_params_to?: any[])
 	{	if (data instanceof Sql)
-		{	data = data.encode(no_backslash_escapes, put_params_to, this.buffer.subarray(this.buffer_end));
+		{	data.sqlPolicy = this.sql_policy;
+			data = data.encode(no_backslash_escapes, put_params_to, this.buffer.subarray(this.buffer_end));
 			if (data.buffer == this.buffer.buffer)
 			{	this.buffer_end += data.length;
 				debug_assert(!can_wait); // after sending Sql queries response always follows

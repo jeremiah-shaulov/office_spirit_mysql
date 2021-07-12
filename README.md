@@ -347,6 +347,8 @@ You can use `?` placeholders in SQL query strings, and supply array of parameter
 This library doesn't parse the provided SQL string, but uses MySQL built-in functionality, so the parameters are substituted on MySQL side.
 Placeholders can appear only in places where expressions are allowed.
 
+MySQL supports up to 2**16-1 = 65535 placeholders.
+
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 
@@ -393,7 +395,26 @@ pool.closeIdle();
 
 ### Generate SQL string with quoted parameters
 
-This library also provides string-template function that escapes SQL values in strings and quoted literals.
+In order to just convert a Javascript value to an SQL literal, you can use `Sql.quote()` function.
+
+```ts
+static Sql.quote(param: any, noBackslashEscapes=false)
+```
+
+```ts
+import {Sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+console.log(Sql.quote(null)); // prints: NULL
+console.log(Sql.quote(false)); // prints: FALSE
+console.log(Sql.quote(123)); // prints: 123
+console.log(Sql.quote('Message')); // prints: 'Message'
+console.log(Sql.quote('It\'s another message')); // prints: 'It''s another message'
+console.log(Sql.quote(new Date(2000, 0, 1))); // prints: '2000-01-01'
+console.log(Sql.quote(new Uint8Array([1, 2, 3]))); // prints: x'010203'
+console.log(Sql.quote({id: 1, value: 1.5})); // prints: '{"id":1,"value":1.5}'
+```
+
+But this library also provides much more complex SQL generation framework: the `sql` string-template function.
 
 ```ts
 import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
@@ -419,6 +440,8 @@ If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE
 `Date` objects will be printed as MySQL dates.
 
 Typed arrays will be printed like `x'0102...'`.
+
+Objects will be JSON-stringified.
 
 2. `"${param}"` - Escape an identifiers (column, table or routine name, etc.).
 
@@ -522,9 +545,51 @@ let s = sql`SELECT * FROM articles AS a WHERE {a.${row}|}`;
 console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' OR `author`='Johnny')
 ```
 
+8. `<${param}>` - Generate names and values for INSERT statement.
+
+Parameter must be iterable object that contains rows to insert. Will print column names from the first row. On following rows, only columns from the first row will be used.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let rows =
+[	{value: 10, name: 'text 1'},
+	{value: 11, name: 'text 2'},
+];
+console.log('' + sql`INSERT INTO t_log <${rows}> AS new ON DUPLICATE KEY UPDATE t_log.name = new.name`);
+
+/* prints:
+	INSERT INTO t_log (`value`, `name`) VALUES
+	(10,'text 1'),
+	(11,'text 2') AS new ON DUPLICATE KEY UPDATE t_log.name = new.name
+ */
+```
+
 #### About `Sql` object
 
-The `sql` template function returns `Sql` object that can be stringified, or converted to bytes.
+The `sql` template function returns object of `Sql` class.
+
+```ts
+import {sql, Sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+let s: Sql = sql`SELECT 2*2`;
+```
+
+The `Sql` objects can be concatenated:
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const id = 10;
+let s = sql`SELECT * FROM articles WHERE id='${id}'`;
+
+const where = `name <> ''`;
+s = s.concat(sql` AND (${where})`);
+
+console.log('' + s); // prints: SELECT * FROM articles WHERE id=10 AND (`name` <> '')
+```
+
+Also the `Sql` objects can be stringified, or converted to bytes.
 
 ```ts
 Sql.toString(noBackslashEscapes=false, putParamsTo?: any[]): string
@@ -532,7 +597,7 @@ Sql.toString(noBackslashEscapes=false, putParamsTo?: any[]): string
 Sql.encode(noBackslashEscapes=false, putParamsTo?: any[], useBuffer?: Uint8Array): Uint8Array
 ```
 
-Also the `Sql` object has public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.
+Also they have public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.
 
 ```ts
 Sql.sqlPolicy: SqlPolicy | undefined
@@ -555,7 +620,7 @@ select.sqlPolicy = new SqlPolicy('id not');
 console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE (id=10 `AND` `value` `IS` NOT `NULL`)
 ```
 
-If you pass the `Sql` object (the result of calling `sql` template function) to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on `conn.noBackslashEscapes`. The `sqlPolicy` can be provided to the `Pool` object after it's creation, and before starting to create connections.
+If you pass the `Sql` object to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on the `MyConn` object (`conn.noBackslashEscapes`). The `sqlPolicy` can be provided to the `MyPool` object after it's creation, and before starting to create connections.
 
 ```ts
 import {MyPool, sql, SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';

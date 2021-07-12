@@ -891,3 +891,43 @@ Deno.test
 		}
 	}
 );
+
+Deno.test
+(	'Many placeholders',
+	async () =>
+	{	let pool = new MyPool(DSN);
+
+		try
+		{	pool.forConn
+			(	async (conn) =>
+				{	// CREATE DATABASE
+					await conn.query("DROP DATABASE IF EXISTS test1");
+					await conn.query("CREATE DATABASE `test1`");
+
+					// USE
+					await conn.query("USE test1");
+
+					// CREATE TABLE
+					await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int, b int, c int, d int, e int, f int, g int, h int)");
+
+					const N_ROWS = 8*1024-1;
+					let q = `INSERT INTO t_log (a, b, c, d, e, f, g, h) VALUES ` + `(?, ?, ?, ?, ?, ?, ?, ?), `.repeat(N_ROWS).slice(0, -2);
+					let params = [];
+					for (let r=0; r<N_ROWS; r++)
+					{	for (let c=0; c<8; c++)
+						{	params.push(params.length + 1);
+						}
+					}
+
+					let res = await conn.execute(q, params);
+					assertEquals(res.affectedRows, 8191);
+					assertEquals(res.placeholders.length, N_ROWS*8);
+				}
+			);
+		}
+		finally
+		{	await pool.onEnd();
+			pool.closeIdle();
+		}
+	}
+);

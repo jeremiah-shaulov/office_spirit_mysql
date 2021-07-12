@@ -7,7 +7,8 @@ import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsDriver} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
-import {conv_column_value} from "./conv_column_value.ts";
+import {conv_column_value} from './conv_column_value.ts';
+import {SqlPolicy} from './sql_policy.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can exploit other bits for myself
@@ -48,9 +49,14 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private max_column_len = DEFAULT_MAX_COLUMN_LEN;
 	private onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 
-	static async inst(dsn: Dsn, use_buffer?: Uint8Array, onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>): Promise<MyProtocol>
+	static async inst
+	(	dsn: Dsn,
+		sql_policy?: SqlPolicy,
+		use_buffer?: Uint8Array,
+		onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>,
+	): Promise<MyProtocol>
 	{	let conn = await Deno.connect(dsn.addr);
-		let protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, use_buffer);
+		let protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, sql_policy, use_buffer);
 		if (dsn.maxColumnLen > 0)
 		{	protocol.max_column_len = dsn.maxColumnLen;
 		}
@@ -619,13 +625,16 @@ L:		while (true)
 	async send_com_stmt_execute(resultsets: ResultsetsDriver<unknown>, params: Param[])
 	{	let {stmt_id, placeholders} = resultsets;
 		let n_placeholders = placeholders.length;
+		let max_expected_packet_size_including_header = 15 + n_placeholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
+		let extra_space_for_params = Math.max(0, this.buffer.length - max_expected_packet_size_including_header);
 		let packet_start = 0;
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
 		for (let i=0; i<n_placeholders; i++)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
-				{	if (param.length != 0)
+				{	let max_byte_len = param.length * 4;
+					if (max_byte_len > extra_space_for_params)
 					{	this.start_writing_new_packet(true, packet_start);
 						this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.write_uint32(stmt_id);
@@ -633,10 +642,13 @@ L:		while (true)
 						packet_start = await this.send_with_data(param, false, true);
 						placeholders[i].flags |= BLOB_SENT_FLAG;
 					}
+					else
+					{	extra_space_for_params -= max_byte_len;
+					}
 				}
 				else if (typeof(param) == 'object')
 				{	if (param instanceof Uint8Array)
-					{	if (param.byteLength > 8)
+					{	if (param.byteLength > extra_space_for_params)
 						{	this.start_writing_new_packet(true, packet_start);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
@@ -644,15 +656,21 @@ L:		while (true)
 							packet_start = await this.send_with_data(param, false, true);
 							placeholders[i].flags |= BLOB_SENT_FLAG;
 						}
+						else
+						{	extra_space_for_params -= param.byteLength;
+						}
 					}
 					else if (param.buffer instanceof ArrayBuffer)
-					{	if (param.byteLength > 8)
+					{	if (param.byteLength > extra_space_for_params)
 						{	this.start_writing_new_packet(true, packet_start);
 							this.write_uint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
 							packet_start = await this.send_with_data(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
 							placeholders[i].flags |= BLOB_SENT_FLAG;
+						}
+						else
+						{	extra_space_for_params -= param.byteLength;
 						}
 					}
 					else if (typeof(param.read) == 'function')
@@ -687,8 +705,7 @@ L:		while (true)
 			}
 		}
 		// Flush, if not enuogh space in buffer for the placeholders packet
-		let max_expected_packet_size_including_header = 15 + n_placeholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be lenenc number (max 9 bytes) + param type (2-byte) + null mask (1-bit) <= 12
-		if (packet_start + max_expected_packet_size_including_header > this.buffer.length)
+		if (packet_start > 0 && packet_start + max_expected_packet_size_including_header > this.buffer.length)
 		{	await this.send();
 			packet_start = 0;
 		}
@@ -760,7 +777,7 @@ L:		while (true)
 						}
 					}
 					else
-					{	debug_assert(typeof(param)=='string' && ((placeholders[i].flags & BLOB_SENT_FLAG) || param.length == 0));
+					{	debug_assert(typeof(param) == 'string');
 					}
 				}
 				this.write_uint16(type);
@@ -788,8 +805,7 @@ L:		while (true)
 					{	this.write_uint64(param);
 					}
 					else if (typeof(param) == 'string')
-					{	debug_assert(param.length == 0);
-						this.write_uint8(0);
+					{	this.write_lenenc_string(param);
 					}
 					else if (param instanceof Date)
 					{	let frac = param.getMilliseconds();
@@ -805,12 +821,10 @@ L:		while (true)
 						}
 					}
 					else if (param instanceof Uint8Array)
-					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes long
-						this.write_lenenc_bytes(param);
+					{	this.write_lenenc_bytes(param);
 					}
 					else if (param.buffer instanceof ArrayBuffer)
-					{	// nothing written for this param (as it's not marked with BLOB_SENT_FLAG), because it was <=8 bytes long
-						this.write_lenenc_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+					{	this.write_lenenc_bytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
 					}
 					else
 					{	debug_assert(typeof(param.read) == 'function');
