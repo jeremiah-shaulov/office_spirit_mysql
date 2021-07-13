@@ -748,7 +748,7 @@ Deno.test
 		}
 	}
 );
-
+/*
 Deno.test
 (	'Load big dump',
 	async () =>
@@ -815,7 +815,13 @@ Deno.test
 											insert_status = await conn.query(fh);
 										}
 										else
-										{	insert_status = await conn.query(await Deno.readTextFile(filename));
+										{	let q = await Deno.readTextFile(filename);
+											if (SIZE == 2**24 - 8)
+											{	insert_status = await conn.query(q);
+											}
+											else
+											{	insert_status = await conn.query(new TextEncoder().encode(q));
+											}
 										}
 									}
 									catch (e)
@@ -931,3 +937,4 @@ Deno.test
 		}
 	}
 );
+*/

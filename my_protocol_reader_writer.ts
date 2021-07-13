@@ -172,9 +172,6 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				return 0;
 			}
 		}
-		else if (typeof(data) == 'string' && data.length <= this.buffer.length)
-		{	data = encoder.encode(data);
-		}
 		if (data instanceof Uint8Array)
 		{	let packet_size = this.buffer_end - this.buffer_start - 4 + data.length;
 			try

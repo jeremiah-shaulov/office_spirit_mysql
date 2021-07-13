@@ -42,8 +42,8 @@ Deno.test
 
 		assertEquals(sql`"${'ф'.repeat(100)}"` + '', '`'+'ф'.repeat(100)+'`'); // many 2-byte chars cause buffer of guessed size to realloc
 
-		let s = sql`фффффффффффффффффффффффффффффф "${'``'}"`;
-		assertEquals(s+'', "фффффффффффффффффффффффффффффф ``````");
+		let s = sql`фффффффффффффффффффффффффффффффффффффф "${'``'}"`;
+		assertEquals(s+'', "фффффффффффффффффффффффффффффффффффффф ``````");
 
 		// json
 		try
@@ -382,6 +382,10 @@ Deno.test
 		expr = `a.and and b. or or c .col_1_ф`;
 		s = sql`SELECT (${expr})`;
 		assertEquals(s+'', "SELECT (`a`.and and `b`. or or `c` .col_1_ф)");
+
+		expr = `select(col)`;
+		s = sql`SELECT (al.${expr})`;
+		assertEquals(s+'', "SELECT (`select`(`al`.col))");
 	}
 );
 
@@ -485,6 +489,10 @@ Deno.test
 		row = {a: 10, val: 'text 1'};
 		s = sql`SET {ta.${row}|}`;
 		assertEquals(s+'', "SET (`ta`.`a`=10 OR `ta`.`val`='text 1')");
+
+		row = {a: 10, val: 'text 1'};
+		s = sql`SET {ta.${row}|} SET {tab.${row}|}`;
+		assertEquals(s+'', "SET (`ta`.`a`=10 OR `ta`.`val`='text 1') SET (`tab`.`a`=10 OR `tab`.`val`='text 1')");
 
 		row_2 = {};
 		s = sql`SET {ta.${row_2}&}`;

@@ -86,8 +86,8 @@ const enum Change
 {	DOUBLE_BACKSLASH,
 	DOUBLE_BACKTICK,
 	INSERT_PARENT_NAME,
+	QUOTE_COLUMN_NAME,
 	QUOTE_IDENT,
-	QUOTE_PARENT_NAME,
 }
 
 export class Sql
@@ -786,7 +786,7 @@ class Serializer
 									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
 										if (!sql_policy.isFunctionAllowed(name))
 										{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
-											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
+											n_add += 2; // ``
 										}
 										else if (j_after_ident < j)
 										{	// put '(' right after function name
@@ -797,13 +797,13 @@ class Serializer
 										}
 									}
 									else if (c == C_DOT) // if is parent qualifier
-									{	changes[changes.length] = {change: Change.QUOTE_PARENT_NAME, change_from, change_to: j_after_ident-1};
+									{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
 										n_add += 2; // ``
 									}
 									else
 									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
 										if (!sql_policy.isIdentAllowed(name))
-										{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
+										{	changes[changes.length] = {change: Change.QUOTE_COLUMN_NAME, change_from, change_to: j_after_ident-1};
 											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
 										}
 									}
@@ -922,8 +922,8 @@ class Serializer
 							result[k--] = C_BACKTICK;
 							result[k] = c;
 							break;
-						case Change.QUOTE_IDENT:
-							// identifier to quote
+						case Change.QUOTE_COLUMN_NAME:
+							// column name to quote
 							if (!parent_name)
 							{	result[k--] = C_BACKTICK;
 								while (j >= change_from)
@@ -944,7 +944,8 @@ class Serializer
 							}
 							j++; // will k--, j-- on next iter
 							break;
-						case Change.QUOTE_PARENT_NAME:
+						case Change.QUOTE_IDENT:
+							// some identifier to quote
 							result[k--] = C_BACKTICK;
 							while (j >= change_from)
 							{	result[k--] = result[j--];
