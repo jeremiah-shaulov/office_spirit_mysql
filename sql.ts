@@ -75,13 +75,6 @@ const enum Want
 	CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE,
 }
 
-const enum State
-{	SQL,
-	APOS,
-	QUOT,
-	BACKTICK,
-}
-
 const enum Change
 {	DOUBLE_BACKSLASH,
 	DOUBLE_BACKTICK,
@@ -391,9 +384,7 @@ class Serializer
 			{	break;
 			}
 			s = s.slice(read);
-			let tmp = new Uint8Array((Math.max(this.result.length*2, this.result.length+s.length+this.result.length/2) | 7) + 1);
-			tmp.set(this.result.subarray(0, this.pos));
-			this.result = tmp;
+			this.ensure_room(s.length);
 		}
 	}
 
@@ -493,8 +484,8 @@ class Serializer
 		let n_add = 0;
 		debug_assert(result[from-1]==C_QUOT || result[from-1]==C_BACKTICK);
 		result[from - 1] = C_BACKTICK;
-		for (let j=from; j<pos; j++)
-		{	if (result[j] == C_BACKTICK)
+		for (let j=0, j_end=param.length; j<j_end; j++)
+		{	if (param.charCodeAt(j) == C_BACKTICK)
 			{	n_add++;
 			}
 		}
@@ -692,156 +683,55 @@ class Serializer
 		// Escape chars in param
 		// 1. Find how many bytes to add
 		let {result, pos} = this;
-		let state = State.SQL;
 		let paren_level = 0;
 		let changes: {change: Change, change_from: number, change_to: number}[] = [];
-		let j_from = -1;
 		let n_add = 0;
-		for (let j=from; j<pos; j++)
+L:		for (let j=from; j<pos; j++)
 		{	let c = result[j];
-			switch (state)
-			{	case State.SQL:
-					switch (c)
-					{	case C_SEMICOLON:
-						case C_AT:
-						case C_SQUARE_OPEN:
-						case C_SQUARE_CLOSE:
-						case C_BRACE_OPEN:
-						case C_BRACE_CLOSE:
-							throw new Error(`Invalid character in SQL fragment: ${param}`);
-						case C_HASH:
-							throw new Error(`Comment in SQL fragment: ${param}`);
-						case C_COMMA:
-							if (paren_level == 0)
-							{	throw new Error(`Comma in SQL fragment: ${param}`);
-							}
-							break;
-						case C_APOS:
-							state = State.APOS;
-							break;
-						case C_BACKTICK:
-							j_from = j;
-							state = State.BACKTICK;
-							break;
-						case C_QUOT:
-							j_from = j;
-							result[j] = C_BACKTICK;
-							state = State.QUOT;
-							break;
-						case C_PAREN_OPEN:
-							paren_level++;
-							break;
-						case C_PAREN_CLOSE:
-							if (paren_level-- <= 0)
-							{	throw new Error(`Unbalanced parenthesis in SQL fragment: ${param}`);
-							}
-							break;
-						case C_SLASH:
-							if (result[j+1] == C_TIMES)
-							{	throw new Error(`Comment in SQL fragment: ${param}`);
-							}
-							break;
-						case C_MINUS:
-							if (result[j+1] == C_MINUS)
-							{	throw new Error(`Comment in SQL fragment: ${param}`);
-							}
-							break;
-						case C_DOT:
-							while (++j < pos)
-							{	c = result[j];
-								if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
-								{	// skip identifier that follows this dot
-									while (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c>=C_ZERO && c<=C_NINE || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
-									{	c = result[++j] | 0;
-									}
-									break;
-								}
-							}
-							j--; // will j++ on next iter
-							break;
-						default:
-						{	let has_nondigit = c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80;
-							if (has_nondigit || c>=C_ZERO && c<=C_NINE)
-							{	let change_from = j;
-								while (j < pos)
-								{	c = result[++j];
-									if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
-									{	has_nondigit = true;
-										continue;
-									}
-									if (c>=C_ZERO && c<=C_NINE)
-									{	continue;
-									}
-									break;
-								}
-								if (has_nondigit)
-								{	// skip space following this identifier
-									let j_after_ident = j;
-									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
-									{	c = result[++j] | 0;
-									}
-									// is allowed?
-									let name = result.subarray(change_from, j_after_ident);
-									if (c == C_PAREN_OPEN) // if is function
-									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
-										if (!sql_policy.isFunctionAllowed(name))
-										{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
-											n_add += 2; // ``
-										}
-										else if (j_after_ident < j)
-										{	// put '(' right after function name
-											debug_assert(result[j] == C_PAREN_OPEN);
-											result[j] = result[j_after_ident];
-											result[j_after_ident] = C_PAREN_OPEN;
-											paren_level++;
-										}
-									}
-									else if (c == C_DOT) // if is parent qualifier
-									{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
-										n_add += 2; // ``
-									}
-									else
-									{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
-										if (!sql_policy.isIdentAllowed(name))
-										{	changes[changes.length] = {change: Change.QUOTE_COLUMN_NAME, change_from, change_to: j_after_ident-1};
-											n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
-										}
-									}
-								}
-								j--; // will j++ on next iter
-							}
-						}
+			switch (c)
+			{	case C_SEMICOLON:
+				case C_AT:
+				case C_SQUARE_OPEN:
+				case C_SQUARE_CLOSE:
+				case C_BRACE_OPEN:
+				case C_BRACE_CLOSE:
+					throw new Error(`Invalid character in SQL fragment: ${param}`);
+				case C_HASH:
+					throw new Error(`Comment in SQL fragment: ${param}`);
+				case C_COMMA:
+					if (paren_level == 0)
+					{	throw new Error(`Comma in SQL fragment: ${param}`);
 					}
 					break;
-				case State.APOS:
-					switch (c)
-					{	case C_APOS:
-							if (result[j+1] == C_APOS)
-							{	j++;
-							}
-							else
-							{	state = State.SQL;
-							}
-							break;
-						case C_BACKSLASH:
-							if (!this.no_backslash_escapes)
+				case C_APOS:
+					while (++j < pos)
+					{	c = result[j];
+						if (c == C_BACKSLASH)
+						{	if (!this.no_backslash_escapes)
 							{	changes[changes.length] = {change: Change.DOUBLE_BACKSLASH, change_from: j, change_to: j};
 								n_add++;
 							}
-					}
-					break;
-				case State.BACKTICK:
-					switch (c)
-					{	case C_BACKTICK:
-							if (result[j+1] == C_BACKTICK)
-							{	j++;
+						}
+						else if (c == C_APOS)
+						{	if (result[j+1]!=C_APOS || j+1>=pos)
+							{	continue L;
 							}
-							else
-							{	state = State.SQL;
-								if (parent_name)
-								{	c = result[++j];
-									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
-									{	c = result[++j] | 0;
+							j++;
+						}
+					}
+					throw new Error(`Unterminated string literal in SQL fragment: ${param}`);
+				case C_BACKTICK:
+				{	let j_from = j;
+					while (++j < pos)
+					{	c = result[j];
+						if (c == C_BACKTICK)
+						{	if (result[j+1]!=C_BACKTICK || j+1>=pos)
+							{	if (parent_name)
+								{	while (++j < pos)
+									{	c = result[j];
+										if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+										{	break;
+										}
 									}
 									if (c != C_PAREN_OPEN)
 									{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j_from-1, change_to: j_from-1};
@@ -849,46 +739,142 @@ class Serializer
 									}
 									j--; // will j++ on next iter
 								}
+								continue L;
+							}
+							j++;
+						}
+					}
+					throw new Error(`Unterminated quoted identifier in SQL fragment: ${param}`);
+				}
+				case C_QUOT:
+				{	let j_from = j;
+					let changes_pos = changes.length;
+					result[j] = C_BACKTICK;
+					while (++j < pos)
+					{	c = result[j];
+						if (c == C_BACKTICK)
+						{	changes[changes.length] = {change: Change.DOUBLE_BACKTICK, change_from: j, change_to: j};
+							n_add++;
+						}
+						else if (c == C_QUOT)
+						{	if (result[j+1]!=C_QUOT || j+1>=pos)
+							{	result[j] = C_BACKTICK;
+								if (parent_name)
+								{	while (++j < pos)
+									{	c = result[j];
+										if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+										{	break;
+										}
+									}
+									if (c != C_PAREN_OPEN)
+									{	changes.splice(changes_pos, 0, {change: Change.INSERT_PARENT_NAME, change_from: j_from-1, change_to: j_from-1});
+										n_add += parent_name.length + 3; // plus ``.
+									}
+									j--; // will j++ on next iter
+								}
+								continue L;
+							}
+							else
+							{	result.copyWithin(j+1, j+2, pos--); // undouble the quote
+							}
+						}
+					}
+					throw new Error(`Unterminated quoted identifier in SQL fragment: ${param}`);
+				}
+				case C_PAREN_OPEN:
+					paren_level++;
+					break;
+				case C_PAREN_CLOSE:
+					if (paren_level-- <= 0)
+					{	throw new Error(`Unbalanced parenthesis in SQL fragment: ${param}`);
+					}
+					break;
+				case C_SLASH:
+					if (result[j+1] == C_TIMES)
+					{	throw new Error(`Comment in SQL fragment: ${param}`);
+					}
+					break;
+				case C_MINUS:
+					if (result[j+1] == C_MINUS)
+					{	throw new Error(`Comment in SQL fragment: ${param}`);
+					}
+					break;
+				case C_DOT:
+					while (++j < pos)
+					{	c = result[j];
+						if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+						{	// skip identifier that follows this dot
+							j--;
+							while (++j < pos)
+							{	c = result[j];
+								if (!(c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c>=C_ZERO && c<=C_NINE || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80))
+								{	break;
+								}
 							}
 							break;
+						}
 					}
+					j--; // will j++ on next iter
 					break;
 				default:
-					debug_assert(state == State.QUOT);
-					switch (c)
-					{	case C_QUOT:
-							if (result[j+1] == C_QUOT)
-							{	j++;
-								result.copyWithin(j, j+1, pos--); // undouble the quote
+				{	let has_nondigit = c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80;
+					if (has_nondigit || c>=C_ZERO && c<=C_NINE)
+					{	let change_from = j;
+						while (++j < pos)
+						{	c = result[j];
+							if (c>=C_A && c<=C_Z || c>=C_A_CAP && c<=C_Z_CAP || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80)
+							{	has_nondigit = true;
+								continue;
 							}
-							else
-							{	result[j] = C_BACKTICK;
-								state = State.SQL;
-								if (parent_name)
-								{	c = result[++j];
-									while (c==C_SPACE || c==C_TAB || c==C_CR || c==C_LF)
-									{	c = result[++j] | 0;
-									}
-									if (c != C_PAREN_OPEN)
-									{	changes[changes.length] = {change: Change.INSERT_PARENT_NAME, change_from: j_from-1, change_to: j_from-1};
-										n_add += parent_name.length + 3; // plus ``.
-									}
-									j--; // will j++ on next iter
-								}
+							if (c>=C_ZERO && c<=C_NINE)
+							{	continue;
 							}
 							break;
-						case C_BACKTICK:
-							changes[changes.length] = {change: Change.DOUBLE_BACKTICK, change_from: j, change_to: j};
-							n_add++;
+						}
+						if (has_nondigit)
+						{	// skip space following this identifier
+							let j_after_ident = j--;
+							while (++j < pos)
+							{	c = result[j];
+								if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+								{	break;
+								}
+							}
+							// is allowed?
+							let name = result.subarray(change_from, j_after_ident);
+							if (c == C_PAREN_OPEN) // if is function
+							{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
+								if (!sql_policy.isFunctionAllowed(name))
+								{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
+									n_add += 2; // ``
+								}
+								else if (j_after_ident < j)
+								{	// put '(' right after function name
+									debug_assert(result[j] == C_PAREN_OPEN);
+									result[j] = result[j_after_ident];
+									result[j_after_ident] = C_PAREN_OPEN;
+									paren_level++;
+								}
+							}
+							else if (c == C_DOT) // if is parent qualifier
+							{	changes[changes.length] = {change: Change.QUOTE_IDENT, change_from, change_to: j_after_ident-1};
+								n_add += 2; // ``
+							}
+							else
+							{	let sql_policy = this.sqlPolicy ?? DEFAULT_SQL_POLICY;
+								if (!sql_policy.isIdentAllowed(name))
+								{	changes[changes.length] = {change: Change.QUOTE_COLUMN_NAME, change_from, change_to: j_after_ident-1};
+									n_add += !parent_name ? 2 : parent_name.length+3; // !parent_name ? `` : ``.
+								}
+							}
+						}
+						j--; // will j++ on next iter
 					}
-					break;
+				}
 			}
 		}
 		if (paren_level > 0)
 		{	throw new Error(`Unbalanced parenthesis in SQL fragment: ${param}`);
-		}
-		if (state != State.SQL)
-		{	throw new Error(`Invalid SQL fragment: ${param}`);
 		}
 		// 2. Add needed bytes
 		if (n_add > 0)

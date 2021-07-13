@@ -170,7 +170,34 @@ Deno.test
 		catch (e)
 		{	error = e;
 		}
-		assertEquals(error?.message, `Invalid SQL fragment: A ' B`);
+		assertEquals(error?.message, `Unterminated string literal in SQL fragment: A ' B`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT (${"A ` B"})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Unterminated quoted identifier in SQL fragment: A ` B");
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT (${`'abc'"def`})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Unterminated quoted identifier in SQL fragment: 'abc'"def`);
+
+		error = undefined;
+		try
+		{	'' + sql`SELECT (${`"abc"(def`})`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Unbalanced parenthesis in SQL fragment: "abc"(def`);
 
 		error = undefined;
 		try
@@ -386,6 +413,10 @@ Deno.test
 		expr = `select(col)`;
 		s = sql`SELECT (al.${expr})`;
 		assertEquals(s+'', "SELECT (`select`(`al`.col))");
+
+		expr = `"a\`b"`;
+		s = sql`SELECT (al.${expr})`;
+		assertEquals(s+'', "SELECT (`al`.`a``b`)");
 	}
 );
 
