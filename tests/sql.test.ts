@@ -387,22 +387,6 @@ Deno.test
 		{	error = e;
 		}
 		assertEquals(error?.message, `Inappropriately enclosed parameter`);
-		error = undefined;
-		try
-		{	'' + sql`SELECT ${`name, Count(*)`})`;
-		}
-		catch (e)
-		{	error = e;
-		}
-		assertEquals(error?.message, `Inappropriately enclosed parameter`);
-		error = undefined;
-		try
-		{	'' + sql`SELECT ${`name, Count(*)`}`;
-		}
-		catch (e)
-		{	error = e;
-		}
-		assertEquals(error?.message, `Inappropriately enclosed parameter`);
 
 		assertEquals('' + sql`SELECT (${`Count(name, "value")`})`, `SELECT (Count(\`name\`, \`value\`))`);
 
@@ -417,6 +401,54 @@ Deno.test
 		expr = `"a\`b"`;
 		s = sql`SELECT (al.${expr})`;
 		assertEquals(s+'', "SELECT (`al`.`a``b`)");
+
+		expr = `"a\`b"`;
+		let alias = 'the_alias';
+		s = sql`SELECT (${alias}.${expr})`;
+		assertEquals(s+'', "SELECT (`the_alias`.`a``b`)");
+
+		expr = `"a\`b"`;
+		alias = '';
+		s = sql`SELECT (${alias}.${expr})`;
+		assertEquals(s+'', "SELECT (`a``b`)");
+	}
+);
+
+Deno.test
+(	'SQL ${param}',
+	async () =>
+	{	let expr = `The string: 'It''s string \\'`;
+		let s = sql`A-${expr}-B`;
+		assertEquals(s+'', `A-\`The\` \`string\`: 'It''s string \\\\'-B`);
+		assertEquals(s.toString(true), `A-\`The\` \`string\`: 'It''s string \\'-B`);
+
+		expr = "col1, `col2`, 3.0";
+		s = sql`A-${expr}-B`;
+		assertEquals(s+'', "A-`col1`, `col2`, 3.0-B");
+
+		expr = "col1, `col2`, 3.0";
+		s = sql`A-tab.${expr}-B`;
+		assertEquals(s+'', "A-`tab`.col1, `tab`.`col2`, 3.0-B");
+
+		expr = "col1, `col2`, 3.0, fn()";
+		let alias = 'the_alias';
+		let alias_2 = 'the_alias 2!';
+		s = sql`A-${alias}.${expr}-${alias_2}.${expr}-B`;
+		assertEquals(s+'', "A-`the_alias`.col1, `the_alias`.`col2`, 3.0, fn()-`the_alias 2!`.col1, `the_alias 2!`.`col2`, 3.0, fn()-B");
+
+		expr = "col1, `col2`, 3.0, fn()";
+		alias = '';
+		s = sql`A-${alias}.${expr}-B`;
+		assertEquals(s+'', "A-`col1`, `col2`, 3.0, fn()-B");
+
+		let error;
+		try
+		{	'' + sql`A-${null}.${expr}-B`;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Alias must be string");
 	}
 );
 
@@ -551,5 +583,99 @@ Deno.test
 		assertEquals(Sql.quote(new Date(2000, 0, 1, 2, 3, 4, 567)), "2000-01-01 02:03:04.567");
 		assertEquals(Sql.quote(new Uint8Array([1, 2, 254, 255])), "x'0102FEFF'");
 		assertEquals(Sql.quote([{id: 10, value: 'Val 10'}]), `'[{"id":10,"value":"Val 10"}]'`);
+
+		let error;
+		try
+		{	Sql.quote({async read() {}});
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Cannot stringify Deno.Reader");
+	}
+);
+
+Deno.test
+(	'SQL Sql.tables',
+	async () =>
+	{	let s = Sql.tables['Hello `All`!'].where("id=1").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `Hello ``All``!` WHERE (`id`=1)");
+
+		s = Sql.tables['Hello `All`!'].where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `Hello ``All``!`");
+
+		let error;
+		try
+		{	Sql.tables['Hello `All`!'].select("col1*2, Count(*)");
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Please, call where() first");
+
+		error = undefined;
+		try
+		{	Sql.tables[Symbol.iterator as any];
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Table name must be a string");
+
+		let table = Sql.tables.t_log.where('id IN (1, 2)');
+
+		s = table.where("name <> ''").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `t_log` WHERE (`id` IN( 1, 2)) AND (`name` <> '')");
+
+		error = undefined;
+		try
+		{	table.join('hello');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "join() can be called before where()");
+
+		error = undefined;
+		try
+		{	Sql.tables.t_log.join('_base_table');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `Alias "_base_table" is reserved`);
+
+		error = undefined;
+		try
+		{	Sql.tables.t_log.left_join('a', 'aa', '');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `No condition in LEFT JOIN`);
+
+		s = Sql.tables.t_log.join('meta', 'm', 'meta_id = m.id').where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `t`.col1*2, Count(*) FROM `t_log` AS `t` INNER JOIN `meta` AS `m` ON (`t`.meta_id = `m`.id)");
+
+		s = Sql.tables.t_log.join('meta', '', 'meta_id = meta.id').where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `t`.col1*2, Count(*) FROM `t_log` AS `t` INNER JOIN `meta` ON (`t`.meta_id = `meta`.id)");
+
+		s = Sql.tables.t_log.left_join('meta', 'm', 'meta_id = m.id').where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `t`.col1*2, Count(*) FROM `t_log` AS `t` LEFT JOIN `meta` AS `m` ON (`t`.meta_id = `m`.id)");
+
+		s = Sql.tables.t_log.left_join('meta', '', 'meta_id = meta.id').where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `t`.col1*2, Count(*) FROM `t_log` AS `t` LEFT JOIN `meta` ON (`t`.meta_id = `meta`.id)");
+
+		s = Sql.tables.t_log.left_join('meta', 't', 'meta_id = t.id').where("").select("col1*2, Count(*)");
+		assertEquals(s+'', "SELECT `base`.col1*2, Count(*) FROM `t_log` AS `base` LEFT JOIN `meta` AS `t` ON (`base`.meta_id = `t`.id)");
+
+		s = Sql.tables.t_log.join('t').join('base').where("").select();
+		assertEquals(s+'', "SELECT * FROM `t_log` AS `base_table` CROSS JOIN `t` CROSS JOIN `base`");
+
+		s = Sql.tables.t_log.join('t').join('base').join('hello', 'base_table').where("").select();
+		assertEquals(s+'', "SELECT * FROM `t_log` AS `_base_table` CROSS JOIN `t` CROSS JOIN `base` CROSS JOIN `hello` AS `base_table`");
+
+		s = Sql.tables.t_log.where("").select("col1*2, Count(*)", "position_major DESC, position_minor");
+		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `t_log` ORDER BY `position_major` DESC, `position_minor`");
 	}
 );

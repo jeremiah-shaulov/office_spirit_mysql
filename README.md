@@ -476,7 +476,17 @@ let s = sql
 console.log('' + s); // prints ...WHERE (`av`.article_id = 10 AND `av`.`article_version` = 1 AND `a`.name <> '')
 ```
 
-4. `[${param}]` - Generate list of SQL values.
+4. `${param}` or `alias.${param}` (not enclosed) - Like `(${param})`, but allows commas on top level.
+
+```ts
+import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+const columns = "name, value";
+let s = sql`SELECT ${columns} FROM something WHERE id=1`;
+console.log('' + s); // prints: SELECT `name`, `value` FROM something WHERE id=1
+```
+
+5. `[${param}]` - Generate list of SQL values.
 
 Square brackets will be replaced with parentheses. The parameter must be iterable. If items in the collection are also iterable, this will generate multidimensional collection.
 
@@ -501,7 +511,7 @@ let s = sql
 console.log('' + s); // prints: ...WHERE (av.article_id, av.article_version) IN ((10,1),(11,3),(12,8))
 ```
 
-5. `{alias.${param}}`, `{alias.${param},}` - Generate equations separated with commas (the alias is optional).
+6. `{alias.${param}}`, `{alias.${param},}` - Generate equations separated with commas (the alias is optional).
 
 The first form throws exception, if there are no fields in the param. The Second form doesn't complain, and prints comma after the last field.
 
@@ -521,7 +531,7 @@ let s = sql`UPDATE articles AS a SET {a.${row},} article_date=Now() WHERE id=1`;
 console.log('' + s); // prints: UPDATE articles AS a SET `name`='About all', `author`='Johnny', article_date=Now() WHERE id=1
 ```
 
-6. `{alias.${param}&}` - Generate equations separated with "AND" operations (the alias is optional).
+7. `{alias.${param}&}` - Generate equations separated with "AND" operations (the alias is optional).
 
 Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `FALSE` literal.
 
@@ -533,7 +543,7 @@ let s = sql`SELECT * FROM articles AS a WHERE {a.${row}&}`;
 console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' AND `author`='Johnny')
 ```
 
-7. `{alias.${param}|}` - Generate equations separated with "OR" operations (the alias is optional).
+8. `{alias.${param}|}` - Generate equations separated with "OR" operations (the alias is optional).
 
 Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `TRUE` literal.
 
@@ -545,7 +555,7 @@ let s = sql`SELECT * FROM articles AS a WHERE {a.${row}|}`;
 console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' OR `author`='Johnny')
 ```
 
-8. `<${param}>` - Generate names and values for INSERT statement.
+9. `<${param}>` - Generate names and values for INSERT statement.
 
 Parameter must be iterable object that contains rows to insert. Will print column names from the first row. On following rows, only columns from the first row will be used.
 
@@ -564,6 +574,8 @@ console.log('' + sql`INSERT INTO t_log <${rows}> AS new ON DUPLICATE KEY UPDATE 
 	(11,'text 2') AS new ON DUPLICATE KEY UPDATE t_log.name = new.name
  */
 ```
+
+10. `(${alias}.${param})`, `${alias}.${param}`, `{${alias}.${param}}` - Takes the alias from variable.
 
 #### About `Sql` object
 
@@ -654,9 +666,9 @@ SqlPolicy.constructor(idents?: string, functions?: string)
 
 If `idents` and/or `functions` argument is omitted or `undefined`, the default value is used.
 
-For `idents` the default value is: `NOT AND OR XOR BETWEEN SEPARATOR IS NULL DISTINCT LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END`.
+For `idents` the default value is: `NOT AND OR XOR BETWEEN SEPARATOR IS NULL DISTINCT LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END AS ASC DESC`.
 
-For `functions` is: `! SELECT VALUES`.
+For `functions` is: `! SELECT FROM JOIN ON WHERE`.
 
 The policy is specified by whitespace-separated list of identifiers. If the first character is `!`, so it's a blacklist policy. Otherwise it's whitelist.
 

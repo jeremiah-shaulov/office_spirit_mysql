@@ -748,7 +748,7 @@ Deno.test
 		}
 	}
 );
-
+/*
 Deno.test
 (	'Load big dump',
 	async () =>
@@ -937,3 +937,4 @@ Deno.test
 		}
 	}
 );
+*/

@@ -217,6 +217,10 @@ export class Sql
 					// I'm after '(' or '{'
 					qt = serializer.get_char(-1);
 				}
+				else if (strings[i+1] == '.')
+				{	parent_name = param==='' ? undefined : serializer.set_parent_name(param);
+					param = params[++i];
+				}
 				if (qt == C_BRACE_OPEN)
 				{	let param_type_descriminator = strings[i+1].charCodeAt(0);
 					if (param_type_descriminator!=C_BRACE_CLOSE && param_type_descriminator!=C_COMMA && param_type_descriminator!=C_AMP && param_type_descriminator!=C_PIPE)
@@ -681,6 +685,25 @@ class Serializer
 		return this.buffer_for_parent_name.subarray(0, parent_name_len);
 	}
 
+	set_parent_name(param: any)
+	{	if (typeof(param) != 'string')
+		{	throw new Error(`Alias must be string`);
+		}
+		if (!this.buffer_for_parent_name)
+		{	this.buffer_for_parent_name = encoder.encode(param);
+			return this.buffer_for_parent_name;
+		}
+		let from = this.pos;
+		this.append_raw_string(param);
+		let parent_name_len = this.pos - from;
+		if (this.buffer_for_parent_name.length < parent_name_len)
+		{	this.buffer_for_parent_name = new Uint8Array((parent_name_len|7) + 1);
+		}
+		this.buffer_for_parent_name.set(this.result.subarray(from, this.pos));
+		this.pos = from;
+		return this.buffer_for_parent_name.subarray(0, parent_name_len);
+	}
+
 	/**	Append a (${param}).
 		I assume that i'm after opening '(' char (if enclosed).
 	 **/
@@ -1042,22 +1065,112 @@ const TABLES = new Proxy
 );
 
 class SqlTable
-{	private where_expr: string | undefined;
+{	private joins: {table_name: string, alias: string, on_expr: string, is_left: boolean}[] = [];
+	private where_exprs: string[] = [];
+
+	private has_t = false;
+	private has_base = false;
+	private has_base_table = false;
 
 	constructor(readonly table_name: string)
 	{
 	}
 
-	where(sql_expr: string)
-	{	this.where_expr = sql_expr;
-		return this;
+	private get_base_table_alias()
+	{	return this.joins.length==0 ? '' : !this.has_t ? 't' : !this.has_base ? 'base' : !this.has_base_table ? 'base_table' : '_base_table';
+	}
+
+	private concat_joins(stmt: Sql, base_table: string)
+	{	if (this.joins.length == 0)
+		{	return stmt.concat(sql` "${this.table_name}"`);
+		}
+		stmt = stmt.concat(sql` "${this.table_name}" AS "${base_table}"`);
+		for (let {table_name, alias, on_expr, is_left} of this.joins)
+		{	let join;
+			if (!on_expr)
+			{	join = !alias ? sql` CROSS JOIN "${table_name}"` : sql` CROSS JOIN "${table_name}" AS "${alias}"`;
+			}
+			else if (!is_left)
+			{	join = !alias ? sql` INNER JOIN "${table_name}" ON (${base_table}.${on_expr})` : sql` INNER JOIN "${table_name}" AS "${alias}" ON (${base_table}.${on_expr})`;
+			}
+			else
+			{	join = !alias ? sql` LEFT JOIN "${table_name}" ON (${base_table}.${on_expr})` : sql` LEFT JOIN "${table_name}" AS "${alias}" ON (${base_table}.${on_expr})`;
+			}
+			stmt = stmt.concat(join);
+		}
+		return stmt;
+	}
+
+	private concat_where_exprs(stmt: Sql, base_table: string)
+	{	if (this.where_exprs.length == 0)
+		{	throw new Error(`Please, call where() first`);
+		}
+		let w: Sql | undefined;
+		for (let where_expr of this.where_exprs)
+		{	if (where_expr)
+			{	w = !w ? sql` WHERE (${base_table}.${where_expr})` : w.concat(sql` AND (${base_table}.${where_expr})`);
+			}
+		}
+		return !w ? stmt : stmt.concat(w);
+	}
+
+	private clone()
+	{	let sql_table = new SqlTable(this.table_name);
+		sql_table.joins = this.joins.slice();
+		sql_table.where_exprs = this.where_exprs.slice();
+		sql_table.has_t = this.has_t;
+		sql_table.has_base = this.has_base;
+		sql_table.has_base_table = this.has_base_table;
+		return sql_table;
+	}
+
+	private some_join(table_name: string, alias: string, on_expr: string, is_left: boolean)
+	{	if (this.where_exprs.length)
+		{	throw new Error(`join() can be called before where()`);
+		}
+		let sql_table = this.clone();
+		sql_table.joins.push({table_name, alias, on_expr, is_left});
+		if (!alias)
+		{	alias = table_name;
+		}
+		alias = alias.toLowerCase();
+		if (alias == 't')
+		{	sql_table.has_t = true;
+		}
+		else if (alias == 'base')
+		{	sql_table.has_base = true;
+		}
+		else if (alias == 'base_table')
+		{	sql_table.has_base_table = true;
+		}
+		else if (alias == '_base_table')
+		{	throw new Error(`Alias "_base_table" is reserved`);
+		}
+		return sql_table;
+	}
+
+	join(table_name: string, alias='', on_expr='')
+	{	return this.some_join(table_name, alias, on_expr, false);
+	}
+
+	left_join(table_name: string, alias: string, on_expr: string)
+	{	if (!on_expr)
+		{	throw new Error(`No condition in LEFT JOIN`);
+		}
+		return this.some_join(table_name, alias, on_expr, true);
+	}
+
+	where(where_expr: string)
+	{	let sql_table = this.clone();
+		sql_table.where_exprs.push(where_expr);
+		return sql_table;
 	}
 
 	select(columns='', order_by='', offset=0, limit=0)
-	{	if (this.where_expr == undefined)
-		{	throw new Error(`Please, call where() first`);
-		}
-		let stmt = !columns ? sql`SELECT * FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})` : sql`SELECT ${columns} FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})`;
+	{	let base_table = this.get_base_table_alias();
+		let stmt = !columns ? sql`SELECT * FROM` : sql`SELECT ${base_table}.${columns} FROM`;
+		stmt = this.concat_joins(stmt, base_table);
+		stmt = this.concat_where_exprs(stmt, base_table);
 		if (order_by)
 		{	stmt = stmt.concat(sql` ORDER BY ${order_by}`);
 		}
@@ -1071,17 +1184,26 @@ class SqlTable
 	}
 
 	update(row: Record<string, any>)
-	{	if (this.where_expr == undefined)
-		{	throw new Error(`Please, call where() first`);
-		}
-		return sql`UPDATE "${this.table_name}" SET {${row}} WHERE (${this.where_expr || 'TRUE'})`;
+	{	let base_table = this.get_base_table_alias();
+		let stmt = sql`UPDATE`;
+		stmt = this.concat_joins(stmt, base_table);
+		stmt = stmt.concat(sql` SET {${row}}`);
+		stmt = this.concat_where_exprs(stmt, base_table);
+		return stmt;
 	}
 
-	delete()
-	{	if (this.where_expr == undefined)
-		{	throw new Error(`Please, call where() first`);
+	delete(delete_expr='')
+	{	if (this.joins.length == 0)
+		{	return this.concat_where_exprs(sql`DELETE FROM "${this.table_name}"`, '');
 		}
-		return sql`DELETE FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})`;
+		let base_table = this.get_base_table_alias();
+		if (!delete_expr)
+		{	delete_expr = `${base_table}.*`;
+		}
+		let stmt = sql`DELETE ${delete_expr} FROM`;
+		stmt = this.concat_joins(stmt, base_table);
+		stmt = this.concat_where_exprs(stmt, base_table);
+		return stmt;
 	}
 
 	insert(rows: Iterable<Record<string, any>>, mode: ''|'ignore'|'replace' = '')
