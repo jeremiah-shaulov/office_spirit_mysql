@@ -217,14 +217,7 @@ export class Sql
 					// I'm after '(' or '{'
 					qt = serializer.get_char(-1);
 				}
-				if (qt == C_PAREN_OPEN)
-				{	if (strings[i+1].charCodeAt(0) != C_PAREN_CLOSE)
-					{	throw new Error(`Inappropriately enclosed parameter`);
-					}
-					serializer.append_safe_sql_fragment(param+'', parent_name);
-					want = Want.NOTHING;
-				}
-				else if (qt == C_BRACE_OPEN)
+				if (qt == C_BRACE_OPEN)
 				{	let param_type_descriminator = strings[i+1].charCodeAt(0);
 					if (param_type_descriminator!=C_BRACE_CLOSE && param_type_descriminator!=C_COMMA && param_type_descriminator!=C_AMP && param_type_descriminator!=C_PIPE)
 					{	throw new Error(`Inappropriately enclosed parameter`);
@@ -283,8 +276,16 @@ export class Sql
 					{	want = Want.CONVERT_A_CHAR_AND_BRACE_CLOSE_TO_PAREN_CLOSE;
 					}
 				}
+				else if (qt == C_PAREN_OPEN)
+				{	if (strings[i+1].charCodeAt(0) != C_PAREN_CLOSE)
+					{	throw new Error(`Inappropriately enclosed parameter`);
+					}
+					serializer.append_safe_sql_fragment(param+'', parent_name, true);
+					want = Want.NOTHING;
+				}
 				else
-				{	throw new Error(`Inappropriately enclosed parameter`);
+				{	serializer.append_safe_sql_fragment(param+'', parent_name);
+					want = Want.NOTHING;
 				}
 			}
 		}
@@ -331,6 +332,9 @@ export class Sql
 			result[pos] = C_APOS;
 			return decoder_latin1.decode(result);
 		}
+		if (typeof(param.read) == 'function')
+		{	throw new Error(`Cannot stringify Deno.Reader`);
+		}
 		// Assume: param is string
 		if (typeof(param) == 'object')
 		{	param = JSON.stringify(param);
@@ -361,6 +365,10 @@ export class Sql
 		}
 		result[1 + written + n_add] = C_APOS;
 		return decoder.decode(result);
+	}
+
+	static get tables(): Record<string, SqlTable>
+	{	return TABLES;
 	}
 }
 
@@ -615,7 +623,7 @@ class Serializer
 	/**	Append a <${param}>.
 		I assume that i'm after opening '<' char, that was converted to '('.
 	 **/
-	append_names_values(param: Iterable<any>)
+	append_names_values(param: Iterable<Record<string, any>>)
 	{	let names: string[] | undefined;
 		for (let row of param)
 		{	if (!names)
@@ -674,9 +682,9 @@ class Serializer
 	}
 
 	/**	Append a (${param}).
-		I assume that i'm after opening '(' char.
+		I assume that i'm after opening '(' char (if enclosed).
 	 **/
-	append_safe_sql_fragment(param: string, parent_name: Uint8Array|undefined)
+	append_safe_sql_fragment(param: string, parent_name: Uint8Array|undefined, is_expression=false)
 	{	let from = this.pos;
 		// Append param, as is
 		this.append_raw_string(param);
@@ -699,7 +707,7 @@ L:		for (let j=from; j<pos; j++)
 				case C_HASH:
 					throw new Error(`Comment in SQL fragment: ${param}`);
 				case C_COMMA:
-					if (paren_level == 0)
+					if (paren_level==0 && is_expression)
 					{	throw new Error(`Comma in SQL fragment: ${param}`);
 					}
 					break;
@@ -1020,4 +1028,70 @@ function date_encode_into(date: Date, buffer: Uint8Array)
 	millis = Math.floor(millis / 10);
 	buffer[20] = C_ZERO + millis % 10;
 	return 23;
+}
+
+const TABLES = new Proxy
+(	{},
+	{	get(target, table_name)
+		{	if (typeof(table_name) != 'string')
+			{	throw new Error("Table name must be a string");
+			}
+			return new SqlTable(table_name);
+		}
+	}
+);
+
+class SqlTable
+{	private where_expr: string | undefined;
+
+	constructor(readonly table_name: string)
+	{
+	}
+
+	where(sql_expr: string)
+	{	this.where_expr = sql_expr;
+		return this;
+	}
+
+	select(columns='', order_by='', offset=0, limit=0)
+	{	if (this.where_expr == undefined)
+		{	throw new Error(`Please, call where() first`);
+		}
+		let stmt = !columns ? sql`SELECT * FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})` : sql`SELECT ${columns} FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})`;
+		if (order_by)
+		{	stmt = stmt.concat(sql` ORDER BY ${order_by}`);
+		}
+		if (limit > 0)
+		{	stmt = stmt.concat(sql` LIMIT '${offset+1}', '${limit}'`);
+		}
+		else if (offset > 0)
+		{	stmt = stmt.concat(sql` LIMIT '${offset+1}', 2147483647`);
+		}
+		return stmt;
+	}
+
+	update(row: Record<string, any>)
+	{	if (this.where_expr == undefined)
+		{	throw new Error(`Please, call where() first`);
+		}
+		return sql`UPDATE "${this.table_name}" SET {${row}} WHERE (${this.where_expr || 'TRUE'})`;
+	}
+
+	delete()
+	{	if (this.where_expr == undefined)
+		{	throw new Error(`Please, call where() first`);
+		}
+		return sql`DELETE FROM "${this.table_name}" WHERE (${this.where_expr || 'TRUE'})`;
+	}
+
+	insert(rows: Iterable<Record<string, any>>, mode: ''|'ignore'|'replace' = '')
+	{	switch (mode)
+		{	case 'ignore':
+				return sql`INSERT IGNORE INTO "${this.table_name}" <${rows}>`;
+			case 'replace':
+				return sql`REPLACE "${this.table_name}" <${rows}>`;
+			default:
+				return sql`INSERT INTO "${this.table_name}" <${rows}>`;
+		}
+	}
 }
