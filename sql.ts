@@ -662,6 +662,9 @@ class Serializer
 				delim = C_COMMA;
 			}
 		}
+		if (!names)
+		{	throw new Error("0 rows in <${param}>");
+		}
 	}
 
 	/**	Read the parent qualifier in (parent.${param}) or {parent.${param}}.
@@ -1064,15 +1067,19 @@ const TABLES = new Proxy
 	}
 );
 
+type Join = {table_name: string, alias: string, on_expr: string, is_left: boolean};
+
 class SqlTable
-{	private joins: {table_name: string, alias: string, on_expr: string, is_left: boolean}[] = [];
-	private where_exprs: string[] = [];
-
-	private has_t = false;
-	private has_base = false;
-	private has_base_table = false;
-
-	constructor(readonly table_name: string)
+{	constructor
+	(	readonly table_name: string,
+		private joins: Join[] = [],
+		private where_exprs: string[] = [],
+		private group_by_exprs: string|undefined = undefined,
+		private having_expr = '',
+		private has_t = false,
+		private has_base = false,
+		private has_base_table = false,
+	)
 	{
 	}
 
@@ -1115,18 +1122,24 @@ class SqlTable
 	}
 
 	private clone()
-	{	let sql_table = new SqlTable(this.table_name);
-		sql_table.joins = this.joins.slice();
-		sql_table.where_exprs = this.where_exprs.slice();
-		sql_table.has_t = this.has_t;
-		sql_table.has_base = this.has_base;
-		sql_table.has_base_table = this.has_base_table;
-		return sql_table;
+	{	return new SqlTable
+		(	this.table_name,
+			this.joins.slice(),
+			this.where_exprs.slice(),
+			this.group_by_exprs,
+			this.having_expr,
+			this.has_t,
+			this.has_base,
+			this.has_base_table
+		);
 	}
 
 	private some_join(table_name: string, alias: string, on_expr: string, is_left: boolean)
 	{	if (this.where_exprs.length)
 		{	throw new Error(`join() can be called before where()`);
+		}
+		if (this.group_by_exprs != undefined)
+		{	throw new Error(`join() can be called before group_by()`);
 		}
 		let sql_table = this.clone();
 		sql_table.joins.push({table_name, alias, on_expr, is_left});
@@ -1161,8 +1174,21 @@ class SqlTable
 	}
 
 	where(where_expr: string)
-	{	let sql_table = this.clone();
+	{	if (this.group_by_exprs != undefined)
+		{	throw new Error(`where() can be called before group_by()`);
+		}
+		let sql_table = this.clone();
 		sql_table.where_exprs.push(where_expr);
+		return sql_table;
+	}
+
+	group_by(group_by_exprs: string, having_expr='')
+	{	if (this.group_by_exprs != undefined)
+		{	throw new Error(`group_by() can be called only once`);
+		}
+		let sql_table = this.clone();
+		sql_table.group_by_exprs = group_by_exprs;
+		sql_table.having_expr = having_expr;
 		return sql_table;
 	}
 
@@ -1171,6 +1197,12 @@ class SqlTable
 		let stmt = !columns ? sql`SELECT * FROM` : sql`SELECT ${base_table}.${columns} FROM`;
 		stmt = this.concat_joins(stmt, base_table);
 		stmt = this.concat_where_exprs(stmt, base_table);
+		if (this.group_by_exprs)
+		{	stmt = stmt.concat(sql` GROUP BY ${base_table}.${this.group_by_exprs}`);
+			if (this.having_expr)
+			{	stmt = stmt.concat(sql` HAVING (${this.having_expr})`);
+			}
+		}
 		if (order_by)
 		{	stmt = stmt.concat(sql` ORDER BY ${order_by}`);
 		}
@@ -1184,36 +1216,107 @@ class SqlTable
 	}
 
 	update(row: Record<string, any>)
-	{	let base_table = this.get_base_table_alias();
+	{	if (this.group_by_exprs != undefined)
+		{	throw new Error(`Cannot UPDATE with GROUP BY`);
+		}
+		let base_table = this.get_base_table_alias();
 		let stmt = sql`UPDATE`;
 		stmt = this.concat_joins(stmt, base_table);
-		stmt = stmt.concat(sql` SET {${row}}`);
+		stmt = stmt.concat(sql` SET {${base_table}.${row}}`);
 		stmt = this.concat_where_exprs(stmt, base_table);
 		return stmt;
 	}
 
-	delete(delete_expr='')
-	{	if (this.joins.length == 0)
+	delete(tables: string[] = [])
+	{	if (this.group_by_exprs != undefined)
+		{	throw new Error(`Cannot DELETE with GROUP BY`);
+		}
+		if (this.joins.length == 0)
 		{	return this.concat_where_exprs(sql`DELETE FROM "${this.table_name}"`, '');
 		}
 		let base_table = this.get_base_table_alias();
-		if (!delete_expr)
-		{	delete_expr = `${base_table}.*`;
+		let stmt;
+		if (tables.length == 0)
+		{	stmt = sql`DELETE "${base_table}".* FROM`;
 		}
-		let stmt = sql`DELETE ${delete_expr} FROM`;
+		else
+		{	stmt = sql`DELETE "${tables[0]}".*`;
+			for (let i=1, i_end=tables.length; i<i_end; i++)
+			{	stmt = stmt.concat(sql`, "${tables[i]}".*`);
+			}
+			stmt = stmt.concat(sql` FROM`);
+		}
 		stmt = this.concat_joins(stmt, base_table);
 		stmt = this.concat_where_exprs(stmt, base_table);
 		return stmt;
 	}
 
-	insert(rows: Iterable<Record<string, any>>, mode: ''|'ignore'|'replace' = '')
-	{	switch (mode)
-		{	case 'ignore':
-				return sql`INSERT IGNORE INTO "${this.table_name}" <${rows}>`;
-			case 'replace':
-				return sql`REPLACE "${this.table_name}" <${rows}>`;
-			default:
-				return sql`INSERT INTO "${this.table_name}" <${rows}>`;
+	insert(rows: Iterable<Record<string, any>>, mode: ''|'ignore'|'replace'|'update'|'patch' = '')
+	{	if (this.joins.length)
+		{	throw new Error(`Cannot INSERT with JOIN`);
 		}
+		if (this.where_exprs.length)
+		{	throw new Error(`Cannot INSERT with WHERE`);
+		}
+		if (this.group_by_exprs != undefined)
+		{	throw new Error(`Cannot INSERT with GROUP BY`);
+		}
+		if (!mode)
+		{	return sql`INSERT INTO "${this.table_name}" <${rows}>`;
+		}
+		if (mode == 'replace')
+		{	return sql`REPLACE "${this.table_name}" <${rows}>`;
+		}
+		let names;
+		if (Array.isArray(rows))
+		{	if (rows.length == 0)
+			{	throw new Error("0 rows in <${param}>");
+			}
+			names = Object.keys(rows[0]);
+		}
+		else
+		{	let it_inner = rows[Symbol.iterator]();
+			let {value, done} = it_inner.next();
+			if (done || !value)
+			{	throw new Error("0 rows in <${param}>");
+			}
+			let first_row = value;
+			names = Object.keys(first_row);
+			function *it_outer()
+			{	while (true)
+				{	if (first_row)
+					{	yield first_row;
+						first_row = undefined;
+					}
+					else
+					{	let {value, done} = it_inner.next();
+						if (done || !value)
+						{	break;
+						}
+						yield value;
+					}
+				}
+			}
+			rows = it_outer();
+		}
+		if (mode == 'ignore')
+		{	return sql`INSERT INTO "${this.table_name}" <${rows}> ON DUPLICATE KEY UPDATE "${names[0]}"="${names[0]}"`;
+		}
+		let is_patch = mode == 'patch';
+		let stmt = sql`INSERT INTO "${this.table_name}" <${rows}> AS n ON DUPLICATE KEY UPDATE `;
+		let want_comma = false;
+		for (let name of names)
+		{	if (want_comma)
+			{	stmt = stmt.concat(sql`, `);
+			}
+			want_comma = true;
+			if (!is_patch)
+			{	stmt = stmt.concat(sql`"${name}"=n."${name}"`);
+			}
+			else
+			{	stmt = stmt.concat(sql`"${name}"=CASE WHEN n."${name}" IS NOT NULL AND ("${name}" IS NULL OR (Cast(n."${name}" AS char) NOT IN ('', '0') OR Cast("${name}" AS char) IN ('', '0'))) THEN n."${name}" ELSE "${name}" END`);
+			}
+		}
+		return stmt;
 	}
 }

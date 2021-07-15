@@ -596,7 +596,7 @@ Deno.test
 );
 
 Deno.test
-(	'SQL Sql.tables',
+(	'SQL Sql.tables SELECT',
 	async () =>
 	{	let s = Sql.tables['Hello `All`!'].where("id=1").select("col1*2, Count(*)");
 		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `Hello ``All``!` WHERE (`id`=1)");
@@ -654,6 +654,33 @@ Deno.test
 		}
 		assertEquals(error?.message, `No condition in LEFT JOIN`);
 
+		error = undefined;
+		try
+		{	Sql.tables.t_log.group_by('').join('a', 'aa', '');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `join() can be called before group_by()`);
+
+		error = undefined;
+		try
+		{	Sql.tables.t_log.group_by('').where('1');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `where() can be called before group_by()`);
+
+		error = undefined;
+		try
+		{	Sql.tables.t_log.group_by('').group_by('1');
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, `group_by() can be called only once`);
+
 		s = Sql.tables.t_log.join('meta', 'm', 'meta_id = m.id').where("").select("col1*2, Count(*)");
 		assertEquals(s+'', "SELECT `t`.col1*2, Count(*) FROM `t_log` AS `t` INNER JOIN `meta` AS `m` ON (`t`.meta_id = `m`.id)");
 
@@ -675,7 +702,163 @@ Deno.test
 		s = Sql.tables.t_log.join('t').join('base').join('hello', 'base_table').where("").select();
 		assertEquals(s+'', "SELECT * FROM `t_log` AS `_base_table` CROSS JOIN `t` CROSS JOIN `base` CROSS JOIN `hello` AS `base_table`");
 
+		s = Sql.tables.t_log.where("").group_by('g1, g2').select();
+		assertEquals(s+'', "SELECT * FROM `t_log` GROUP BY `g1`, `g2`");
+
+		s = Sql.tables.t_log.where("").group_by('g1, g2', 'hello IS NULL').select();
+		assertEquals(s+'', "SELECT * FROM `t_log` GROUP BY `g1`, `g2` HAVING (`hello` IS NULL)");
+
+		s = Sql.tables.t_log.join('meta', '', 'meta_id = meta.id').where("").group_by('g1, meta.g2', 'hello IS NULL').select();
+		assertEquals(s+'', "SELECT * FROM `t_log` AS `t` INNER JOIN `meta` ON (`t`.meta_id = `meta`.id) GROUP BY `t`.g1, `meta`.g2 HAVING (`hello` IS NULL)");
+
 		s = Sql.tables.t_log.where("").select("col1*2, Count(*)", "position_major DESC, position_minor");
 		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `t_log` ORDER BY `position_major` DESC, `position_minor`");
+
+		s = Sql.tables.t_log.where("").select("", "", 0, 10);
+		assertEquals(s+'', "SELECT * FROM `t_log` LIMIT 1, 10");
+
+		s = Sql.tables.t_log.where("").select("", "", 1, 11);
+		assertEquals(s+'', "SELECT * FROM `t_log` LIMIT 2, 11");
+
+		s = Sql.tables.t_log.where("").select("", "", 10);
+		assertEquals(s+'', "SELECT * FROM `t_log` LIMIT 11, 2147483647");
+	}
+);
+
+Deno.test
+(	'SQL Sql.tables UPDATE',
+	async () =>
+	{	let s = Sql.tables.t_log.where("id=1").update({message: "Message '1'"});
+		assertEquals(s+'', "UPDATE `t_log` SET `message`='Message ''1''' WHERE (`id`=1)");
+
+		s = Sql.tables.t_log.join('more', '', 'more_id = more.id').where("id=1").update({message: "Message 1"});
+		assertEquals(s+'', "UPDATE `t_log` AS `t` INNER JOIN `more` ON (`t`.more_id = `more`.id) SET `t`.`message`='Message 1' WHERE (`t`.id=1)");
+
+		let error;
+		try
+		{	'' + Sql.tables.t_log.where("id=1").update({});
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "In SQL fragment: 0 values for {${...}}");
+
+		error = undefined;
+		try
+		{	'' + Sql.tables.t_log.where("id=1").group_by('').update({a: 1});
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Cannot UPDATE with GROUP BY");
+	}
+);
+
+Deno.test
+(	'SQL Sql.tables DELETE',
+	async () =>
+	{	let s = Sql.tables.t_log.where("id=1").delete();
+		assertEquals(s+'', "DELETE FROM `t_log` WHERE (`id`=1)");
+
+		s = Sql.tables.t_log.join('more', '', 'more_id = more.id').where("id=1").delete();
+		assertEquals(s+'', "DELETE `t`.* FROM `t_log` AS `t` INNER JOIN `more` ON (`t`.more_id = `more`.id) WHERE (`t`.id=1)");
+
+		s = Sql.tables.t_log.join('more', '', 'more_id = more.id').where("id=1").delete(['more']);
+		assertEquals(s+'', "DELETE `more`.* FROM `t_log` AS `t` INNER JOIN `more` ON (`t`.more_id = `more`.id) WHERE (`t`.id=1)");
+
+		s = Sql.tables.t_log.join('more', '', 'more_id = more.id').where("id=1").delete(['more', 'fake']);
+		assertEquals(s+'', "DELETE `more`.*, `fake`.* FROM `t_log` AS `t` INNER JOIN `more` ON (`t`.more_id = `more`.id) WHERE (`t`.id=1)");
+
+		let error;
+		try
+		{	'' + Sql.tables.t_log.where("id=1").group_by('').delete();
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, "Cannot DELETE with GROUP BY");
+	}
+);
+
+Deno.test
+(	'SQL Sql.tables INSERT',
+	async () =>
+	{	const ROWS = [{a: 1, b: '2'}, {a: 10, b: '20'}];
+		function *it_rows(rows: Record<string, any>[])
+		{	for (let row of rows)
+			{	yield row;
+			}
+		}
+
+		for (let i=0; i<2; i++)
+		{	let s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS));
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20')");
+
+			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'ignore');
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') ON DUPLICATE KEY UPDATE `a`=`a`");
+
+			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'replace');
+			assertEquals(s+'', "REPLACE `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20')");
+
+			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'update');
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS n ON DUPLICATE KEY UPDATE `a`=n.`a`, `b`=n.`b`");
+
+			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'patch');
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS n ON DUPLICATE KEY UPDATE `a`=CASE WHEN n.`a` IS NOT NULL AND (`a` IS NULL OR (Cast(n.`a` AS char) NOT IN ('', '0') OR Cast(`a` AS char) IN ('', '0'))) THEN n.`a` ELSE `a` END, `b`=CASE WHEN n.`b` IS NOT NULL AND (`b` IS NULL OR (Cast(n.`b` AS char) NOT IN ('', '0') OR Cast(`b` AS char) IN ('', '0'))) THEN n.`b` ELSE `b` END");
+
+			let error;
+			try
+			{	'' + Sql.tables.t_log.join('more').insert(i==0 ? ROWS : it_rows(ROWS));
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "Cannot INSERT with JOIN");
+
+			error = undefined;
+			try
+			{	'' + Sql.tables.t_log.where("id=1").insert(i==0 ? ROWS : it_rows(ROWS));
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "Cannot INSERT with WHERE");
+
+			error = undefined;
+			try
+			{	'' + Sql.tables.t_log.insert(i==0 ? [] : it_rows([]));
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "0 rows in <${param}>");
+
+			error = undefined;
+			try
+			{	'' + Sql.tables.t_log.insert(i==0 ? [] : it_rows([]), 'update');
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "0 rows in <${param}>");
+
+			error = undefined;
+			try
+			{	'' + Sql.tables.t_log.insert(i==0 ? [{}] : it_rows([{}]));
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "No fields for <${param}>");
+
+			error = undefined;
+			try
+			{	'' + Sql.tables.t_log.group_by('').insert(i==0 ? ROWS : it_rows(ROWS));
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, "Cannot INSERT with GROUP BY");
+		}
 	}
 );
