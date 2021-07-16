@@ -1,4 +1,5 @@
-import {MyPool, sql, Sql} from '../mod.ts';
+import {MyPool} from '../mod.ts';
+import {sql, Sql, INLINE_STRINGS_MAX_LEN} from '../sql.ts';
 import {SqlPolicy} from '../sql_policy.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 
@@ -475,11 +476,17 @@ Deno.test
 Deno.test
 (	'SQL put_params_to',
 	async () =>
-	{	let value = "Message 1";
+	{	let value = "*".repeat(INLINE_STRINGS_MAX_LEN+1);
 		let s = sql`A'${value}'B`;
 		let put_params_to: any[] = [];
 		assertEquals(s.toString(false, put_params_to), `A?B`);
 		assertEquals(put_params_to, [value]);
+
+		value = "*".repeat(INLINE_STRINGS_MAX_LEN);
+		s = sql`A'${value}'B`;
+		put_params_to = [];
+		assertEquals(s.toString(false, put_params_to), `A'${value}'B`);
+		assertEquals(put_params_to, []);
 	}
 );
 
@@ -598,15 +605,18 @@ Deno.test
 Deno.test
 (	'SQL Sql.tables SELECT',
 	async () =>
-	{	let s = Sql.tables['Hello `All`!'].where("id=1").select("col1*2, Count(*)");
+	{	const TABLE = 'Hello `All`!';
+		assertEquals(Sql.tables[TABLE].table_name, TABLE);
+
+		let s = Sql.tables[TABLE].where("id=1").select("col1*2, Count(*)");
 		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `Hello ``All``!` WHERE (`id`=1)");
 
-		s = Sql.tables['Hello `All`!'].where("").select("col1*2, Count(*)");
+		s = Sql.tables[TABLE].where("").select("col1*2, Count(*)");
 		assertEquals(s+'', "SELECT `col1`*2, Count(*) FROM `Hello ``All``!`");
 
 		let error;
 		try
-		{	Sql.tables['Hello `All`!'].select("col1*2, Count(*)");
+		{	Sql.tables[TABLE].select("col1*2, Count(*)");
 		}
 		catch (e)
 		{	error = e;
@@ -801,10 +811,10 @@ Deno.test
 			assertEquals(s+'', "REPLACE `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20')");
 
 			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'update');
-			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS n ON DUPLICATE KEY UPDATE `a`=n.`a`, `b`=n.`b`");
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS excluded ON DUPLICATE KEY UPDATE `a`=excluded.`a`, `b`=excluded.`b`");
 
 			s = Sql.tables.t_log.insert(i==0 ? ROWS : it_rows(ROWS), 'patch');
-			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS n ON DUPLICATE KEY UPDATE `a`=CASE WHEN n.`a` IS NOT NULL AND (`a` IS NULL OR (Cast(n.`a` AS char) NOT IN ('', '0') OR Cast(`a` AS char) IN ('', '0'))) THEN n.`a` ELSE `a` END, `b`=CASE WHEN n.`b` IS NOT NULL AND (`b` IS NULL OR (Cast(n.`b` AS char) NOT IN ('', '0') OR Cast(`b` AS char) IN ('', '0'))) THEN n.`b` ELSE `b` END");
+			assertEquals(s+'', "INSERT INTO `t_log` (`a`, `b`) VALUES\n(1,'2'),\n(10,'20') AS excluded ON DUPLICATE KEY UPDATE `a`=CASE WHEN excluded.`a` IS NOT NULL AND (`t_log`.`a` IS NULL OR Cast(excluded.`a` AS char) NOT IN ('', '0') OR Cast(`t_log`.`a` AS char) IN ('', '0')) THEN excluded.`a` ELSE `t_log`.`a` END, `b`=CASE WHEN excluded.`b` IS NOT NULL AND (`t_log`.`b` IS NULL OR Cast(excluded.`b` AS char) NOT IN ('', '0') OR Cast(`t_log`.`b` AS char) IN ('', '0')) THEN excluded.`b` ELSE `t_log`.`b` END");
 
 			let error;
 			try

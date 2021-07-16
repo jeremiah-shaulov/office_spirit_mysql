@@ -2,6 +2,9 @@ import {debug_assert} from './debug_assert.ts';
 import {SqlPolicy} from './sql_policy.ts';
 import {utf8_string_length} from "./utf8_string_length.ts";
 
+export const INLINE_STRINGS_MAX_LEN = 60;
+const GUESS_STRING_BYTE_LEN_LONGER = 10;
+
 const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
@@ -91,7 +94,7 @@ export class Sql
 	{	this.strings = strings;
 		let len = 0;
 		for (let s of strings)
-		{	len += s.length + 10; // if byte length of s is longer than s.length+10, will realloc later
+		{	len += s.length + GUESS_STRING_BYTE_LEN_LONGER; // if byte length of s is longer than s.length+GUESS_STRING_BYTE_LEN_LONGER, will realloc later
 		}
 		for (let i=0, i_end=params.length; i<i_end; i++)
 		{	let param = params[i];
@@ -115,7 +118,7 @@ export class Sql
 				len += BIGINT_ALLOC_CHAR_LEN;
 			}
 			else if (typeof(param) == 'string')
-			{	len += param.length + 10; // if byte length of param is longer than param.length+10, will realloc later
+			{	len += param.length + GUESS_STRING_BYTE_LEN_LONGER; // if byte length of param is longer than param.length+GUESS_STRING_BYTE_LEN_LONGER, will realloc later
 			}
 			else if (param instanceof Date)
 			{	len += DATE_ALLOC_CHAR_LEN;
@@ -124,14 +127,14 @@ export class Sql
 			{	len += param.byteLength*2 + 3; // like x'01020304'
 			}
 			else if (typeof(param.read) == 'function')
-			{	throw new Error(`Cannot stringify Deno.Reader`);
+			{	// assume, will use "put_params_to"
 			}
 			else
 			{	let prev_string = strings[i];
 				let param_type_descriminator = prev_string.charCodeAt(prev_string.length-1);
 				if (param_type_descriminator==C_APOS || param_type_descriminator==C_QUOT || param_type_descriminator==C_BACKTICK)
 				{	param = JSON.stringify(param);
-					len += param.length + 10; // if byte length of param is longer than param.length+10, will realloc later
+					len += param.length + GUESS_STRING_BYTE_LEN_LONGER; // if byte length of param is longer than param.length+GUESS_STRING_BYTE_LEN_LONGER, will realloc later
 					params[i] = param;
 				}
 				else
@@ -152,8 +155,8 @@ export class Sql
 		sql.strings = strings;
 		sql.params = this.params.concat(other.params);
 		sql.sqlPolicy = this.sqlPolicy ?? other.sqlPolicy;
-		sql.estimatedByteLength = this.estimatedByteLength + other.estimatedByteLength - 10;
-		debug_assert(sql.estimatedByteLength >= 10);
+		sql.estimatedByteLength = this.estimatedByteLength + other.estimatedByteLength - GUESS_STRING_BYTE_LEN_LONGER;
+		debug_assert(sql.estimatedByteLength >= GUESS_STRING_BYTE_LEN_LONGER);
 		return sql;
 	}
 
@@ -545,7 +548,7 @@ class Serializer
 			this.pos += date_encode_into(param, this.result.subarray(this.pos));
 			return Want.NOTHING;
 		}
-		if (this.put_params_to && this.put_params_to.length<MYSQL_MAX_PLACEHOLDERS)
+		if (this.put_params_to && this.put_params_to.length<MYSQL_MAX_PLACEHOLDERS && (typeof(param)!='string' || param.length>INLINE_STRINGS_MAX_LEN))
 		{	this.result[this.pos - 1] = C_QUEST; // ' -> ?
 			this.put_params_to.push(param);
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
@@ -566,6 +569,9 @@ class Serializer
 			}
 			result[this.pos++] = C_APOS;
 			return Want.REMOVE_APOS_OR_BRACE_CLOSE;
+		}
+		if (typeof(param.read) == 'function')
+		{	throw new Error(`Cannot stringify Deno.Reader`);
 		}
 		// Assume: param is string
 		param += '';
@@ -1303,7 +1309,7 @@ class SqlTable
 		{	return sql`INSERT INTO "${this.table_name}" <${rows}> ON DUPLICATE KEY UPDATE "${names[0]}"="${names[0]}"`;
 		}
 		let is_patch = mode == 'patch';
-		let stmt = sql`INSERT INTO "${this.table_name}" <${rows}> AS n ON DUPLICATE KEY UPDATE `;
+		let stmt = sql`INSERT INTO "${this.table_name}" <${rows}> AS excluded ON DUPLICATE KEY UPDATE `;
 		let want_comma = false;
 		for (let name of names)
 		{	if (want_comma)
@@ -1311,10 +1317,10 @@ class SqlTable
 			}
 			want_comma = true;
 			if (!is_patch)
-			{	stmt = stmt.concat(sql`"${name}"=n."${name}"`);
+			{	stmt = stmt.concat(sql`"${name}"=excluded."${name}"`);
 			}
 			else
-			{	stmt = stmt.concat(sql`"${name}"=CASE WHEN n."${name}" IS NOT NULL AND ("${name}" IS NULL OR (Cast(n."${name}" AS char) NOT IN ('', '0') OR Cast("${name}" AS char) IN ('', '0'))) THEN n."${name}" ELSE "${name}" END`);
+			{	stmt = stmt.concat(sql`"${name}"=CASE WHEN excluded."${name}" IS NOT NULL AND ("${this.table_name}"."${name}" IS NULL OR Cast(excluded."${name}" AS char) NOT IN ('', '0') OR Cast("${this.table_name}"."${name}" AS char) IN ('', '0')) THEN excluded."${name}" ELSE "${this.table_name}"."${name}" END`);
 			}
 		}
 		return stmt;
