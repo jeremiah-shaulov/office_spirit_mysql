@@ -6,7 +6,6 @@ import {SqlError, BusyError, CanceledError, SendWithDataError} from './errors.ts
 import {Resultsets, ResultsetsDriver, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
-import {Sql} from './sql.ts';
 
 const DO_QUERY_ATTEMPTS = 3;
 
@@ -97,7 +96,7 @@ export class MyConn
 	}
 
 	end()
-	{	this.state_id = (this.state_id + 1) & 0x7FFFFFFF;
+	{	this.state_id = (this.state_id + 1) & 0x7FFF_FFFF;
 		let {state, protocol, cur_idle_resultsets} = this;
 		this.state = State.IDLE_FRESH;
 		this.protocol = undefined;

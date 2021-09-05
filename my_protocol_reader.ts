@@ -1,6 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
 import {ServerDisconnectedError} from './errors.ts';
-import {SqlPolicy} from './sql_policy.ts';
 
 const INIT_BUFFER_LEN = 8*1024;
 
@@ -20,7 +19,6 @@ export class MyProtocolReader
 	protected constructor
 	(	protected conn: Deno.Conn,
 		protected decoder: TextDecoder,
-		protected sql_policy: SqlPolicy | undefined,
 		use_buffer: Uint8Array|undefined
 	)
 	{	this.buffer = use_buffer ?? new Uint8Array(INIT_BUFFER_LEN);

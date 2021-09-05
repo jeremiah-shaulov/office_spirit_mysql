@@ -5,7 +5,7 @@ Features:
 - Binary protocol. Query parameters are sent separately from text query.
 - Sane connections pooling. Connections are reset after usage (locks are freed).
 - Pool for connections to multiple servers.
-- Streaming BLOBs.
+- Streaming BLOBs and Deno.Reader's.
 - Custom handler for LOCAL INFILE.
 - Made with CPU and RAM efficiency in mind.
 
@@ -36,7 +36,7 @@ pool.closeIdle();
 Connections to database servers are managed by `MyPool` object.
 
 ```ts
-new MyPool(options?: MyPoolOptions|Dsn|string)
+MyPool.constructor(options?: MyPoolOptions|Dsn|string)
 ```
 
 Options are:
@@ -46,13 +46,11 @@ interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-	sqlPolicy?: SqlPolicy;
 }
 ```
 - `dsn` - Default data source name of this pool.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection request will wait.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
-- `sqlPolicy` - whitelisted or blacklisted SQL identifiers and functions for SQL fragments, when using `sql` template literal to generate an SQL string (see below).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
@@ -84,7 +82,7 @@ The requested connection will be available in the provided `callback`, and when 
 Connection state is reset before returning to the pool. This means that incomplete transaction will be rolled back, and all kind of locks will be cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
-If this happens, another connection will be tried, and your query will be retried. This process is transparent to you.
+If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
 
 In the beginning of `callback`, `conn` may be not connected to the server. It will connect on first requested query.
 
@@ -279,7 +277,7 @@ MyConn.queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): Result
 MyConn.queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType[]> {...}
 MyConn.queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType> {...}
 
-type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
 type Params = any[] | Record<string, any> | null;
 class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
 type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
@@ -393,264 +391,82 @@ await pool.onEnd();
 pool.closeIdle();
 ```
 
-### Generate SQL string with quoted parameters
+### Using external SQL generators
 
-In order to just convert a Javascript value to an SQL literal, you can use `Sql.quote()` function.
+Another option for parameters substitution is to use libraries that generate SQL.
+
+Any library that produces SQL queries is alright if it takes into consideration the very important `conn.noBackslashEscapes` flag.
+Remember that the value of this flag can change during server session, if user executes a query like `SET sql_mode='no_backslash_escapes'`.
+
+Query functions can receive SQL queries in several forms:
 
 ```ts
-static Sql.quote(param: any, noBackslashEscapes=false)
+type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
 ```
 
-```ts
-import {Sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+As `string`, `Uint8Array`, `Deno.Reader` or `ToSqlBytes`.
 
-console.log(Sql.quote(null)); // prints: NULL
-console.log(Sql.quote(false)); // prints: FALSE
-console.log(Sql.quote(123)); // prints: 123
-console.log(Sql.quote('Message')); // prints: 'Message'
-console.log(Sql.quote('It\'s another message')); // prints: 'It''s another message'
-console.log(Sql.quote(new Date(2000, 0, 1))); // prints: '2000-01-01'
-console.log(Sql.quote(new Uint8Array([1, 2, 3]))); // prints: x'010203'
-console.log(Sql.quote({id: 1, value: 1.5})); // prints: '{"id":1,"value":1.5}'
+Internally strings will be converted to `Uint8Array` anyway, so if your SQL generator can produce `Uint8Array`, it's prefered option.
+
+The most optimal performance will be achieved if using `ToSqlBytes` type.
+This type exists especially for external SQL generators, to let them add SQL queries right into the internal buffer.
+
+```ts
+interface ToSqlBytes
+{	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
+}
 ```
 
-But this library also provides much more complex SQL generation framework: the `sql` string-template function.
+Any external SQL generator can implement this function. This library will call it with 3 parameters:
+
+- `putParamsTo` - If an array is passed, the generator is welcome to convert some parameters to `?`-placeholders, and to put the actual value to this array.
+- `noBackslashEscapes` - This library will pass the correct value for this flag, and the generator is kindly asked to respect this value.
+- `buffer` - The generator can use this buffer to store the resulting query, in case the buffer is big enough. If the generator decides not to use this buffer, it can allocate it's own buffer, and return it. If it uses the passed in buffer, it must return a subarray of it.
+
+Example:
 
 ```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-let message = `It's the message`;
-let number = 0.1;
-let column = 'The number';
-console.log('' + sql`SELECT '${message}', '${number}' AS "${column}"`); // prints: SELECT 'It''s the message', 0.1 AS `The number`
-```
-
-How each parameter is escaped depends on quotes that you used in your SQL string, to quote this parameter.
-
-1. `'${param}'` - Escape an SQL value.
-
-If the parameter is a string, characters inside it will be properly escaped (according to noBackslashEscapes argument of `toString()` - see below).
-
-If the value is a number, quotes around it will be removed.
-
-If it's a `null`, or an `undefined`, a Javascript function or a Symbol, it will be substituted with `NULL` literal.
-
-If it's boolean `true` or `false`, it will be substituted with `TRUE` and `FALSE` respectively.
-
-`Date` objects will be printed as MySQL dates.
-
-Typed arrays will be printed like `x'0102...'`.
-
-Objects will be JSON-stringified.
-
-2. `"${param}"` - Escape an identifiers (column, table or routine name, etc.).
-
-Double quotes will be replaced with backticks.
-
-3. `(${param})` or `(alias.${param})` - Embed a safe SQL expression.
-
-The inserted SQL fragment will be validated not to contain the following characters (unless quoted): `@ [ ] { } ;`, commas except in parentheses, comments, unterminated literals, unbalanced parentheses. Identifiers in this SQL fragment will be backtick-quoted according to chosen policy (see below).
-
-Strings in the SQL fragment are always treated as `noBackslashEscapes` (backslash is regular character), so to represent a string with a new line, you need `const expr = "Char_length('Line\n')"`, not `const expr = "Char_length('Line\\n')"`.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const expr = "Char_length('Line\n')";
-let s = sql`SELECT (${expr})`;
-console.log('' + s);
-```
-
-It's possible to prefix identifiers with parent qualifier, instead of quoting them, and also to prefix already quoted ones:
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const expr = "article_id = 10 AND `article_version` = 1 AND a.name <> ''";
-let s = sql
-`	SELECT a.name, av.*
-	FROM articles AS a
-	INNER JOIN article_versions AS av ON a.id = av.article_id
-	WHERE (av.${expr})
-`;
-console.log('' + s); // prints ...WHERE (`av`.article_id = 10 AND `av`.`article_version` = 1 AND `a`.name <> '')
-```
-
-4. `${param}` or `alias.${param}` (not enclosed) - Like `(${param})`, but allows commas on top level.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const columns = "name, value";
-let s = sql`SELECT ${columns} FROM something WHERE id=1`;
-console.log('' + s); // prints: SELECT `name`, `value` FROM something WHERE id=1
-```
-
-5. `[${param}]` - Generate list of SQL values.
-
-Square brackets will be replaced with parentheses. The parameter must be iterable. If items in the collection are also iterable, this will generate multidimensional collection.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const ids = [10, 11, 12];
-let s = sql`SELECT * FROM articles WHERE id IN [${ids}]`;
-console.log('' + s); // prints: SELECT * FROM articles WHERE id IN (10,11,12)
-```
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const list = [[10, 1], [11, 3], [12, 8]];
-let s = sql
-`	SELECT *
-	FROM articles AS a
-	INNER JOIN article_versions AS av ON a.id = av.article_id
-	WHERE (av.article_id, av.article_version) IN [${list}]
-`;
-console.log('' + s); // prints: ...WHERE (av.article_id, av.article_version) IN ((10,1),(11,3),(12,8))
-```
-
-6. `{alias.${param}}`, `{alias.${param},}` - Generate equations separated with commas (the alias is optional).
-
-The first form throws exception, if there are no fields in the param. The Second form doesn't complain, and prints comma after the last field.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const row = {name: 'About all', author: 'Johnny'};
-let s = sql`UPDATE articles AS a SET {a.${row}} WHERE id=1`;
-console.log('' + s); // prints: UPDATE articles AS a SET `name`='About all', `author`='Johnny' WHERE id=1
-```
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const row = {name: 'About all', author: 'Johnny'};
-let s = sql`UPDATE articles AS a SET {a.${row},} article_date=Now() WHERE id=1`;
-console.log('' + s); // prints: UPDATE articles AS a SET `name`='About all', `author`='Johnny', article_date=Now() WHERE id=1
-```
-
-7. `{alias.${param}&}` - Generate equations separated with "AND" operations (the alias is optional).
-
-Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `FALSE` literal.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const row = {name: 'About all', author: 'Johnny'};
-let s = sql`SELECT * FROM articles AS a WHERE {a.${row}&}`;
-console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' AND `author`='Johnny')
-```
-
-8. `{alias.${param}|}` - Generate equations separated with "OR" operations (the alias is optional).
-
-Converts braces to parentheses. If the `param` contains no fields, this will be converted to a `TRUE` literal.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const row = {name: 'About all', author: 'Johnny'};
-let s = sql`SELECT * FROM articles AS a WHERE {a.${row}|}`;
-console.log('' + s); // prints: SELECT * FROM articles AS a WHERE (`name`='About all' OR `author`='Johnny')
-```
-
-9. `<${param}>` - Generate names and values for INSERT statement.
-
-Parameter must be iterable object that contains rows to insert. Will print column names from the first row. On following rows, only columns from the first row will be used.
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-let rows =
-[	{value: 10, name: 'text 1'},
-	{value: 11, name: 'text 2'},
-];
-console.log('' + sql`INSERT INTO t_log <${rows}> AS new ON DUPLICATE KEY UPDATE t_log.name = new.name`);
-
-/* prints:
-	INSERT INTO t_log (`value`, `name`) VALUES
-	(10,'text 1'),
-	(11,'text 2') AS new ON DUPLICATE KEY UPDATE t_log.name = new.name
- */
-```
-
-10. `(${alias}.${param})`, `${alias}.${param}`, `{${alias}.${param}}` - Takes the alias from variable.
-
-#### About `Sql` object
-
-The `sql` template function returns object of `Sql` class.
-
-```ts
-import {sql, Sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-let s: Sql = sql`SELECT 2*2`;
-```
-
-The `Sql` objects can be concatenated:
-
-```ts
-import {sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const id = 10;
-let s = sql`SELECT * FROM articles WHERE id='${id}'`;
-
-const where = `name <> ''`;
-s = s.concat(sql` AND (${where})`);
-
-console.log('' + s); // prints: SELECT * FROM articles WHERE id=10 AND (`name` <> '')
-```
-
-Also the `Sql` objects can be stringified, or converted to bytes.
-
-```ts
-Sql.toString(noBackslashEscapes=false, putParamsTo?: any[]): string
-
-Sql.encode(noBackslashEscapes=false, putParamsTo?: any[], useBuffer?: Uint8Array): Uint8Array
-```
-
-Also they have public property called `sqlPolicy`, that allows to whitelist identifiers in SQL fragments.
-
-```ts
-Sql.sqlPolicy: SqlPolicy | undefined
-```
-
-```ts
-import {sql, SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-const value1 = "The string is: 'name'. The backslash is: \\";
-const value2 = 123.4;
-const value3 = null;
-const expr1 = "id=10 AND value IS NOT NULL";
-
-let select = sql`SELECT '${value1}', '${value2}', '${value3}' FROM t WHERE (${expr1})`;
-
-console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE (`id`=10 AND `value` IS NOT NULL)
-console.log(select.toString(true)); // SELECT 'The string is: ''name''. The backslash is: \', 123.4, NULL FROM t WHERE (`id`=10 AND `value` IS NOT NULL)
-
-select.sqlPolicy = new SqlPolicy('id not');
-console.log(select+'');             // SELECT 'The string is: ''name''. The backslash is: \\', 123.4, NULL FROM t WHERE (id=10 `AND` `value` `IS` NOT `NULL`)
-```
-
-If you pass the `Sql` object to functions like `conn.execute()` or `conn.query()`, the object will be converted to bytes using the correct value for `noBackslashEscapes`, that is found on the `MyConn` object (`conn.noBackslashEscapes`). The `sqlPolicy` can be provided to the `MyPool` object after it's creation, and before starting to create connections.
-
-```ts
-import {MyPool, sql, SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-let pool = new MyPool('mysql://root:hello@localhost/tests');
-
-pool.options({sqlPolicy: new SqlPolicy('AND OR XOR NOT')});
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+
+// 1. Define the generator
+
+const encoder = new TextEncoder;
+
+/**	Generates SELECT query for demonstrational purposes only
+ **/
+class SqlSelectGenerator
+{	constructor(private table: string, private idValue: number)
+	{
+	}
+
+	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array)
+	{	let sql;
+		if (putParamsTo)
+		{	putParamsTo.push(this.idValue);
+			sql = `SELECT * FROM ${this.table} WHERE id = ?`;
+		}
+		else
+		{	sql = `SELECT * FROM ${this.table} WHERE id = ${this.idValue}`;
+		}
+		let {read, written} = encoder.encodeInto(sql, buffer);
+		if (read == sql.length)
+		{	return buffer.subarray(0, written);
+		}
+		return encoder.encode(sql);
+	}
+}
+
+// 2. Use the generator
+
+const pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async (conn) =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+		await conn.query("INSERT INTO t_log SET `time`=Now(), message='message'");
 
-		const timeColumnName = 'time';
-		const days = 3;
-		const id = 1;
-		let row = await conn.query(sql`SELECT "${timeColumnName}" + INTERVAL '${days}' DAY AS 'time', message FROM t_log WHERE id='${id}'`).first();
-		console.log(row);
+		let rows = await conn.query<any>(new SqlSelectGenerator('t_log', 1), []).all();
+		console.log(rows);
 	}
 );
 
@@ -658,41 +474,22 @@ await pool.onEnd();
 pool.closeIdle();
 ```
 
-The `SqlPolicy` object allows to specify how to quote raw identifiers and functions in SQL fragments.
+There're the following external libraries that implement `toSqlBytesWithParamsBackslashAndBuffer()` to optimally support `x/office_spirit_mysql`:
 
-```ts
-SqlPolicy.constructor(idents?: string, functions?: string)
-```
+- [x/polysql](https://deno.land/x/polysql) - Earlier this library was part of this project.
 
-If `idents` and/or `functions` argument is omitted or `undefined`, the default value is used.
-
-For `idents` the default value is: `NOT AND OR XOR BETWEEN SEPARATOR IS NULL DISTINCT LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END AS ASC DESC`.
-
-For `functions` is: `! SELECT FROM JOIN ON WHERE`.
-
-The policy is specified by whitespace-separated list of identifiers. If the first character is `!`, so it's a blacklist policy. Otherwise it's whitelist.
-
-To print the default policy, you can do:
-
-```ts
-import {SqlPolicy} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-
-let policy = new SqlPolicy;
-
-console.log('Identifiers policy: ', policy.idents);
-console.log('Functions policy: ', policy.functions);
-```
+If you know about another such libraries, or create one, please let me know, and i'll add them to the list.
 
 ## MySQL binary protocol
 
 All you need to know about it, is that not all queries can be run in the MySQL binary protocol.
 
+Please, see [here](https://dev.mysql.com/worklog/task/?id=2871) what query types can run in the Binary protocol.
+
 This library uses Text protocol, if `params` are undefined in `conn.execute()` or `conn.query*()` functions.
 If the `params` argument is specified, even if it's an empty array, the Binary protocol is used.
 
-If the `params` is an empty array, and the first argument (sqlSource) is an `Sql` object, then the values in this object will be converted to `?`-placeholders, and they will be added to that empty array.
-
-Please, see [here](https://dev.mysql.com/worklog/task/?id=2871) what query types can run in the Binary protocol.
+If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol (see above about "Using external SQL generators").
 
 ## Reading long BLOBs
 
@@ -700,6 +497,7 @@ This library tries to have everything needed in real life usage. It's possible t
 
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+import {copy} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -709,7 +507,7 @@ pool.forConn
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
 
 		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
-		await Deno.copy(row!.message, Deno.stdout);
+		await copy(row!.message, Deno.stdout);
 	}
 );
 
@@ -723,6 +521,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+import {copy} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -741,7 +540,7 @@ pool.forConn
 
 		// Read the contents back from db
 		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
-		await Deno.copy(row!.message, Deno.stdout);
+		await copy(row!.message, Deno.stdout);
 	}
 );
 
@@ -751,12 +550,12 @@ pool.closeIdle();
 
 ## Importing big dumps
 
-Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms.
+Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms, including `Deno.Reader`.
 
 ```ts
 MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise;
 
-type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
 ```
 This allows to read SQL from files.
 
@@ -840,7 +639,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 
 ```ts
 import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-import {dirname} from "https://deno.land/std@0.97.0/path/mod.ts";
+import {dirname} from "https://deno.land/std@0.106.0/path/mod.ts";
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 

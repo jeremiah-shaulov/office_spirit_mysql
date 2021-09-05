@@ -2,7 +2,6 @@ import {debug_assert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {MyConn} from './my_conn.ts';
 import {MyProtocol} from './my_protocol.ts';
-import {SqlPolicy} from './sql_policy.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
@@ -14,7 +13,6 @@ export interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-	sqlPolicy?: SqlPolicy;
 }
 
 class MyPoolConns
@@ -30,7 +28,6 @@ export class MySession
 		private default_dsn: Dsn|undefined,
 		protected get_conn: (dsn: Dsn) => Promise<MyProtocol>,
 		protected return_conn: (dsn: Dsn, conn: MyProtocol) => void,
-		private sqlPolicy: SqlPolicy | undefined,
 	)
 	{
 	}
@@ -83,7 +80,6 @@ export class MyPool
 	private dsn: Dsn|undefined;
 	private maxConns: number;
 	private onLoadFile: ((filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>) | undefined;
-	private sqlPolicy: SqlPolicy | undefined;
 
 	constructor(options?: MyPoolOptions|Dsn|string)
 	{	if (typeof(options) == 'string')
@@ -98,7 +94,6 @@ export class MyPool
 		{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn;
 			this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
 			this.onLoadFile = options?.onLoadFile;
-			this.sqlPolicy = options?.sqlPolicy;
 		}
 	}
 
@@ -108,9 +103,8 @@ export class MyPool
 	{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn ?? this.dsn;
 		this.maxConns = options?.maxConns ?? this.maxConns;
 		this.onLoadFile = options && 'onLoadFile' in options ? options.onLoadFile : this.onLoadFile;
-		this.sqlPolicy = options?.sqlPolicy ?? this.sqlPolicy;
-		let {dsn, maxConns, onLoadFile, sqlPolicy} = this;
-		return {dsn, maxConns, onLoadFile, sqlPolicy};
+		let {dsn, maxConns, onLoadFile} = this;
+		return {dsn, maxConns, onLoadFile};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
@@ -164,7 +158,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this), this.sqlPolicy);
+	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this));
 		try
 		{	this.n_sessions_or_conns++;
 			return await callback(session);
@@ -224,7 +218,7 @@ export class MyPool
 		{	let conn;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await MyProtocol.inst(dsn, this.sqlPolicy, this.unused_buffers.pop(), this.onLoadFile);
+			{	conn = await MyProtocol.inst(dsn, this.unused_buffers.pop(), this.onLoadFile);
 			}
 			else if (conn.use_till <= now)
 			{	this.n_idle_all--;

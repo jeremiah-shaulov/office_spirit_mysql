@@ -3,11 +3,13 @@ import {utf8_string_length} from './utf8_string_length.ts';
 import {MyProtocolReader} from './my_protocol_reader.ts';
 import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
-import {Sql} from './sql.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
 
-export type SqlSource = string | Uint8Array | Sql | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number};
+interface ToSqlBytes
+{	toSqlBytesWithParamsBackslashAndBuffer(put_params_to: any[]|undefined, no_backslash_escapes: boolean, buffer: Uint8Array): Uint8Array;
+}
+export type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
 
 const encoder = new TextEncoder;
 
@@ -162,9 +164,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
 	protected async send_with_data(data: SqlSource, no_backslash_escapes: boolean, can_wait=false, put_params_to?: any[])
-	{	if (data instanceof Sql)
-		{	data.sqlPolicy = this.sql_policy;
-			data = data.encode(no_backslash_escapes, put_params_to, this.buffer.subarray(this.buffer_end));
+	{	if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
+		{	data = data.toSqlBytesWithParamsBackslashAndBuffer(put_params_to, no_backslash_escapes, this.buffer.subarray(this.buffer_end));
 			if (data.buffer == this.buffer.buffer)
 			{	this.buffer_end += data.length;
 				debug_assert(!can_wait); // after sending Sql queries response always follows

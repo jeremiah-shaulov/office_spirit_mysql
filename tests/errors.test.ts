@@ -1,5 +1,5 @@
 import {SendWithDataError, SUSPECT_PACKET_ERROR_IF_PACKET_SIZE} from '../errors.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 Deno.test
 (	'Packet error message',

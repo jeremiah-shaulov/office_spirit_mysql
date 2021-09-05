@@ -8,7 +8,6 @@ import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts'
 import {Column, ResultsetsDriver} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
 import {conv_column_value} from './conv_column_value.ts';
-import {SqlPolicy} from './sql_policy.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const BLOB_SENT_FLAG = 0x40000000; // flags are 16-bit, so i can exploit other bits for myself
@@ -51,12 +50,11 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	static async inst
 	(	dsn: Dsn,
-		sql_policy?: SqlPolicy,
 		use_buffer?: Uint8Array,
 		onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>,
 	): Promise<MyProtocol>
 	{	let conn = await Deno.connect(dsn.addr);
-		let protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, sql_policy, use_buffer);
+		let protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, use_buffer);
 		if (dsn.maxColumnLen > 0)
 		{	protocol.max_column_len = dsn.maxColumnLen;
 		}
@@ -749,7 +747,7 @@ L:		while (true)
 						params_len++;
 					}
 					else if (typeof(param) == 'number')
-					{	if (Number.isInteger(param) && param>=-0x80000000 && param<=0x7FFFFFFF)
+					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
 						{	type = FieldType.MYSQL_TYPE_LONG;
 							params_len += 4;
 						}
@@ -794,7 +792,7 @@ L:		while (true)
 					{	this.write_uint8(param ? 1 : 0);
 					}
 					else if (typeof(param) == 'number')
-					{	if (Number.isInteger(param) && param>=-0x80000000 && param<=0x7FFFFFFF)
+					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
 						{	this.write_uint32(param);
 						}
 						else
