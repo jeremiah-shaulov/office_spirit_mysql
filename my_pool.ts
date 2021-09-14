@@ -127,7 +127,10 @@ export class MyPool
 		Can be used as `await onEnd()`.
 	 **/
 	onEnd(callback?: () => void)
-	{	let trigger: () => void;
+	{	if (this.n_sessions_or_conns==0 && this.n_busy_all==0)
+		{	return Promise.resolve();
+		}
+		let trigger: () => void;
 		let promise = new Promise<void>(y => trigger = y);
 		this.onend = () =>
 		{	try
