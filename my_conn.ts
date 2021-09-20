@@ -248,7 +248,7 @@ export class MyConn
 	}
 
 	async execute(sql: SqlSource, params?: Params)
-	{	let resultsets = await this.do_query<void>(sql, params, RowType.FIRST_COLUMN);
+	{	let resultsets: Resultsets<void> = await this.do_query<void>(sql, params, RowType.FIRST_COLUMN);
 		await resultsets.discard();
 		return resultsets;
 	}
