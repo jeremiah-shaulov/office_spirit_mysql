@@ -36,16 +36,20 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 }
 
 export class Resultsets<Row>
-{	lastInsertId: number|bigint = 0;
-	affectedRows: number|bigint = 0;
-	foundRows: number|bigint = 0;
-	warnings: number = 0;
-	statusInfo = '';
-	noGoodIndexUsed = false;
-	noIndexUsed = false;
-	isSlowQuery = false;
-	columns: Column[] = [];
-	placeholders: Column[] = [];
+{	constructor
+	(	public columns: Column[] = [],
+		public lastInsertId: number|bigint = 0,
+		public affectedRows: number|bigint = 0,
+		public foundRows: number|bigint = 0,
+		public warnings: number = 0,
+		public statusInfo = '',
+		public noGoodIndexUsed = false,
+		public noIndexUsed = false,
+		public isSlowQuery = false,
+		public placeholders: Column[] = []
+	)
+	{
+	}
 
 	get hasMore(): boolean
 	{	return this instanceof ResultsetsDriver ? this.has_more : false;
@@ -121,6 +125,9 @@ export class Resultsets<Row>
 			this.stmt_execute = () => Promise.resolve();
 			this.fetch = () => Promise.resolve(undefined);
 			this.next_resultset = () => Promise.resolve(false);
+		}
+		else
+		{	while (await this.nextResultset());
 		}
 	}
 }

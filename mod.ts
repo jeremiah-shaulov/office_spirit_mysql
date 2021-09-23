@@ -5,3 +5,4 @@ export {SqlError, ServerDisconnectedError, BusyError, CanceledError} from './err
 export {MyConn} from './my_conn.ts';
 export {ResultsetsPromise, Resultsets, Column} from './resultsets.ts';
 export type {ColumnValue, Params} from './resultsets.ts';
+export {Charset, FieldType} from './constants.ts';
