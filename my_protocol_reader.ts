@@ -750,9 +750,9 @@ export class MyProtocolReader
 				{	throw new ServerDisconnectedError('Server disconnected');
 				}
 				len_in_cur_packet -= n_read;
+				this.buffer_end = n_read;
 			}
-			this.buffer_start = 0;
-			this.buffer_end = -len_in_cur_packet;
+			this.buffer_start = this.buffer_end + len_in_cur_packet;
 		}
 	}
 

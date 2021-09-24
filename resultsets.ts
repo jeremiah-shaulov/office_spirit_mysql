@@ -46,7 +46,7 @@ export class Resultsets<Row>
 		public noGoodIndexUsed = false,
 		public noIndexUsed = false,
 		public isSlowQuery = false,
-		public placeholders: Column[] = []
+		public nPlaceholders = 0
 	)
 	{
 	}

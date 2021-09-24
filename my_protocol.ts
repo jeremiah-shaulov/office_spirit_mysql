@@ -505,10 +505,10 @@ L:		while (true)
 			let n_columns_num = Number(n_columns);
 
 			// Read sequence of ColumnDefinition packets
-			let placeholders = n_placeholders==0 ? [] : await this.read_column_definition_packets(n_placeholders);
+			await this.skip_column_definition_packets(n_placeholders);
 			let columns = n_columns_num==0 ? [] : await this.read_column_definition_packets(n_columns_num);
 
-			resultsets.placeholders = placeholders;
+			resultsets.nPlaceholders = n_placeholders;
 			resultsets.columns = columns;
 			resultsets.has_more_rows = mode==ReadPacketMode.REGULAR && n_columns_num!=0;
 			resultsets.has_more = mode==ReadPacketMode.REGULAR && (n_columns_num != 0 || (this.status_flags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0);
@@ -587,6 +587,21 @@ L:		while (true)
 		return columns;
 	}
 
+	private async skip_column_definition_packets(n_packets: number)
+	{	if (n_packets > 0)
+		{	for (let i=0; i<n_packets; i++)
+			{	// Read ColumnDefinition41 packet
+				this.read_packet_header() || await this.read_packet_header_async();
+				this.go_to_end_of_packet() || await this.go_to_end_of_packet_async();
+			}
+			if (!(this.capability_flags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
+			{	// Read EOF after columns list
+				let type = await this.read_packet();
+				debug_assert(type == PacketType.OK);
+			}
+		}
+	}
+
 	send_com_reset_connection()
 	{	this.start_writing_new_packet(true);
 		this.write_uint8(Command.COM_RESET_CONNECTION);
@@ -621,13 +636,13 @@ L:		while (true)
 	}
 
 	async send_com_stmt_execute(resultsets: ResultsetsDriver<unknown>, params: Param[])
-	{	let {stmt_id, placeholders} = resultsets;
-		let n_placeholders = placeholders.length;
-		let max_expected_packet_size_including_header = 15 + n_placeholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
+	{	let {stmt_id, nPlaceholders} = resultsets;
+		let max_expected_packet_size_including_header = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 		let extra_space_for_params = Math.max(0, this.buffer.length - max_expected_packet_size_including_header);
 		let packet_start = 0;
+		let placeholdersSent = new Set<number>();
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
-		for (let i=0; i<n_placeholders; i++)
+		for (let i=0; i<nPlaceholders; i++)
 		{	let param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 			{	if (typeof(param) == 'string')
@@ -638,7 +653,7 @@ L:		while (true)
 						this.write_uint32(stmt_id);
 						this.write_uint16(i);
 						packet_start = await this.send_with_data(param, false, true);
-						placeholders[i].flags |= BLOB_SENT_FLAG;
+						placeholdersSent.add(i);
 					}
 					else
 					{	extra_space_for_params -= max_byte_len;
@@ -652,7 +667,7 @@ L:		while (true)
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
 							packet_start = await this.send_with_data(param, false, true);
-							placeholders[i].flags |= BLOB_SENT_FLAG;
+							placeholdersSent.add(i);
 						}
 						else
 						{	extra_space_for_params -= param.byteLength;
@@ -665,7 +680,7 @@ L:		while (true)
 							this.write_uint32(stmt_id);
 							this.write_uint16(i);
 							packet_start = await this.send_with_data(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
-							placeholders[i].flags |= BLOB_SENT_FLAG;
+							placeholdersSent.add(i);
 						}
 						else
 						{	extra_space_for_params -= param.byteLength;
@@ -688,7 +703,7 @@ L:		while (true)
 							is_empty = false;
 						}
 						if (!is_empty)
-						{	placeholders[i].flags |= BLOB_SENT_FLAG;
+						{	placeholdersSent.add(i);
 						}
 					}
 					else if (!(param instanceof Date))
@@ -697,7 +712,7 @@ L:		while (true)
 						this.write_uint32(stmt_id);
 						this.write_uint16(i);
 						packet_start = await this.send_with_data(JSON.stringify(param), false, true);
-						placeholders[i].flags |= BLOB_SENT_FLAG;
+						placeholdersSent.add(i);
 					}
 				}
 			}
@@ -713,12 +728,12 @@ L:		while (true)
 		this.write_uint32(stmt_id);
 		this.write_uint8(CursorType.NO_CURSOR);
 		this.write_uint32(1); // iteration_count
-		if (n_placeholders > 0)
+		if (nPlaceholders > 0)
 		{	// Send null-bitmap for each param
-			this.ensure_room((n_placeholders >> 3) + 2 + (n_placeholders << 1)); // 1 bit per each placeholder (n_placeholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (n_placeholders*2 bytes)
+			this.ensure_room((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
 			let null_bits = 0;
 			let null_bit_mask = 1;
-			for (let i=0; i<n_placeholders; i++)
+			for (let i=0; i<nPlaceholders; i++)
 			{	let param = params[i];
 				if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
 				{	null_bits |= null_bit_mask;
@@ -738,7 +753,7 @@ L:		while (true)
 			this.write_uint8(1); // new_params_bound_flag
 			// Send type of each param
 			let params_len = 0;
-			for (let i=0; i<n_placeholders; i++)
+			for (let i=0; i<nPlaceholders; i++)
 			{	let param = params[i];
 				let type = FieldType.MYSQL_TYPE_STRING;
 				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
@@ -782,12 +797,9 @@ L:		while (true)
 			}
 			// Send value of each param
 			this.ensure_room(params_len);
-			for (let i=0; i<n_placeholders; i++)
+			for (let i=0; i<nPlaceholders; i++)
 			{	let param = params[i];
-				if (placeholders[i].flags & BLOB_SENT_FLAG)
-				{	placeholders[i].flags &= ~BLOB_SENT_FLAG;
-				}
-				else if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
 				{	if (typeof(param) == 'boolean')
 					{	this.write_uint8(param ? 1 : 0);
 					}

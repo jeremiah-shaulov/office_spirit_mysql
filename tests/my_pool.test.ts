@@ -778,7 +778,7 @@ Deno.test
 	}
 );
 
-/*Deno.test
+Deno.test
 (	'Load big dump',
 	async () =>
 	{	let dsn = new Dsn(DSN);
@@ -925,7 +925,7 @@ Deno.test
 			pool.closeIdle();
 		}
 	}
-);*/
+);
 
 Deno.test
 (	'Many placeholders',
@@ -956,7 +956,34 @@ Deno.test
 
 					let res = await conn.execute(q, params);
 					assertEquals(res.affectedRows, 8191);
-					assertEquals(res.placeholders.length, N_ROWS*8);
+					assertEquals(res.nPlaceholders, N_ROWS*8);
+				}
+			);
+		}
+		finally
+		{	await pool.onEnd();
+			pool.closeIdle();
+		}
+	}
+);
+
+Deno.test
+(	'Many placeholders 2',
+	async () =>
+	{	let pool = new MyPool(DSN);
+
+		try
+		{	pool.forConn
+			(	async (conn) =>
+				{	const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
+					let pp = [];
+					let sum = 0;
+					for (let i=0; i<N_PARAMS; i++)
+					{	pp[i] = i;
+						sum += i;
+					}
+					let calced_sum = await conn.queryCol<any>(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
+					assertEquals(calced_sum, sum);
 				}
 			);
 		}
