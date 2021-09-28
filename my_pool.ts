@@ -1,4 +1,4 @@
-import {debug_assert} from './debug_assert.ts';
+import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {MyConn} from './my_conn.ts';
 import {MyProtocol} from './my_protocol.ts';
@@ -25,16 +25,16 @@ export class MySession
 
 	constructor
 	(	protected pool: MyPool,
-		private default_dsn: Dsn|undefined,
-		protected get_conn: (dsn: Dsn) => Promise<MyProtocol>,
-		protected return_conn: (dsn: Dsn, conn: MyProtocol) => void,
+		private defaultDsn: Dsn|undefined,
+		protected getConn: (dsn: Dsn) => Promise<MyProtocol>,
+		protected returnConn: (dsn: Dsn, conn: MyProtocol) => void,
 	)
 	{
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
 	{	if (dsn == null)
-		{	dsn = this.default_dsn;
+		{	dsn = this.defaultDsn;
 			if (dsn == null)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -48,7 +48,7 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	let conn = new MyConn(dsn, this.get_conn, this.return_conn);
+		{	const conn = new MyConn(dsn, this.getConn, this.returnConn);
 			conns[conns.length] = conn;
 			return conn;
 		}
@@ -58,8 +58,8 @@ export class MySession
 
 class MySessionInternal extends MySession
 {	end()
-	{	for (let conns of this.conns.values())
-		{	for (let conn of conns)
+	{	for (const conns of this.conns.values())
+		{	for (const conn of conns)
 			{	conn.end();
 			}
 		}
@@ -67,15 +67,15 @@ class MySessionInternal extends MySession
 }
 
 export class MyPool
-{	private conns_pool = new Map<string, MyPoolConns>();
-	private unused_buffers: Uint8Array[] = [];
-	private n_idle_all = 0;
-	private n_busy_all = 0;
-	private h_timer: number | undefined;
-	private have_slots_callbacks: (() => void)[] = [];
+{	private connsPool = new Map<string, MyPoolConns>();
+	private unusedBuffers: Uint8Array[] = [];
+	private nIdleAll = 0;
+	private nBusyAll = 0;
+	private hTimer: number | undefined;
+	private haveSlotsCallbacks: (() => void)[] = [];
 	private onerror: (error: Error) => void = () => {};
 	private onend: () => void = () => {};
-	private n_sessions_or_conns = 0;
+	private nSessionsOrConns = 0;
 
 	private dsn: Dsn|undefined;
 	private maxConns: number;
@@ -103,7 +103,7 @@ export class MyPool
 	{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn ?? this.dsn;
 		this.maxConns = options?.maxConns ?? this.maxConns;
 		this.onLoadFile = options && 'onLoadFile' in options ? options.onLoadFile : this.onLoadFile;
-		let {dsn, maxConns, onLoadFile} = this;
+		const {dsn, maxConns, onLoadFile} = this;
 		return {dsn, maxConns, onLoadFile};
 	}
 
@@ -127,11 +127,11 @@ export class MyPool
 		Can be used as `await onEnd()`.
 	 **/
 	onEnd(callback?: () => void)
-	{	if (this.n_sessions_or_conns==0 && this.n_busy_all==0)
+	{	if (this.nSessionsOrConns==0 && this.nBusyAll==0)
 		{	return Promise.resolve();
 		}
 		let trigger: () => void;
-		let promise = new Promise<void>(y => trigger = y);
+		const promise = new Promise<void>(y => trigger = y);
 		this.onend = () =>
 		{	try
 			{	callback?.();
@@ -146,29 +146,29 @@ export class MyPool
 	}
 
 	closeIdle()
-	{	this.close_kept_alive_timed_out(true);
-		debug_assert(this.n_idle_all == 0);
+	{	this.closeKeptAliveTimedOut(true);
+		debugAssert(this.nIdleAll == 0);
 	}
 
 	haveSlots(): boolean
-	{	return this.n_busy_all < this.maxConns;
+	{	return this.nBusyAll < this.maxConns;
 	}
 
 	async waitHaveSlots(): Promise<void>
-	{	while (this.n_busy_all >= this.maxConns)
-		{	await new Promise<void>(y => {this.have_slots_callbacks.push(y)});
+	{	while (this.nBusyAll >= this.maxConns)
+		{	await new Promise<void>(y => {this.haveSlotsCallbacks.push(y)});
 		}
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	let session = new MySessionInternal(this, this.dsn, this.get_conn.bind(this), this.return_conn.bind(this));
+	{	const session = new MySessionInternal(this, this.dsn, this.getConn.bind(this), this.returnConn.bind(this));
 		try
-		{	this.n_sessions_or_conns++;
+		{	this.nSessionsOrConns++;
 			return await callback(session);
 		}
 		finally
 		{	session.end();
-			if (--this.n_sessions_or_conns==0 && this.n_busy_all==0)
+			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
 			{	this.onend();
 			}
 		}
@@ -184,49 +184,49 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		let conn = new MyConn(dsn, this.get_conn.bind(this), this.return_conn.bind(this));
+		const conn = new MyConn(dsn, this.getConn.bind(this), this.returnConn.bind(this));
 		try
-		{	this.n_sessions_or_conns++;
+		{	this.nSessionsOrConns++;
 			return await callback(conn);
 		}
 		finally
 		{	conn.end();
-			if (--this.n_sessions_or_conns==0 && this.n_busy_all==0)
+			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
 			{	this.onend();
 			}
 		}
 	}
 
-	private save_unused_buffer(buffer: Uint8Array)
-	{	if (this.unused_buffers.length < SAVE_UNUSED_BUFFERS)
-		{	this.unused_buffers.push(buffer);
+	private saveUnusedBuffer(buffer: Uint8Array)
+	{	if (this.unusedBuffers.length < SAVE_UNUSED_BUFFERS)
+		{	this.unusedBuffers.push(buffer);
 		}
 	}
 
-	private async get_conn(dsn: Dsn)
-	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
-		while (this.n_busy_all >= this.maxConns)
-		{	await new Promise<void>(y => {this.have_slots_callbacks.push(y)});
+	private async getConn(dsn: Dsn)
+	{	debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
+		while (this.nBusyAll >= this.maxConns)
+		{	await new Promise<void>(y => {this.haveSlotsCallbacks.push(y)});
 		}
-		let keep_alive_timeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT;
-		let keep_alive_max = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
-		let conns = this.conns_pool.get(dsn.name);
+		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT;
+		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
+		let conns = this.connsPool.get(dsn.name);
 		if (!conns)
 		{	conns = new MyPoolConns;
-			this.conns_pool.set(dsn.name, conns);
+			this.connsPool.set(dsn.name, conns);
 		}
-		let {idle, busy} = conns;
-		let now = Date.now();
+		const {idle, busy} = conns;
+		const now = Date.now();
 		while (true)
 		{	let conn;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await MyProtocol.inst(dsn, this.unused_buffers.pop(), this.onLoadFile);
+			{	conn = await MyProtocol.inst(dsn, this.unusedBuffers.pop(), this.onLoadFile);
 			}
-			else if (conn.use_till <= now)
-			{	this.n_idle_all--;
+			else if (conn.useTill <= now)
+			{	this.nIdleAll--;
 				try
-				{	this.save_unused_buffer(conn.close());
+				{	this.saveUnusedBuffer(conn.close());
 				}
 				catch (e)
 				{	this.onerror(e);
@@ -234,41 +234,41 @@ export class MyPool
 				continue;
 			}
 			else
-			{	this.n_idle_all--;
+			{	this.nIdleAll--;
 			}
-			conn.use_till = Math.min(conn.use_till, now+keep_alive_timeout);
-			conn.use_n_times = Math.min(conn.use_n_times, keep_alive_max);
-			if (this.h_timer == undefined)
-			{	this.h_timer = setInterval(() => {this.close_kept_alive_timed_out()}, KEEPALIVE_CHECK_EACH);
+			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
+			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
+			if (this.hTimer == undefined)
+			{	this.hTimer = setInterval(() => {this.closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH);
 			}
 			busy.push(conn);
-			this.n_busy_all++;
-			this.close_exceeding_idle_conns(idle);
+			this.nBusyAll++;
+			this.closeExceedingIdleConns(idle);
 			return conn;
 		}
 	}
 
-	private return_conn(dsn: Dsn, conn: MyProtocol)
-	{	let conns = this.conns_pool.get(dsn.name);
+	private returnConn(dsn: Dsn, conn: MyProtocol)
+	{	const conns = this.connsPool.get(dsn.name);
 		if (!conns)
-		{	// assume: return_conn() already called for this connection
+		{	// assume: returnConn() already called for this connection
 			return;
 		}
-		let i = conns.busy.indexOf(conn);
+		const i = conns.busy.indexOf(conn);
 		if (i == -1)
-		{	// assume: return_conn() already called for this connection
+		{	// assume: returnConn() already called for this connection
 			return;
 		}
-		this.n_busy_all--;
-		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
-		if (this.n_sessions_or_conns==0 && this.n_busy_all==0)
+		this.nBusyAll--;
+		debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
+		if (this.nSessionsOrConns==0 && this.nBusyAll==0)
 		{	this.onend();
 		}
 		conns.busy[i] = conns.busy[conns.busy.length - 1];
 		conns.busy.length--;
-		if (conn.is_broken_connection || --conn.use_n_times<=0 || conn.use_till<=Date.now())
+		if (conn.isBrokenConnection || --conn.useNTimes<=0 || conn.useTill<=Date.now())
 		{	try
-			{	this.save_unused_buffer(conn.close());
+			{	this.saveUnusedBuffer(conn.close());
 			}
 			catch (e)
 			{	this.onerror(e);
@@ -276,33 +276,33 @@ export class MyPool
 		}
 		else
 		{	conns.idle.push(conn);
-			this.n_idle_all++;
+			this.nIdleAll++;
 		}
-		if (this.n_busy_all < this.maxConns)
-		{	let n = this.have_slots_callbacks.length;
+		if (this.nBusyAll < this.maxConns)
+		{	let n = this.haveSlotsCallbacks.length;
 			if (n > 0)
 			{	while (n-- > 0)
-				{	this.have_slots_callbacks[n]();
+				{	this.haveSlotsCallbacks[n]();
 				}
-				this.have_slots_callbacks.length = 0;
+				this.haveSlotsCallbacks.length = 0;
 			}
-			else if (this.n_busy_all == 0)
-			{	this.close_kept_alive_timed_out();
+			else if (this.nBusyAll == 0)
+			{	this.closeKeptAliveTimedOut();
 			}
 		}
 	}
 
-	private close_kept_alive_timed_out(close_all_idle=false)
-	{	let {conns_pool} = this;
-		let now = Date.now();
-		for (let [dsn, {idle, busy}] of conns_pool)
+	private closeKeptAliveTimedOut(closeAllIdle=false)
+	{	const {connsPool} = this;
+		const now = Date.now();
+		for (const [dsn, {idle, busy}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
-			{	let conn = idle[i];
-				if (conn.use_till<=now || close_all_idle)
+			{	const conn = idle[i];
+				if (conn.useTill<=now || closeAllIdle)
 				{	idle.splice(i, 1);
-					this.n_idle_all--;
+					this.nIdleAll--;
 					try
-					{	this.save_unused_buffer(conn.close());
+					{	this.saveUnusedBuffer(conn.close());
 					}
 					catch (e)
 					{	this.onerror(e);
@@ -311,52 +311,52 @@ export class MyPool
 			}
 			//
 			if (busy.length+idle.length == 0)
-			{	conns_pool.delete(dsn);
+			{	connsPool.delete(dsn);
 			}
 		}
-		if (this.n_busy_all+this.n_idle_all == 0)
-		{	clearInterval(this.h_timer);
-			this.h_timer = undefined;
+		if (this.nBusyAll+this.nIdleAll == 0)
+		{	clearInterval(this.hTimer);
+			this.hTimer = undefined;
 		}
 	}
 
-	private close_exceeding_idle_conns(idle: MyProtocol[])
-	{	debug_assert(this.n_busy_all <= this.maxConns);
-		let n_close_idle = this.n_busy_all + this.n_idle_all - this.maxConns;
-		while (n_close_idle > 0)
+	private closeExceedingIdleConns(idle: MyProtocol[])
+	{	debugAssert(this.nBusyAll <= this.maxConns);
+		let nCloseIdle = this.nBusyAll + this.nIdleAll - this.maxConns;
+		while (nCloseIdle > 0)
 		{	let conn = idle.pop();
 			if (!conn)
-			{	for (let c_conns of this.conns_pool.values())
+			{	for (const cConns of this.connsPool.values())
 				{	while (true)
-					{	conn = c_conns.idle.pop();
+					{	conn = cConns.idle.pop();
 						if (!conn)
 						{	break;
 						}
-						n_close_idle--;
-						this.n_idle_all--;
+						nCloseIdle--;
+						this.nIdleAll--;
 						try
-						{	this.save_unused_buffer(conn.close());
+						{	this.saveUnusedBuffer(conn.close());
 						}
 						catch (e)
 						{	this.onerror(e);
 						}
-						debug_assert(this.n_idle_all >= 0);
-						if (n_close_idle == 0)
+						debugAssert(this.nIdleAll >= 0);
+						if (nCloseIdle == 0)
 						{	return;
 						}
 					}
 				}
 				return;
 			}
-			n_close_idle--;
-			this.n_idle_all--;
+			nCloseIdle--;
+			this.nIdleAll--;
 			try
-			{	this.save_unused_buffer(conn.close());
+			{	this.saveUnusedBuffer(conn.close());
 			}
 			catch (e)
 			{	this.onerror(e);
 			}
-			debug_assert(this.n_idle_all >= 0);
+			debugAssert(this.nIdleAll >= 0);
 		}
 	}
 }

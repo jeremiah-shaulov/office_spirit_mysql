@@ -2,14 +2,15 @@ import {FieldType, Charset} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 
 export type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+// deno-lint-ignore no-explicit-any
 export type Param = any;
 export type Params = Param[] | Record<string, Param> | null | undefined;
 
 export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 {	async all()
-	{	let resultsets = await this;
-		let rows = [];
-		for await (let row of resultsets)
+	{	const resultsets = await this;
+		const rows = [];
+		for await (const row of resultsets)
 		{	rows[rows.length] = row;
 		}
 		await resultsets.discard();
@@ -17,17 +18,17 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 	}
 
 	async first()
-	{	let resultsets = await this;
-		let it = resultsets[Symbol.asyncIterator]();
-		let {value, done} = await it.next();
+	{	const resultsets = await this;
+		const it = resultsets[Symbol.asyncIterator]();
+		const {value, done} = await it.next();
 		await resultsets.discard();
 		return done || value===undefined ? undefined : value; // void -> undefined
 	}
 
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
-	{	let resultsets = await this;
+	{	const resultsets = await this;
 		let result: T|undefined;
-		for await (let row of resultsets)
+		for await (const row of resultsets)
 		{	result = await callback(row);
 		}
 		await resultsets.discard();
@@ -52,12 +53,12 @@ export class Resultsets<Row>
 	}
 
 	get hasMore(): boolean
-	{	return this instanceof ResultsetsDriver ? this.has_more : false;
+	{	return this instanceof ResultsetsDriver ? this.hasMoreSomething : false;
 	}
 
 	exec(params: Param[])
 	{	if (this instanceof ResultsetsDriver)
-		{	return this.stmt_execute(params);
+		{	return this.stmtExecute(params);
 		}
 		else
 		{	return Promise.resolve();
@@ -67,7 +68,7 @@ export class Resultsets<Row>
 	async *[Symbol.asyncIterator]()
 	{	if (this instanceof ResultsetsDriver)
 		{	while (true)
-			{	let row: Row = await this.fetch();
+			{	const row: Row = await this.fetch();
 				if (row == undefined)
 				{	break;
 				}
@@ -77,16 +78,16 @@ export class Resultsets<Row>
 	}
 
 	async all()
-	{	let rows = [];
-		for await (let row of this)
+	{	const rows = [];
+		for await (const row of this)
 		{	rows[rows.length] = row;
 		}
 		return rows;
 	}
 
 	async first()
-	{	let it = this[Symbol.asyncIterator]();
-		let {value, done} = await it.next();
+	{	const it = this[Symbol.asyncIterator]();
+		const {value, done} = await it.next();
 		if (!done)
 		{	while (!(await it.next()).done);
 			return value as Row;
@@ -95,7 +96,7 @@ export class Resultsets<Row>
 
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
 	{	let result: T|undefined;
-		for await (let row of this)
+		for await (const row of this)
 		{	result = await callback(row);
 		}
 		return result;
@@ -103,7 +104,7 @@ export class Resultsets<Row>
 
 	nextResultset()
 	{	if (this instanceof ResultsetsDriver)
-		{	return this.next_resultset();
+		{	return this.gotoNextResultset();
 		}
 		else
 		{	return Promise.resolve(false);
@@ -112,9 +113,9 @@ export class Resultsets<Row>
 
 	async discard()
 	{	if (this instanceof ResultsetsDriver)
-		{	if (this.has_more)
+		{	if (this.hasMoreSomething)
 			{	try
-				{	while (await this.next_resultset());
+				{	while (await this.gotoNextResultset());
 				}
 				catch (e)
 				{	if (!(e instanceof CanceledError))
@@ -122,9 +123,9 @@ export class Resultsets<Row>
 					}
 				}
 			}
-			this.stmt_execute = () => Promise.resolve();
+			this.stmtExecute = () => Promise.resolve();
 			this.fetch = () => Promise.resolve(undefined);
-			this.next_resultset = () => Promise.resolve(false);
+			this.gotoNextResultset = () => Promise.resolve(false);
 		}
 		else
 		{	while (await this.nextResultset());
@@ -133,14 +134,14 @@ export class Resultsets<Row>
 }
 
 export class ResultsetsDriver<Row> extends Resultsets<Row>
-{	stmt_id = -1;
-	has_more_rows = false;
-	has_more = false;
-	stmt_execute: (params: Param[]) => Promise<void> = () => Promise.resolve();
+{	stmtId = -1;
+	hasMoreRows = false;
+	hasMoreSomething = false;
+	stmtExecute: (params: Param[]) => Promise<void> = () => Promise.resolve();
 	fetch: () => Promise<Row | undefined> = () => Promise.resolve(undefined);
-	next_resultset: () => Promise<boolean> = () => Promise.resolve(false);
+	gotoNextResultset: () => Promise<boolean> = () => Promise.resolve(false);
 
-	reset_fields()
+	resetFields()
 	{	this.lastInsertId = 0;
 		this.affectedRows = 0;
 		this.foundRows = 0;
@@ -149,7 +150,7 @@ export class ResultsetsDriver<Row> extends Resultsets<Row>
 		this.noGoodIndexUsed = false;
 		this.noIndexUsed = false;
 		this.isSlowQuery = false;
-		this.stmt_id = -1;
+		this.stmtId = -1;
 	}
 }
 

@@ -17,11 +17,11 @@ export class AuthPlugin
 		throw new Error(`Authentication plugin is not supported: ${name}`);
 	}
 
-	quick_auth(password: string): Uint8Array
+	quickAuth(_password: string): Uint8Array
 	{	throw new Error('Not implemented');
 	}
 
-	progress(password: string, packet_type: number, packet_data: Uint8Array, writer: MyProtocol): Promise<boolean>
+	progress(_password: string, _packetType: number, _packetData: Uint8Array, _writer: MyProtocol): Promise<boolean>
 	{	throw new Error('Not implemented');
 	}
 }
@@ -35,16 +35,16 @@ function xor(a: Uint8Array, b: Uint8Array)
 }
 
 class AuthPluginMysqlNativePassword extends AuthPlugin
-{	quick_auth(password: string)
-	{	const pwd_1 = hash('sha1', encoder.encode(password));
-		const pwd_2 = hash('sha1', pwd_1);
+{	quickAuth(password: string)
+	{	const pwd1 = hash('sha1', encoder.encode(password));
+		const pwd2 = hash('sha1', pwd1);
 
-		let seed_and_pwd_2 = new Uint8Array(this.scramble.length + pwd_2.length);
-		seed_and_pwd_2.set(this.scramble);
-		seed_and_pwd_2.set(pwd_2, this.scramble.length);
-		seed_and_pwd_2 = hash('sha1', seed_and_pwd_2);
+		let seedAndPwd2 = new Uint8Array(this.scramble.length + pwd2.length);
+		seedAndPwd2.set(this.scramble);
+		seedAndPwd2.set(pwd2, this.scramble.length);
+		seedAndPwd2 = hash('sha1', seedAndPwd2);
 
-		return xor(seed_and_pwd_2, pwd_1);
+		return xor(seedAndPwd2, pwd1);
 	}
 }
 
@@ -62,27 +62,27 @@ const REQUEST_PUBLIC_KEY = 0x02;
 class AuthPluginCachingSha2Password extends AuthPlugin
 {	private state = State.Initial;
 
-	quick_auth(password: string)
-	{	const stage_1 = hash('sha256', encoder.encode(password));
-		const stage_2 = hash('sha256', stage_1);
-		const buffer = new Uint8Array(stage_2.length + this.scramble.length);
-		buffer.set(stage_2);
-		buffer.set(this.scramble, stage_2.length);
-		const stage_3 = hash('sha256', buffer);
+	quickAuth(password: string)
+	{	const stage1 = hash('sha256', encoder.encode(password));
+		const stage2 = hash('sha256', stage1);
+		const buffer = new Uint8Array(stage2.length + this.scramble.length);
+		buffer.set(stage2);
+		buffer.set(this.scramble, stage2.length);
+		const stage3 = hash('sha256', buffer);
 
-		return xor(stage_1, stage_3);
+		return xor(stage1, stage3);
 	}
 
-	async progress(password: string, packet_type: number, packet_data: Uint8Array, writer: MyProtocol)
+	async progress(password: string, _packetType: number, packetData: Uint8Array, writer: MyProtocol)
 	{	switch (this.state)
 		{	case State.Initial:
-			{	let status_flag = packet_data[0];
-				if (status_flag == AuthStatusFlags.FastPath)
+			{	const statusFlag = packetData[0];
+				if (statusFlag == AuthStatusFlags.FastPath)
 				{	this.state = State.Done;
 					return false;
 				}
-				else if (status_flag == AuthStatusFlags.FullAuth)
-				{	await writer.send_uint8_packet(REQUEST_PUBLIC_KEY);
+				else if (statusFlag == AuthStatusFlags.FullAuth)
+				{	await writer.sendUint8Packet(REQUEST_PUBLIC_KEY);
 					this.state = State.Encrypt;
 					return false;
 				}
@@ -91,10 +91,10 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				}
 			}
 			case State.Encrypt:
-			{	let public_key = decoder.decode(packet_data);
-				const stage_1 = xor(encoder.encode(password), this.scramble);
-				let encrypted_password = RSA.encrypt(stage_1, RSA.parseKey(public_key));
-				await writer.send_bytes_packet(encrypted_password);
+			{	const publicKey = decoder.decode(packetData);
+				const stage1 = xor(encoder.encode(password), this.scramble);
+				const encryptedPassword = RSA.encrypt(stage1, RSA.parseKey(publicKey));
+				await writer.sendBytesPacket(encryptedPassword);
 				this.state = State.Done;
 				return false;
 			}

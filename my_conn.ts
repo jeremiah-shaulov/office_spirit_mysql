@@ -1,4 +1,4 @@
-import {debug_assert} from './debug_assert.ts';
+import {debugAssert} from './debug_assert.ts';
 import {StatusFlags} from './constants.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
@@ -20,10 +20,10 @@ export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private state = State.IDLE_FRESH;
-	private state_id = 1;
-	private cur_idle_resultsets: ResultsetsDriver<unknown>|undefined;
-	private cur_stmt_id = -1;
-	private want_close_cur_stmt = false;
+	private stateId = 1;
+	private curIdleResultsets: ResultsetsDriver<unknown>|undefined;
+	private curStmtId = -1;
+	private wantCloseCurStmt = false;
 
 	constructor
 	(	private dsn: Dsn,
@@ -34,27 +34,27 @@ export class MyConn
 	}
 
 	get serverVersion()
-	{	return this.protocol?.server_version ?? '';
+	{	return this.protocol?.serverVersion ?? '';
 	}
 
 	get connectionId()
-	{	return this.protocol?.connection_id ?? 0;
+	{	return this.protocol?.connectionId ?? 0;
 	}
 
 	get autocommit()
-	{	return ((this.protocol?.status_flags ?? 0) & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0;
+	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0;
 	}
 
 	get inTrx()
-	{	return ((this.protocol?.status_flags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS) != 0;
+	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS) != 0;
 	}
 
 	get inTrxReadonly()
-	{	return ((this.protocol?.status_flags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS_READONLY) != 0;
+	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS_READONLY) != 0;
 	}
 
 	get noBackslashEscapes()
-	{	return ((this.protocol?.status_flags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
+	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 	}
 
 	get schema()
@@ -63,26 +63,26 @@ export class MyConn
 
 	/**	Can return undefined, if end() called during connection process.
 	 **/
-	private async get_protocol()
+	private async getProtocol()
 	{	if (this.state==State.QUERYING || this.state==State.CONNECTING)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
-		debug_assert(this.state==State.IDLE_FRESH || this.state==State.IDLE);
-		debug_assert(!this.cur_idle_resultsets);
+		debugAssert(this.state==State.IDLE_FRESH || this.state==State.IDLE);
+		debugAssert(!this.curIdleResultsets);
 		if (!this.protocol)
-		{	let {state_id} = this;
+		{	const {stateId} = this;
 			this.state = State.CONNECTING;
-			let protocol = await this.onbegin(this.dsn);
-			if (this.state_id != state_id)
+			const protocol = await this.onbegin(this.dsn);
+			if (this.stateId != stateId)
 			{	this.onend(this.dsn, protocol);
 				throw new CanceledError(`Operation cancelled: end() called during connection process`);
 			}
 			this.state = State.IDLE_FRESH;
 			this.protocol = protocol;
 			if (this.dsn.initSql)
-			{	let resultsets = await this.do_query(this.dsn.initSql, undefined, RowType.FIRST_COLUMN);
-				if (resultsets.has_more)
-				{	while (await resultsets.next_resultset());
+			{	const resultsets = await this.doQuery(this.dsn.initSql, undefined, RowType.FIRST_COLUMN);
+				if (resultsets.hasMoreSomething)
+				{	while (await resultsets.gotoNextResultset());
 				}
 			}
 		}
@@ -91,32 +91,32 @@ export class MyConn
 
 	async connect()
 	{	if (!this.protocol)
-		{	await this.get_protocol();
+		{	await this.getProtocol();
 		}
 	}
 
 	end()
-	{	this.state_id = (this.state_id + 1) & 0x7FFF_FFFF;
-		let {state, protocol, cur_idle_resultsets} = this;
+	{	this.stateId = (this.stateId + 1) & 0x7FFF_FFFF;
+		const {state, protocol, curIdleResultsets} = this;
 		this.state = State.IDLE_FRESH;
 		this.protocol = undefined;
-		this.cur_idle_resultsets = undefined;
-		this.cur_stmt_id = -1;
-		this.want_close_cur_stmt = false;
+		this.curIdleResultsets = undefined;
+		this.curStmtId = -1;
+		this.wantCloseCurStmt = false;
 		if (protocol)
 		{	switch (state)
 			{	case State.IDLE_FRESH:
 				case State.IDLE:
-					if (cur_idle_resultsets)
-					{	let the_protocol = protocol;
-						cur_idle_resultsets.discard().then
+					if (curIdleResultsets)
+					{	const theProtocol = protocol;
+						curIdleResultsets.discard().then
 						(	() =>
-							{	this.onend(this.dsn, the_protocol);
+							{	this.onend(this.dsn, theProtocol);
 							},
 							e =>
 							{	console.error(e);
-								the_protocol.is_broken_connection = true;
-								this.onend(this.dsn, the_protocol);
+								theProtocol.isBrokenConnection = true;
+								this.onend(this.dsn, theProtocol);
 							}
 						);
 						return;
@@ -126,55 +126,55 @@ export class MyConn
 				case State.QUERYING:
 					return; // fetch routine must call onend()
 				default:
-					debug_assert(false); // in CONNECTING, protocol is undefined
+					debugAssert(false); // in CONNECTING, protocol is undefined
 			}
 		}
 	}
 
-	private async protocol_op<T>(protocol: MyProtocol, can_redo_n_attempt: number, orig_state_id: number, callback: () => Promise<T>): Promise<T|undefined>
-	{	let {state} = this;
+	private async protocolOp<T>(protocol: MyProtocol, canRedoNAttempt: number, origStateId: number, callback: () => Promise<T>): Promise<T|undefined>
+	{	const {state} = this;
 		if (this.state==State.QUERYING || this.state==State.CONNECTING)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
-		debug_assert(state==State.IDLE_FRESH || state==State.IDLE);
+		debugAssert(state==State.IDLE_FRESH || state==State.IDLE);
 		let result: T;
 		try
 		{	this.state = State.QUERYING;
 			result = await callback();
 		}
 		catch (e)
-		{	debug_assert(this.state == State.QUERYING);
+		{	debugAssert(this.state == State.QUERYING);
 			if (!(e instanceof SqlError))
-			{	protocol.is_broken_connection = true;
+			{	protocol.isBrokenConnection = true;
 			}
-			if (this.state_id != orig_state_id)
+			if (this.stateId != origStateId)
 			{	this.onend(this.dsn, protocol);
 				throw e;
 			}
 			this.state = State.IDLE;
 			if (!(e instanceof SqlError))
 			{	this.end();
-				if (state==State.IDLE_FRESH && can_redo_n_attempt!=-1 && can_redo_n_attempt<DO_QUERY_ATTEMPTS && (e instanceof SendWithDataError))
+				if (state==State.IDLE_FRESH && canRedoNAttempt!=-1 && canRedoNAttempt<DO_QUERY_ATTEMPTS && (e instanceof SendWithDataError))
 				{	// maybe connection was killed while it was idle in pool
 					return; // redo COM_QUERY or COM_STMT_PREPARE
 				}
 			}
-			if (this.want_close_cur_stmt)
-			{	await this.protocol_op(protocol, can_redo_n_attempt, orig_state_id, () => protocol.send_com_stmt_close(this.cur_stmt_id));
-				this.cur_stmt_id = -1;
-				this.want_close_cur_stmt = false;
+			if (this.wantCloseCurStmt)
+			{	await this.protocolOp(protocol, canRedoNAttempt, origStateId, () => protocol.sendComStmtClose(this.curStmtId));
+				this.curStmtId = -1;
+				this.wantCloseCurStmt = false;
 			}
 			throw e;
 		}
-		if (this.state_id != orig_state_id)
+		if (this.stateId != origStateId)
 		{	this.onend(this.dsn, protocol);
 			throw new CanceledError(`Operation cancelled: end() called during query`);
 		}
 		this.state = State.IDLE;
-		if (this.want_close_cur_stmt)
-		{	await this.protocol_op(protocol, can_redo_n_attempt, orig_state_id, () => protocol.send_com_stmt_close(this.cur_stmt_id));
-			this.cur_stmt_id = -1;
-			this.want_close_cur_stmt = false;
+		if (this.wantCloseCurStmt)
+		{	await this.protocolOp(protocol, canRedoNAttempt, origStateId, () => protocol.sendComStmtClose(this.curStmtId));
+			this.curStmtId = -1;
+			this.wantCloseCurStmt = false;
 		}
 		return result;
 	}
@@ -182,7 +182,7 @@ export class MyConn
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.do_query<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
+			{	this.doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
 			}
 		);
 	}
@@ -190,7 +190,7 @@ export class MyConn
 	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.do_query<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
+			{	this.doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
 			}
 		);
 	}
@@ -198,7 +198,7 @@ export class MyConn
 	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.do_query<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
+			{	this.doQuery<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
 			}
 		);
 	}
@@ -206,41 +206,41 @@ export class MyConn
 	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.do_query<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
+			{	this.doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
 			}
 		);
 	}
 
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	let resultsets = await this.do_query<Record<string, ColumnType|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
-		let it = resultsets[Symbol.asyncIterator]();
-		let {value} = await it.next();
+	{	const resultsets = await this.doQuery<Record<string, ColumnType|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+		const it = resultsets[Symbol.asyncIterator]();
+		const {value} = await it.next();
 		return value===undefined ? undefined : value; // void -> undefined
 	}
 
 	async forQuery<ColumnType=ColumnValue>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<unknown>): Promise<unknown>
-	{	if (this.cur_stmt_id != -1)
+	{	if (this.curStmtId != -1)
 		{	throw new BusyError(`Another prepared statement is active`);
 		}
-		let {state_id} = this;
-		let prepared = await this.do_query<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
+		const {stateId} = this;
+		const prepared = await this.doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
 		try
-		{	if (this.state_id == state_id)
-			{	this.cur_stmt_id = prepared.stmt_id;
+		{	if (this.stateId == stateId)
+			{	this.curStmtId = prepared.stmtId;
 				return await callback(prepared);
 			}
 		}
 		finally
-		{	if (this.state_id == state_id)
+		{	if (this.stateId == stateId)
 			{	if (this.state == State.QUERYING)
-				{	this.want_close_cur_stmt = true;
+				{	this.wantCloseCurStmt = true;
 				}
 				else
-				{	this.cur_stmt_id = -1;
-					if (prepared.has_more)
+				{	this.curStmtId = -1;
+					if (prepared.hasMoreSomething)
 					{	await prepared.discard();
 					}
-					await this.protocol?.send_com_stmt_close(prepared.stmt_id);
+					await this.protocol?.sendComStmtClose(prepared.stmtId);
 				}
 			}
 		}
@@ -248,98 +248,98 @@ export class MyConn
 	}
 
 	async execute(sql: SqlSource, params?: Params)
-	{	let resultsets: Resultsets<void> = await this.do_query<void>(sql, params, RowType.FIRST_COLUMN);
+	{	const resultsets: Resultsets<void> = await this.doQuery<void>(sql, params, RowType.FIRST_COLUMN);
 		await resultsets.discard();
 		return resultsets;
 	}
 
-	private async do_query<Row>(sql: SqlSource, params: Params|true, row_type: RowType): Promise<ResultsetsDriver<Row>>
-	{	if (this.cur_idle_resultsets)
+	private async doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType): Promise<ResultsetsDriver<Row>>
+	{	if (this.curIdleResultsets)
 		{	throw new BusyError(`Please, read previous resultsets first`);
 		}
-		for (let n_attempt=1; true; n_attempt++)
-		{	let protocol = this.protocol ?? await this.get_protocol();
-			let {state_id} = this;
-			let resultsets = new ResultsetsDriver<Row>();
+		for (let nAttempt=1; true; nAttempt++)
+		{	const protocol = this.protocol ?? await this.getProtocol();
+			const {stateId} = this;
+			const resultsets = new ResultsetsDriver<Row>();
 			let ok = false;
 
 			if (!params)
 			{	// Text protocol query
-				ok = true === await this.protocol_op
+				ok = true === await this.protocolOp
 				(	protocol,
-					n_attempt,
-					state_id,
+					nAttempt,
+					stateId,
 					async () =>
-					{	await protocol.send_com_query(sql);
-						await protocol.read_com_query_response(resultsets);
+					{	await protocol.sendComQuery(sql);
+						await protocol.readComQueryResponse(resultsets);
 						return true;
 					}
 				);
 			}
 			else if (params === true)
 			{	// Prepare for later execution
-				resultsets.stmt_execute = async (params: Param[]) =>
-				{	await this.protocol_op(protocol, -1, state_id, () => protocol.send_com_stmt_execute(resultsets, params));
-					this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
+				resultsets.stmtExecute = async (params: Param[]) =>
+				{	await this.protocolOp(protocol, -1, stateId, () => protocol.sendComStmtExecute(resultsets, params));
+					this.setCurIdleResultsets(protocol, stateId, resultsets, rowType);
 				};
 
-				ok = true === await this.protocol_op
+				ok = true === await this.protocolOp
 				(	protocol,
-					n_attempt,
-					state_id,
+					nAttempt,
+					stateId,
 					async () =>
-					{	await protocol.send_com_stmt_prepare(sql);
-						await protocol.read_com_stmt_prepare_response(resultsets);
+					{	await protocol.sendComStmtPrepare(sql);
+						await protocol.readComStmtPrepareResponse(resultsets);
 						return true;
 					}
 				);
 			}
 			else if (Array.isArray(params))
 			{	// Prepare to execute immediately: positional parameters
-				ok = true === await this.protocol_op
+				ok = true === await this.protocolOp
 				(	protocol,
-					n_attempt,
-					state_id,
+					nAttempt,
+					stateId,
 					async () =>
-					{	await protocol.send_com_stmt_prepare(sql, params.length==0 ? params : undefined);
-						await protocol.read_com_stmt_prepare_response(resultsets);
-						await protocol.send_com_stmt_execute(resultsets, params);
+					{	await protocol.sendComStmtPrepare(sql, params.length==0 ? params : undefined);
+						await protocol.readComStmtPrepareResponse(resultsets);
+						await protocol.sendComStmtExecute(resultsets, params);
 						return true;
 					}
 				);
 			}
 			else
 			{	// Prepare to execute immediately: named parameters
-				let sql_set = "";
-				let params_set: Param[] = [];
-				for (let [n, v] of Object.entries(params))
-				{	sql_set += !sql_set.length ? "SET @`" : "`=?,@`";
-					sql_set += n.replaceAll('`', '``');
-					params_set[params_set.length] = v;
+				let sqlSet = "";
+				const paramsSet: Param[] = [];
+				for (const [n, v] of Object.entries(params))
+				{	sqlSet += !sqlSet.length ? "SET @`" : "`=?,@`";
+					sqlSet += n.replaceAll('`', '``');
+					paramsSet[paramsSet.length] = v;
 				}
 
-				ok = true === await this.protocol_op
+				ok = true === await this.protocolOp
 				(	protocol,
-					n_attempt,
-					state_id,
+					nAttempt,
+					stateId,
 					async () =>
-					{	if (sql_set.length != 0)
-						{	let resultsets_set = new ResultsetsDriver;
-							await protocol.send_com_stmt_prepare(sql_set+"`=?");
-							await protocol.read_com_stmt_prepare_response(resultsets_set);
-							await protocol.send_com_stmt_execute(resultsets_set, params_set);
-							debug_assert(!resultsets_set.has_more);
+					{	if (sqlSet.length != 0)
+						{	const resultsetsSet = new ResultsetsDriver;
+							await protocol.sendComStmtPrepare(sqlSet+"`=?");
+							await protocol.readComStmtPrepareResponse(resultsetsSet);
+							await protocol.sendComStmtExecute(resultsetsSet, paramsSet);
+							debugAssert(!resultsetsSet.hasMoreSomething);
 						}
-						await protocol.send_com_stmt_prepare(sql);
-						await protocol.read_com_stmt_prepare_response(resultsets);
-						await protocol.send_com_stmt_execute(resultsets, []);
+						await protocol.sendComStmtPrepare(sql);
+						await protocol.readComStmtPrepareResponse(resultsets);
+						await protocol.sendComStmtExecute(resultsets, []);
 						return true;
 					}
 				);
 			}
 
 			if (ok)
-			{	this.set_cur_idle_resultsets(protocol, state_id, resultsets, row_type);
+			{	this.setCurIdleResultsets(protocol, stateId, resultsets, rowType);
 				return resultsets;
 			}
 
@@ -347,44 +347,44 @@ export class MyConn
 		}
 	}
 
-	private set_cur_idle_resultsets<Row>(protocol: MyProtocol, orig_state_id: number, resultsets: ResultsetsDriver<Row>, row_type: RowType)
-	{	if (resultsets.has_more)
-		{	this.cur_idle_resultsets = resultsets;
-			if (row_type != RowType.LAST_COLUMN_READER)
+	private setCurIdleResultsets<Row>(protocol: MyProtocol, origStateId: number, resultsets: ResultsetsDriver<Row>, rowType: RowType)
+	{	if (resultsets.hasMoreSomething)
+		{	this.curIdleResultsets = resultsets;
+			if (rowType != RowType.LAST_COLUMN_READER)
 			{	resultsets.fetch = async () =>
-				{	if (!resultsets.has_more_rows)
+				{	if (!resultsets.hasMoreRows)
 					{	return undefined;
 					}
-					let row = await this.protocol_op(protocol, -1, orig_state_id, () => protocol.fetch(resultsets, row_type));
-					if (!resultsets.has_more)
-					{	this.cur_idle_resultsets = undefined;
+					const row = await this.protocolOp(protocol, -1, origStateId, () => protocol.fetch(resultsets, rowType));
+					if (!resultsets.hasMoreSomething)
+					{	this.curIdleResultsets = undefined;
 					}
 					return row;
 				};
 			}
 			else
-			{	let is_fetching = false;
+			{	let isFetching = false;
 				resultsets.fetch = async () =>
-				{	if (is_fetching)
+				{	if (isFetching)
 					{	throw new BusyError(`Please, read previous column reader to the end`);
 					}
-					if (!resultsets.has_more_rows)
+					if (!resultsets.hasMoreRows)
 					{	return undefined;
 					}
-					is_fetching = true;
-					let row = await this.protocol_op
+					isFetching = true;
+					const row = await this.protocolOp
 					(	protocol,
 						-1,
-						orig_state_id,
+						origStateId,
 						() => protocol.fetch
 						(	resultsets,
-							row_type,
+							rowType,
 							async () =>
-							{	is_fetching = false;
-								if (this.state_id == orig_state_id)
+							{	isFetching = false;
+								if (this.stateId == origStateId)
 								{	this.state = State.IDLE;
 									await resultsets.discard();
-									this.cur_idle_resultsets = undefined;
+									this.curIdleResultsets = undefined;
 								}
 							}
 						)
@@ -394,10 +394,10 @@ export class MyConn
 				};
 			}
 
-			resultsets.next_resultset = async () =>
-			{	await this.protocol_op(protocol, -1, orig_state_id, () => protocol.next_resultset(resultsets));
-				if (!resultsets.has_more)
-				{	this.cur_idle_resultsets = undefined;
+			resultsets.gotoNextResultset = async () =>
+			{	await this.protocolOp(protocol, -1, origStateId, () => protocol.nextResultset(resultsets));
+				if (!resultsets.hasMoreSomething)
+				{	this.curIdleResultsets = undefined;
 					return false;
 				}
 				else

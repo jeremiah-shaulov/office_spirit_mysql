@@ -13,7 +13,7 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function conv_column_value(value: Uint8Array, type: FieldType, decoder: TextDecoder): ColumnValue
+export function convColumnValue(value: Uint8Array, type: FieldType, decoder: TextDecoder): ColumnValue
 {	switch (type)
 	{	case FieldType.MYSQL_TYPE_NULL:
 			return null;
@@ -24,21 +24,22 @@ export function conv_column_value(value: Uint8Array, type: FieldType, decoder: T
 		case FieldType.MYSQL_TYPE_DECIMAL:
 		case FieldType.MYSQL_TYPE_DOUBLE:
 		case FieldType.MYSQL_TYPE_FLOAT:
-			return data_to_number(value);
+			return dataToNumber(value);
 
+		// deno-lint-ignore no-fallthrough
 		case FieldType.MYSQL_TYPE_LONGLONG:
 		{	if (value.length > NONSAFE_INTEGER_MIN_LEN)
-			{	let is_negative = value[0] == C_MINUS;
+			{	const isNegative = value[0] == C_MINUS;
 				let i = 0;
-				if (is_negative)
+				if (isNegative)
 				{	i = 1;
 				}
 				let result = BigInt(value[i++] - C_ZERO);
-				for (let i_end=value.length; i<i_end; i++)
+				for (const iEnd=value.length; i<iEnd; i++)
 				{	result *= 10n;
 					result += BigInt(value[i] - C_ZERO);
 				}
-				if (is_negative)
+				if (isNegative)
 				{	result = -result;
 				}
 				if (result<Number.MIN_SAFE_INTEGER || result>Number.MAX_SAFE_INTEGER)
@@ -53,7 +54,7 @@ export function conv_column_value(value: Uint8Array, type: FieldType, decoder: T
 		case FieldType.MYSQL_TYPE_LONG:
 		case FieldType.MYSQL_TYPE_INT24:
 		case FieldType.MYSQL_TYPE_YEAR:
-			return data_to_int(value);
+			return dataToInt(value);
 
 		case FieldType.MYSQL_TYPE_JSON:
 			return JSON.parse(decoder.decode(value));
@@ -68,36 +69,36 @@ export function conv_column_value(value: Uint8Array, type: FieldType, decoder: T
 		case FieldType.MYSQL_TYPE_DATETIME:
 		case FieldType.MYSQL_TYPE_TIMESTAMP:
 		{	let pos = value.indexOf(C_MINUS, 1);
-			let year = data_to_int(value.subarray(0, pos));
+			const year = dataToInt(value.subarray(0, pos));
 			pos++;
 			let pos2 = value.indexOf(C_MINUS, pos);
-			let month = data_to_int(value.subarray(pos, pos2));
+			const month = dataToInt(value.subarray(pos, pos2));
 			pos = pos2 + 1;
 			pos2 = value.indexOf(C_SPACE, pos);
 			let day, hour=0, minute=0, second=0, frac=0;
 			if (pos2 == -1)
-			{	day = data_to_int(value.subarray(pos));
+			{	day = dataToInt(value.subarray(pos));
 			}
 			else
-			{	day = data_to_int(value.subarray(pos, pos2));
+			{	day = dataToInt(value.subarray(pos, pos2));
 				pos = pos2 + 1;
 				pos2 = value.indexOf(C_COLON, pos);
-				hour = data_to_int(value.subarray(pos, pos2));
+				hour = dataToInt(value.subarray(pos, pos2));
 				pos = pos2 + 1;
 				pos2 = value.indexOf(C_COLON, pos);
 				if (pos2 == -1)
-				{	minute = data_to_int(value.subarray(pos));
+				{	minute = dataToInt(value.subarray(pos));
 				}
 				else
-				{	minute = data_to_int(value.subarray(pos, pos2));
+				{	minute = dataToInt(value.subarray(pos, pos2));
 					pos = pos2 + 1;
 					pos2 = value.indexOf(C_DOT, pos);
 					if (pos2 == -1)
-					{	second = data_to_int(value.subarray(pos));
+					{	second = dataToInt(value.subarray(pos));
 					}
 					else
-					{	second = data_to_int(value.subarray(pos, pos2));
-						frac = data_to_number(value.subarray(pos2)); // from .
+					{	second = dataToInt(value.subarray(pos, pos2));
+						frac = dataToNumber(value.subarray(pos2)); // from .
 					}
 				}
 			}
@@ -109,47 +110,47 @@ export function conv_column_value(value: Uint8Array, type: FieldType, decoder: T
 	}
 }
 
-function data_to_int(value: Uint8Array)
-{	let is_negative = value[0] == C_MINUS;
+function dataToInt(value: Uint8Array)
+{	const isNegative = value[0] == C_MINUS;
 	let i = 0;
-	if (is_negative)
+	if (isNegative)
 	{	i = 1;
 	}
 	let result = value[i++] - C_ZERO;
-	for (let i_end=value.length; i<i_end; i++)
+	for (const iEnd=value.length; i<iEnd; i++)
 	{	result *= 10;
 		result += value[i] - C_ZERO;
 	}
-	return is_negative ? -result : result;
+	return isNegative ? -result : result;
 }
 
-function data_to_number(value: Uint8Array)
-{	let is_negative = value[0] == C_MINUS;
+function dataToNumber(value: Uint8Array)
+{	const isNegative = value[0] == C_MINUS;
 	let i = 0;
-	if (is_negative)
+	if (isNegative)
 	{	i = 1;
 	}
 	let result = 0;
-	let decimal_exponent = 0;
-	let decimal_exponent_inc = 0;
+	let decimalExponent = 0;
+	let decimalExponentInc = 0;
 	while (i < value.length)
-	{	let c = value[i];
+	{	const c = value[i];
 		if (c == C_DOT)
-		{	decimal_exponent_inc = -1;
+		{	decimalExponentInc = -1;
 		}
 		else if (c==C_E || c==C_E_CAP)
-		{	decimal_exponent += data_to_int(value.subarray(i+1));
+		{	decimalExponent += dataToInt(value.subarray(i+1));
 			break;
 		}
 		else
 		{	result *= 10;
 			result += value[i] - C_ZERO;
-			decimal_exponent += decimal_exponent_inc;
+			decimalExponent += decimalExponentInc;
 		}
 		i++;
 	}
-	if (decimal_exponent)
-	{	result *= 10 ** decimal_exponent;
+	if (decimalExponent)
+	{	result *= 10 ** decimalExponent;
 	}
-	return is_negative ? -result : result;
+	return isNegative ? -result : result;
 }

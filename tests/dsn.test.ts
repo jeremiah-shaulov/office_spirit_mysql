@@ -1,5 +1,5 @@
 import {Dsn} from '../dsn.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 Deno.test
 (	'Basic',
@@ -22,8 +22,8 @@ Deno.test
 		}
 		assertEquals(error?.message, 'Protocol not supported: Hello all');
 
-		let dsn_name = 'mysql://[::1]:3307';
-		let dsn = new Dsn(dsn_name);
+		let dsnName = 'mysql://[::1]:3307';
+		let dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, '::1');
 		assertEquals(dsn.port, 3307);
 		assertEquals(dsn.username, '');
@@ -40,8 +40,8 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://[::1]:3307/');
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: '::1', port: 3307});
 
-		dsn_name = 'mysql://johnny@[::1]/?keepAliveTimeout=123#SET group_concat_max_len=65000';
-		dsn = new Dsn(dsn_name);
+		dsnName = 'mysql://johnny@[::1]/?keepAliveTimeout=123#SET group_concat_max_len=65000';
+		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, '::1');
 		assertEquals(dsn.port, 3306);
 		assertEquals(dsn.username, 'johnny');
@@ -58,8 +58,8 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://johnny@[::1]/?keepAliveTimeout=123#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: '::1', port: 3306});
 
-		dsn_name = 'mysql://johnny:hello@localhost/information_schema?keepAliveTimeout=-123#SET group_concat_max_len=65000';
-		dsn = new Dsn(dsn_name);
+		dsnName = 'mysql://johnny:hello@localhost/information_schema?keepAliveTimeout=-123#SET group_concat_max_len=65000';
+		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, 'localhost');
 		assertEquals(dsn.port, 3306);
 		assertEquals(dsn.username, 'johnny');
@@ -76,8 +76,8 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?keepAliveTimeout=0#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
 
-		dsn_name = 'mysql://johnny:hello@localhost/information_schema?keepAliveMax=1234.1&maxColumnLen=1000&foundRows&ignoreSpace# SET group_concat_max_len=65000  ';
-		dsn = new Dsn(dsn_name);
+		dsnName = 'mysql://johnny:hello@localhost/information_schema?keepAliveMax=1234.1&maxColumnLen=1000&foundRows&ignoreSpace# SET group_concat_max_len=65000  ';
+		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, 'localhost');
 		assertEquals(dsn.port, 3306);
 		assertEquals(dsn.username, 'johnny');
@@ -94,8 +94,8 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?keepAliveMax=1234&maxColumnLen=1000&foundRows&ignoreSpace#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
 
-		dsn_name = 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements';
-		dsn = new Dsn(dsn_name);
+		dsnName = 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements';
+		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, 'www.example.com');
 		assertEquals(dsn.port, 22);
 		assertEquals(dsn.username, 'johnny');

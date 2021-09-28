@@ -1,5 +1,5 @@
-import {utf8_string_length} from '../utf8_string_length.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {utf8StringLength} from '../utf8_string_length.ts';
+import {assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 Deno.test
 (	'Basic',
@@ -14,8 +14,8 @@ Deno.test
 			'😁'
 		];
 
-		for (let str of strs)
-		{	assertEquals(utf8_string_length(str), encoder.encode(str).length);
+		for (const str of strs)
+		{	assertEquals(utf8StringLength(str), encoder.encode(str).length);
 		}
 	}
 );

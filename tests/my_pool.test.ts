@@ -10,26 +10,29 @@ const {DSN} = Deno.env.toObject();
 
 const encoder = new TextEncoder;
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 class SqlSelectGenerator
 {	has_put_params_to = false;
 	buffer_size = -1;
 
-	constructor(private table: string, private column: string, private value: any)
+	constructor(private table: string, private column: string, private value: Any)
 	{
 	}
 
-	toSqlBytesWithParamsBackslashAndBuffer(put_params_to: any[]|undefined, no_backslash_escapes: boolean, buffer: Uint8Array)
+	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: Any[]|undefined, _noBackslashEscapes: boolean, buffer: Uint8Array)
 	{	this.buffer_size = buffer.length;
 		let sql;
-		if (put_params_to)
-		{	put_params_to.push(this.value);
+		if (putParamsTo)
+		{	putParamsTo.push(this.value);
 			sql = `SELECT * FROM ${this.table} WHERE ${this.column} = ?`;
 			this.has_put_params_to = true;
 		}
 		else
 		{	sql = `SELECT * FROM ${this.table} WHERE ${this.column} = '${this.value}'`;
 		}
-		let {read, written} = encoder.encodeInto(sql, buffer);
+		const {read, written} = encoder.encodeInto(sql, buffer);
 		if (read == sql.length)
 		{	return buffer.subarray(0, written);
 		}
@@ -40,8 +43,8 @@ class SqlSelectGenerator
 Deno.test
 (	'Basic',
 	async () =>
-	{	let dsn = new Dsn(DSN);
-		let pool = new MyPool(DSN);
+	{	const dsn = new Dsn(DSN);
+		const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -62,8 +65,8 @@ Deno.test
 					assertEquals(conn.inTrxReadonly, false);
 					assertEquals(conn.schema, dsn.schema);
 
-					let conn_id = await conn.queryCol("SELECT Connection_id()").first();
-					assertEquals(conn.connectionId, conn_id);
+					const connId = await conn.queryCol("SELECT Connection_id()").first();
+					assertEquals(conn.connectionId, connId);
 
 					await conn.execute("SET autocommit=1");
 					assertEquals(conn.autocommit, true);
@@ -134,8 +137,8 @@ Deno.test
 					);
 
 					// SELECT forEach
-					let rows: Record<string, any>[] = [];
-					let the_hello = await conn.query("SELECT * FROM t_log").forEach
+					let rows: Record<string, Any>[] = [];
+					const theHello = await conn.query("SELECT * FROM t_log").forEach
 					(	row =>
 						{	rows.push(row);
 							return 'hello';
@@ -149,7 +152,7 @@ Deno.test
 							{id: 4, time: new Date(now+4000), message: 'Message 4'},
 						]
 					);
-					assertEquals(the_hello, 'hello');
+					assertEquals(theHello, 'hello');
 
 					// SELECT forEach
 					rows = [];
@@ -168,7 +171,7 @@ Deno.test
 					);
 
 					// queryMap
-					let rows2 = await conn.queryMap("SELECT * FROM t_log").all()
+					const rows2 = await conn.queryMap("SELECT * FROM t_log").all()
 					assertEquals
 					(	rows2,
 						[	new Map(Object.entries({id: 1, time: new Date(now+1000), message: 'Message 1'})),
@@ -179,7 +182,7 @@ Deno.test
 					);
 
 					// queryArr
-					let rows3 = await conn.queryArr("SELECT id, `time`, message FROM t_log").all()
+					const rows3 = await conn.queryArr("SELECT id, `time`, message FROM t_log").all()
 					assertEquals
 					(	rows3,
 						[	[1, new Date(now+1000), 'Message 1'],
@@ -202,7 +205,7 @@ Deno.test
 					assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 3');
 
 					// SELECT discard
-					let res2 = await conn.query("SELECT * FROM t_log");
+					const res2 = await conn.query("SELECT * FROM t_log");
 					assertEquals(res2.hasMore, true);
 					await res2.discard();
 					assertEquals(res2.hasMore, false);
@@ -225,22 +228,22 @@ Deno.test
 					assertEquals(await conn.queryCol("SELECT message FROM t_log WHERE id=@id", {id: 3, junk: '*'}).first(), 'Message 3');
 
 					// SELECT
-					let value = 'Message 3';
+					const value = 'Message 3';
 					let gen = new SqlSelectGenerator('t_log', 'message', value);
 					assertEquals(await conn.queryCol(gen).first(), 3);
 					assertEquals(gen.has_put_params_to, false);
 
-					for (let id of [5, 6])
-					{	let filename = await Deno.makeTempFile();
+					for (const id of [5, 6])
+					{	const filename = await Deno.makeTempFile();
 						try
-						{	let fh = await Deno.open(filename, {write: true, read: true});
+						{	const fh = await Deno.open(filename, {write: true, read: true});
 							try
 							{	await writeAll(fh, new TextEncoder().encode(id==6 ? '' : 'Message '+id));
 								await fh.seek(0, Deno.SeekMode.Start);
 								res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
 								assertEquals(res.lastInsertId, id);
 								assertEquals(res.affectedRows, 1);
-								let gen = new SqlSelectGenerator('t_log', 'id', id);
+								const gen = new SqlSelectGenerator('t_log', 'id', id);
 								assertEquals(await conn.query(gen).first(), {id, time: new Date(now+id*1000), message: id==6 ? '' : 'Message '+id});
 							}
 							finally
@@ -335,7 +338,7 @@ Deno.test
 (	'Prepared',
 	async () =>
 	{	const N_ROWS = 3;
-		let pool = new MyPool(DSN);
+		const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -377,7 +380,7 @@ Deno.test
 						async (prepared) =>
 						{	for (let i=1; i<=N_ROWS; i++)
 							{	await prepared.exec([i]);
-								for await (let row of prepared)
+								for await (const row of prepared)
 								{	assertEquals(row, {id: i, time: new Date(now+i*1000), message: 'Message '+i});
 								}
 							}
@@ -414,15 +417,15 @@ Deno.test
 Deno.test
 (	'Various column types',
 	async () =>
-	{	let dsn = new Dsn(DSN);
+	{	const dsn = new Dsn(DSN);
 		dsn.multiStatements = true;
-		let pool = new MyPool(dsn);
+		const pool = new MyPool(dsn);
 
 		try
 		{	pool.forConn
 			(	async (conn) =>
 				{	// CREATE TABLE
-					let res = await conn.query
+					const res = await conn.query
 					(	`	DROP DATABASE IF EXISTS test1;
 							CREATE DATABASE test1 /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/;
 							USE test1;
@@ -505,33 +508,33 @@ Deno.test
 					assertEquals(res.hasMore, true);
 					assertEquals(await res.nextResultset(), true);
 
-					let expected_row: Record<string, any> =
+					const expectedRow: Record<string, Any> =
 					{	id: 1,
-						c_null: null,
-						c_tinyint: 1,
-						c_tinyint_u: 2,
-						c_smallint: -3,
-						c_smallint_u: 4,
-						c_mediumint: 5,
-						c_mediumint_u: 6,
-						c_int: 7,
-						c_int_u: 8,
-						c_bigint: -9007199254740991,
-						c_bigint_u: 2n ** 63n,
-						c_float: 11.5,
-						c_double: -12.25,
-						c_text: 'Text',
-						c_tinyblob: '\x01\x02\x03\x04',
-						c_timestamp: new Date(2000, 11, 1, 1, 2, 3),
-						c_date: new Date(2000, 11, 2),
-						c_datetime: new Date(2000, 11, 1, 1, 2, 3)
+						'c_null': null,
+						'c_tinyint': 1,
+						'c_tinyint_u': 2,
+						'c_smallint': -3,
+						'c_smallint_u': 4,
+						'c_mediumint': 5,
+						'c_mediumint_u': 6,
+						'c_int': 7,
+						'c_int_u': 8,
+						'c_bigint': -9007199254740991,
+						'c_bigint_u': 2n ** 63n,
+						'c_float': 11.5,
+						'c_double': -12.25,
+						'c_text': 'Text',
+						'c_tinyblob': '\x01\x02\x03\x04',
+						'c_timestamp': new Date(2000, 11, 1, 1, 2, 3),
+						'c_date': new Date(2000, 11, 2),
+						'c_datetime': new Date(2000, 11, 1, 1, 2, 3)
 					};
 					if (semver.gte(conn.serverVersion.match(/^[\d\.]*/)?.[0] || '', '5.7.8'))
-					{	expected_row.c_json = {a: 1, b: 2};
+					{	expectedRow.c_json = {a: 1, b: 2};
 					}
-					assertEquals(res.columns.length, Object.keys(expected_row).length);
+					assertEquals(res.columns.length, Object.keys(expectedRow).length);
 					assertEquals(res.hasMore, true);
-					assertEquals(await res.first(), expected_row);
+					assertEquals(await res.first(), expectedRow);
 					assertEquals(res.hasMore, false);
 					assertEquals(await res.nextResultset(), false);
 					assertEquals(await res.nextResultset(), false);
@@ -549,7 +552,7 @@ Deno.test
 Deno.test
 (	'SQL Error',
 	async () =>
-	{	let pool = new MyPool(DSN);
+	{	const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -598,7 +601,7 @@ Deno.test
 Deno.test
 (	'noBackslashEscapes',
 	async () =>
-	{	let pool = new MyPool(DSN);
+	{	const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -623,7 +626,7 @@ Deno.test
 Deno.test
 (	'initSql',
 	async () =>
-	{	let dsn = new Dsn(DSN);
+	{	const dsn = new Dsn(DSN);
 		dsn.initSql = "SET @hello='all'";
 		let pool = new MyPool(dsn);
 
@@ -667,7 +670,7 @@ Deno.test
 Deno.test
 (	'Busy state',
 	async () =>
-	{	let pool = new MyPool(DSN);
+	{	const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -692,7 +695,7 @@ Deno.test
 					assertEquals(error instanceof BusyError, true);
 					assertEquals(await value, 10);
 
-					let promise = conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+					const promise = conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 					conn.end();
 					error = undefined;
 					try
@@ -719,29 +722,29 @@ Deno.test
 Deno.test
 (	'Sessions',
 	async () =>
-	{	let pool = new MyPool(DSN);
-		let dsn2 = new Dsn(DSN);
+	{	const pool = new MyPool(DSN);
+		const dsn2 = new Dsn(DSN);
 		dsn2.keepAliveMax = 10;
 
 		try
 		{	pool.session
 			(	async (session) =>
-				{	let conn_1 = session.conn(); // default DSN
-					let conn_2 = session.conn(); // the same object
-					let conn_3 = session.conn(undefined, true); // another connection to default DSN
-					let conn_4 = session.conn(dsn2); // connection to different DSN
+				{	const conn1 = session.conn(); // default DSN
+					const conn2 = session.conn(); // the same object
+					const conn3 = session.conn(undefined, true); // another connection to default DSN
+					const conn4 = session.conn(dsn2); // connection to different DSN
 
-					assert(conn_1 === conn_2);
-					assert(conn_2 !== conn_3);
-					assert(conn_2 !== conn_4);
-					assert(conn_3 !== conn_4);
+					assert(conn1 === conn2);
+					assert(conn2 !== conn3);
+					assert(conn2 !== conn4);
+					assert(conn3 !== conn4);
 
-					let conn_id_2_promise = conn_2.queryCol("SELECT Connection_id()").first();
-					let conn_id_3_promise = conn_3.queryCol("SELECT Connection_id()").first();
-					let conn_id_4_promise = conn_4.queryCol("SELECT Connection_id()").first();
+					const connId2Promise = conn2.queryCol("SELECT Connection_id()").first();
+					const connId3Promise = conn3.queryCol("SELECT Connection_id()").first();
+					const connId4Promise = conn4.queryCol("SELECT Connection_id()").first();
 
-					let [conn_id_2, conn_id_3, conn_id_4] = await Promise.all([conn_id_2_promise, conn_id_3_promise, conn_id_4_promise]);
-					assert(conn_id_2!=conn_id_3 && conn_id_3!=conn_id_4);
+					const [connId2, connId3, connId4] = await Promise.all([connId2Promise, connId3Promise, connId4Promise]);
+					assert(connId2!=connId3 && connId3!=connId4);
 				}
 			);
 		}
@@ -755,11 +758,12 @@ Deno.test
 Deno.test
 (	'Pool DSN',
 	async () =>
-	{	let pool = new MyPool;
+	{	const pool = new MyPool;
 
 		try
 		{	pool.session
-			(	async (session) =>
+			(	// deno-lint-ignore require-await
+				async (session) =>
 				{	let error;
 					try
 					{	session.conn();
@@ -778,12 +782,12 @@ Deno.test
 	}
 );
 
-/*Deno.test
+Deno.test
 (	'Load big dump',
 	async () =>
-	{	let dsn = new Dsn(DSN);
+	{	const dsn = new Dsn(DSN);
 		dsn.maxColumnLen = Number.MAX_SAFE_INTEGER;
-		let pool = new MyPool(dsn);
+		const pool = new MyPool(dsn);
 		try
 		{	pool.forConn
 			(	async (conn) =>
@@ -795,28 +799,28 @@ Deno.test
 					// CREATE TABLE
 					await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
 
-					for (let read_to_memory of [false, true])
-					{	for (let SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
-						{	let max_allowed_packet = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
-							if (max_allowed_packet < SIZE+100)
-							{	let want_size = SIZE + 100;
-								let size_rounded = 1;
-								while (want_size)
-								{	want_size >>= 1;
-									size_rounded <<= 1;
+					for (const readToMemory of [false, true])
+					{	for (const SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
+						{	const maxAllowedPacket = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
+							if (maxAllowedPacket < SIZE+100)
+							{	let wantSize = SIZE + 100;
+								let sizeRounded = 1;
+								while (wantSize)
+								{	wantSize >>= 1;
+									sizeRounded <<= 1;
 								}
-								await conn.execute("SET GLOBAL max_allowed_packet = ?", [size_rounded]);
+								await conn.execute("SET GLOBAL max_allowed_packet = ?", [sizeRounded]);
 								conn.end();
-								assert(Number(await conn.queryCol("SELECT @@max_allowed_packet").first()) >= want_size);
+								assert(Number(await conn.queryCol("SELECT @@max_allowed_packet").first()) >= wantSize);
 							}
 
-							let filename = await Deno.makeTempFile();
+							const filename = await Deno.makeTempFile();
 							try
-							{	let fh = await Deno.open(filename, {write: true, read: true});
+							{	const fh = await Deno.open(filename, {write: true, read: true});
 								try
 								{	// Write INSERT query to file
 									await writeAll(fh, new TextEncoder().encode("INSERT INTO t_log SET message = '"));
-									let buffer = new Uint8Array(8*1024);
+									const buffer = new Uint8Array(8*1024);
 									for (let i=0; i<buffer.length; i++)
 									{	let c = i & 0x7F;
 										if (c=="'".charCodeAt(0) || c=="\\".charCodeAt(0))
@@ -824,32 +828,32 @@ Deno.test
 										}
 										buffer[i] = c;
 									}
-									let cur_size = 0;
+									let curSize = 0;
 									for (let i=0; i<SIZE; i+=buffer.length)
-									{	let len = Math.min(buffer.length, SIZE-cur_size);
+									{	const len = Math.min(buffer.length, SIZE-curSize);
 										await writeAll(fh, buffer.subarray(0, len));
-										cur_size += len;
+										curSize += len;
 									}
-									assertEquals(cur_size, SIZE);
+									assertEquals(curSize, SIZE);
 									await writeAll(fh, new TextEncoder().encode("'"));
 
 									// DELETE
 									await conn.execute("DELETE FROM t_log");
 
 									// Read INSERT from file
-									let insert_status: Resultsets<any>|undefined;
+									let insertStatus: Resultsets<Any>|undefined;
 									try
-									{	if (!read_to_memory)
+									{	if (!readToMemory)
 										{	await fh.seek(0, Deno.SeekMode.Start);
-											insert_status = await conn.query(fh);
+											insertStatus = await conn.query(fh);
 										}
 										else
-										{	let q = await Deno.readTextFile(filename);
+										{	const q = await Deno.readTextFile(filename);
 											if (SIZE == 2**24 - 8)
-											{	insert_status = await conn.query(q);
+											{	insertStatus = await conn.query(q);
 											}
 											else
-											{	insert_status = await conn.query(new TextEncoder().encode(q));
+											{	insertStatus = await conn.query(new TextEncoder().encode(q));
 											}
 										}
 									}
@@ -860,52 +864,52 @@ Deno.test
 										console.warn('%cTest skipped: %c'+e.message, 'color:orange', 'color:inherit');
 										return;
 									}
-									let record_id = insert_status.lastInsertId;
+									const recordId = insertStatus.lastInsertId;
 
 									// SELECT Length()
-									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id="+record_id).first(), SIZE);
+									assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id="+recordId).first(), SIZE);
 
-									let row = await conn.query("SELECT message, id FROM t_log WHERE id="+record_id, read_to_memory ? undefined : []).first();
+									const row = await conn.query("SELECT message, id FROM t_log WHERE id="+recordId, readToMemory ? undefined : []).first();
 									assertEquals(typeof(row?.message)=='string' ? row.message.length : -1, SIZE);
-									assertEquals(row?.id, record_id);
+									assertEquals(row?.id, recordId);
 
 									// SELECT from table to new file
-									let filename_2 = await Deno.makeTempFile();
+									const filename2 = await Deno.makeTempFile();
 									try
-									{	let fh_2 = await Deno.open(filename_2, {write: true, read: true});
+									{	const fh2 = await Deno.open(filename2, {write: true, read: true});
 										try
-										{	let row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id="+record_id);
-											await copy(row?.message as any, fh_2);
+										{	const row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id="+recordId);
+											await copy(row?.message as Any, fh2);
 
 											// Validate the new file size
-											let size_2 = await fh_2.seek(0, Deno.SeekMode.End);
-											assertEquals(size_2, SIZE);
-											await fh_2.seek(0, Deno.SeekMode.Start);
+											let size2 = await fh2.seek(0, Deno.SeekMode.End);
+											assertEquals(size2, SIZE);
+											await fh2.seek(0, Deno.SeekMode.Start);
 
 											// Validate the new file contents
-											let since = Date.now();
+											const since = Date.now();
 											console.log('Started validating');
-											let buffer_2 = new Uint8Array(buffer.length);
-											while (size_2 > 0)
+											const buffer2 = new Uint8Array(buffer.length);
+											while (size2 > 0)
 											{	let pos = 0;
-												let len = Math.min(buffer_2.length, size_2);
+												const len = Math.min(buffer2.length, size2);
 												while (pos < len)
-												{	let n = await fh_2.read(buffer_2.subarray(pos, len));
+												{	const n = await fh2.read(buffer2.subarray(pos, len));
 													assert(n != null);
 													pos += n;
 												}
 
-												assertEquals(buffer.subarray(0, len), buffer_2.subarray(0, len));
-												size_2 -= len;
+												assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
+												size2 -= len;
 											}
 											console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
 										}
 										finally
-										{	fh_2.close();
+										{	fh2.close();
 										}
 									}
 									finally
-									{	await Deno.remove(filename_2);
+									{	await Deno.remove(filename2);
 									}
 								}
 								finally
@@ -925,12 +929,12 @@ Deno.test
 			pool.closeIdle();
 		}
 	}
-);*/
+);
 
 Deno.test
 (	'Many placeholders',
 	async () =>
-	{	let pool = new MyPool(DSN);
+	{	const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
@@ -946,15 +950,15 @@ Deno.test
 					await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int, b int, c int, d int, e int, f int, g int, h int)");
 
 					const N_ROWS = 8*1024-1;
-					let q = `INSERT INTO t_log (a, b, c, d, e, f, g, h) VALUES ` + `(?, ?, ?, ?, ?, ?, ?, ?), `.repeat(N_ROWS).slice(0, -2);
-					let params = [];
+					const q = `INSERT INTO t_log (a, b, c, d, e, f, g, h) VALUES ` + `(?, ?, ?, ?, ?, ?, ?, ?), `.repeat(N_ROWS).slice(0, -2);
+					const params = [];
 					for (let r=0; r<N_ROWS; r++)
 					{	for (let c=0; c<8; c++)
 						{	params.push(params.length + 1);
 						}
 					}
 
-					let res = await conn.execute(q, params);
+					const res = await conn.execute(q, params);
 					assertEquals(res.affectedRows, 8191);
 					assertEquals(res.nPlaceholders, N_ROWS*8);
 				}
@@ -970,20 +974,20 @@ Deno.test
 Deno.test
 (	'Many placeholders 2',
 	async () =>
-	{	let pool = new MyPool(DSN);
+	{	const pool = new MyPool(DSN);
 
 		try
 		{	pool.forConn
 			(	async (conn) =>
 				{	const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
-					let pp = [];
+					const pp = [];
 					let sum = 0;
 					for (let i=0; i<N_PARAMS; i++)
 					{	pp[i] = i;
 						sum += i;
 					}
-					let calced_sum = await conn.queryCol<any>(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
-					assertEquals(calced_sum, sum);
+					const calcedSum = await conn.queryCol<Any>(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
+					assertEquals(calcedSum, sum);
 				}
 			);
 		}
