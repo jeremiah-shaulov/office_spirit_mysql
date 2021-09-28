@@ -12,6 +12,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		for await (let row of resultsets)
 		{	rows[rows.length] = row;
 		}
+		await resultsets.discard();
 		return rows;
 	}
 
@@ -19,10 +20,8 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 	{	let resultsets = await this;
 		let it = resultsets[Symbol.asyncIterator]();
 		let {value, done} = await it.next();
-		if (!done)
-		{	while (!(await it.next()).done);
-			return value===undefined ? undefined : value; // void -> undefined
-		}
+		await resultsets.discard();
+		return done || value===undefined ? undefined : value; // void -> undefined
 	}
 
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
@@ -31,6 +30,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		for await (let row of resultsets)
 		{	result = await callback(row);
 		}
+		await resultsets.discard();
 		return result;
 	}
 }

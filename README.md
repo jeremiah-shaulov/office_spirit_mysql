@@ -766,7 +766,7 @@ pool.closeIdle();
 - `Resultsets.noIndexUsed: boolean`
 - `Resultsets.isSlowQuery: boolean`
 - `Resultsets.columns: Column[]` - Information about columns in resultset.
-- `Resultsets.placeholders: Column[]` - Information about `?` placeholders in the SQL query.
+- `Resultsets.nPlaceholders: number` - Number of `?`-placeholders in the SQL query.
 - `Resultsets.hasMore: boolean` - True if there are more rows or resultsets to read.
 - `Resultsets.exec(params: any[]): Promise<void>` - If this is a prepared query, this function executes it again.
 - `Resultsets.all(): Promise<any[]>` - Reads all rows in current resultset to an array.

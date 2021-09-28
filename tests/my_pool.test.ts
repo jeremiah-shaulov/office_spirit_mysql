@@ -11,8 +11,8 @@ const {DSN} = Deno.env.toObject();
 const encoder = new TextEncoder;
 
 class SqlSelectGenerator
-{	public has_put_params_to = false;
-	public buffer_size = -1;
+{	has_put_params_to = false;
+	buffer_size = -1;
 
 	constructor(private table: string, private column: string, private value: any)
 	{
@@ -778,7 +778,7 @@ Deno.test
 	}
 );
 
-Deno.test
+/*Deno.test
 (	'Load big dump',
 	async () =>
 	{	let dsn = new Dsn(DSN);
@@ -925,7 +925,7 @@ Deno.test
 			pool.closeIdle();
 		}
 	}
-);
+);*/
 
 Deno.test
 (	'Many placeholders',
