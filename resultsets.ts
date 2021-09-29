@@ -7,7 +7,10 @@ export type Param = any;
 export type Params = Param[] | Record<string, Param> | null | undefined;
 
 export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
-{	async all()
+{	/**	Reads all rows in the first resultset to an array.
+		And if there're more resultsets, they will be skipped (discarded).
+	 **/
+	async all()
 	{	const resultsets = await this;
 		const rows = [];
 		for await (const row of resultsets)
@@ -17,6 +20,9 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		return rows;
 	}
 
+	/**	Returns the first row of the first resultset.
+		And if there're more rows or resultsets, they all will be skipped (discarded).
+	 **/
 	async first()
 	{	const resultsets = await this;
 		const it = resultsets[Symbol.asyncIterator]();
@@ -25,6 +31,9 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		return done || value===undefined ? undefined : value; // void -> undefined
 	}
 
+	/**	Reads all rows in the first resultset, and calls the provided callback for each of them.
+		If there're more resultsets, they will be skipped (discarded).
+	 **/
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
 	{	const resultsets = await this;
 		let result: T|undefined;
@@ -52,10 +61,14 @@ export class Resultsets<Row>
 	{
 	}
 
+	/**	True if there are more rows or resultsets to read.
+	 **/
 	get hasMore(): boolean
 	{	return this instanceof ResultsetsDriver ? this.hasMoreSomething : false;
 	}
 
+	/**	Execute (again) a prepared statement.
+	 **/
 	exec(params: Param[])
 	{	if (this instanceof ResultsetsDriver)
 		{	return this.stmtExecute(params);
@@ -65,6 +78,8 @@ export class Resultsets<Row>
 		}
 	}
 
+	/**	Iterates over rows in current resultset.
+	 **/
 	async *[Symbol.asyncIterator]()
 	{	if (this instanceof ResultsetsDriver)
 		{	while (true)
@@ -77,6 +92,8 @@ export class Resultsets<Row>
 		}
 	}
 
+	/**	Reads all rows in current resultset to an array.
+	 **/
 	async all()
 	{	const rows = [];
 		for await (const row of this)
@@ -85,6 +102,8 @@ export class Resultsets<Row>
 		return rows;
 	}
 
+	/**	Reads all rows in current resultset, and returns the first row.
+	 **/
 	async first()
 	{	const it = this[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
@@ -94,6 +113,8 @@ export class Resultsets<Row>
 		}
 	}
 
+	/**	Reads all rows in current resultset, and calls the provided callback for each of them.
+	 **/
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
 	{	let result: T|undefined;
 		for await (const row of this)
@@ -102,6 +123,8 @@ export class Resultsets<Row>
 		return result;
 	}
 
+	/**	Advances to the next resultset of this query, if there is one. Returns true if moved to the next resultset.
+	 **/
 	nextResultset()
 	{	if (this instanceof ResultsetsDriver)
 		{	return this.gotoNextResultset();
@@ -111,6 +134,8 @@ export class Resultsets<Row>
 		}
 	}
 
+	/**	Reads and discards all the rows in all the resultsets of this query.
+	 **/
 	async discard()
 	{	if (this instanceof ResultsetsDriver)
 		{	if (this.hasMoreSomething)
@@ -154,6 +179,9 @@ export class ResultsetsDriver<Row> extends Resultsets<Row>
 	}
 }
 
+/**	Array of such objects is found on `Resultsets.columns`.
+	For SELECT queries MySQL server reports various information about each returned column.
+ **/
 export class Column
 {	constructor
 	(	public catalog: string,
