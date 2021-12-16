@@ -1,5 +1,5 @@
 import {MyProtocol} from "./my_protocol.ts";
-import {createHash, SupportedAlgorithm, RSA} from './deps.ts';
+import {RSA} from './deps.ts';
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
@@ -17,7 +17,7 @@ export class AuthPlugin
 		throw new Error(`Authentication plugin is not supported: ${name}`);
 	}
 
-	quickAuth(_password: string): Uint8Array
+	quickAuth(_password: string): Promise<Uint8Array>
 	{	throw new Error('Not implemented');
 	}
 
@@ -26,25 +26,35 @@ export class AuthPlugin
 	}
 }
 
-function hash(algorithm: SupportedAlgorithm, data: Uint8Array)
-{	return new Uint8Array(createHash(algorithm).update(data).digest());
+async function hash(algorithm: AlgorithmIdentifier, data: Uint8Array)
+{	return new Uint8Array(await crypto.subtle.digest(algorithm, data));
+}
+
+function appendZeroByte(data: Uint8Array)
+{	const result = new Uint8Array(data.length + 1);
+	result.set(data);
+	return result;
 }
 
 function xor(a: Uint8Array, b: Uint8Array)
-{	return a.map((byte, index) => byte ^ b[index]);
+{	for (let i=0, iEnd=a.length; i<iEnd; i++)
+	{	a[i] ^= b[i];
+	}
 }
 
 class AuthPluginMysqlNativePassword extends AuthPlugin
-{	quickAuth(password: string)
-	{	const pwd1 = hash('sha1', encoder.encode(password));
-		const pwd2 = hash('sha1', pwd1);
+{	async quickAuth(password: string)
+	{	const pwd1 = new Uint8Array(await crypto.subtle.digest('SHA-1', encoder.encode(password)));
+		const pwd2 = new Uint8Array(await crypto.subtle.digest('SHA-1', pwd1));
 
 		let seedAndPwd2 = new Uint8Array(this.scramble.length + pwd2.length);
 		seedAndPwd2.set(this.scramble);
 		seedAndPwd2.set(pwd2, this.scramble.length);
-		seedAndPwd2 = hash('sha1', seedAndPwd2);
+		seedAndPwd2 = new Uint8Array(await crypto.subtle.digest('SHA-1', seedAndPwd2));
 
-		return xor(seedAndPwd2, pwd1);
+		xor(seedAndPwd2, pwd1);
+
+		return seedAndPwd2;
 	}
 }
 
@@ -62,15 +72,17 @@ const REQUEST_PUBLIC_KEY = 0x02;
 class AuthPluginCachingSha2Password extends AuthPlugin
 {	private state = State.Initial;
 
-	quickAuth(password: string)
-	{	const stage1 = hash('sha256', encoder.encode(password));
-		const stage2 = hash('sha256', stage1);
+	async quickAuth(password: string)
+	{	const stage1 = await hash('SHA-256', encoder.encode(password));
+		const stage2 = await hash('SHA-256', stage1);
 		const buffer = new Uint8Array(stage2.length + this.scramble.length);
 		buffer.set(stage2);
 		buffer.set(this.scramble, stage2.length);
-		const stage3 = hash('sha256', buffer);
+		const stage3 = await hash('SHA-256', buffer);
 
-		return xor(stage1, stage3);
+		xor(stage1, stage3);
+
+		return stage1;
 	}
 
 	async progress(password: string, _packetType: number, packetData: Uint8Array, writer: MyProtocol)
@@ -92,7 +104,8 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 			}
 			case State.Encrypt:
 			{	const publicKey = decoder.decode(packetData);
-				const stage1 = xor(encoder.encode(password), this.scramble);
+				const stage1 = appendZeroByte(encoder.encode(password));
+				xor(stage1, this.scramble);
 				const encryptedPassword = RSA.encrypt(stage1, RSA.parseKey(publicKey));
 				await writer.sendBytesPacket(encryptedPassword);
 				this.state = State.Done;

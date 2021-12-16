@@ -143,7 +143,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	/**	Write client's response to initial server handshake packet.
 	 **/
-	private writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean)
+	private async writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean)
 	{	// apply client capabilities
 		this.capabilityFlags &=
 		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
@@ -179,7 +179,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			{	this.writeUint8(0);
 			}
 			else
-			{	const auth = authPlugin.quickAuth(password);
+			{	const auth = await authPlugin.quickAuth(password);
 				if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
 				{	this.writeLenencInt(auth.length);
 					this.writeBytes(auth);
@@ -205,7 +205,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	this.writeUint16(this.capabilityFlags);
 			this.writeUint32(0xFFFFFF); // max packet size
 			this.writeNulString(username);
-			const auth = !password ? new Uint8Array : authPlugin.quickAuth(password);
+			const auth = !password ? new Uint8Array : await authPlugin.quickAuth(password);
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
 			{	this.writeNulBytes(auth);
 				this.writeNulString(schema);
@@ -214,7 +214,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			{	this.writeBytes(auth);
 			}
 		}
-		return this.send();
+		return await this.send();
 	}
 
 	/**	If guessed auth method that was used during handshake was correct, just OK packet will be read on successful auth, and ERR if auth failed.
@@ -258,13 +258,13 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	/**	Respond to second auth attempt, after got AuthSwitchRequest.
 	 **/
-	private writeAuthSwitchResponse(password: string, authPlugin: AuthPlugin)
+	private async writeAuthSwitchResponse(password: string, authPlugin: AuthPlugin)
 	{	this.startWritingNewPacket();
 		if (password)
-		{	const auth = authPlugin.quickAuth(password);
+		{	const auth = await authPlugin.quickAuth(password);
 			this.writeBytes(auth);
 		}
-		return this.send();
+		return await this.send();
 	}
 
 	/**	Reads packet header, and packet type (first byte of the packet).

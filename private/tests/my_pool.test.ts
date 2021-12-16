@@ -3,7 +3,7 @@ import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError} from '../errors.ts';
 import {writeAll, readAll, copy} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
 import * as semver from 'https://deno.land/x/semver@v1.4.0/mod.ts';
 
 const {DSN} = Deno.env.toObject();

@@ -1,5 +1,5 @@
 import {utf8StringLength} from '../utf8_string_length.ts';
-import {assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
 
 Deno.test
 (	'Basic',

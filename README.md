@@ -497,7 +497,7 @@ This library tries to have everything needed in real life usage. It's possible t
 
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-import {copy} from 'https://deno.land/std@0.106.0/io/util.ts';
+import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -521,7 +521,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 
 ```ts
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-import {copy} from 'https://deno.land/std@0.106.0/io/util.ts';
+import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
@@ -639,7 +639,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 
 ```ts
 import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
-import {dirname} from "https://deno.land/std@0.106.0/path/mod.ts";
+import {dirname} from "https://deno.land/std@0.117.0/path/mod.ts";
 
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
