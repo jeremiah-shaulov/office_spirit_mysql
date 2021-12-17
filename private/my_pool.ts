@@ -1,23 +1,47 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
+import {ServerDisconnectedError} from "./errors.ts";
 import {MyConn} from './my_conn.ts';
 import {MyProtocol} from './my_protocol.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
+const DEFAULT_CONNECTION_TIMEOUT = 0;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
+const TRY_CONNECT_INTERVAL_MSEC = 100;
+
+type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 
 export interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
-	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+	onLoadFile?: OnLoadFile;
 }
 
 class MyPoolConns
 {	idle: MyProtocol[] = [];
 	busy: MyProtocol[] = [];
+
+	async newConn(dsn: Dsn, unusedBuffer?: Uint8Array, onLoadFile?: OnLoadFile)
+	{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
+		let now = Date.now();
+		const connectTill = now + connectionTimeout;
+		for (let i=0; true; i++)
+		{	try
+			{	return await MyProtocol.inst(dsn, unusedBuffer, onLoadFile);
+			}
+			catch (e)
+			{	// with connectTill==0 must not retry
+				now = Date.now();
+				if (now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
+				{	throw e;
+				}
+			}
+			await new Promise(y => setTimeout(y, Math.min(TRY_CONNECT_INTERVAL_MSEC, connectTill-now)));
+		}
+	}
 }
 
 export class MySession
@@ -79,7 +103,7 @@ export class MyPool
 
 	private dsn: Dsn|undefined;
 	private maxConns: number;
-	private onLoadFile: ((filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>) | undefined;
+	private onLoadFile: OnLoadFile|undefined;
 
 	constructor(options?: MyPoolOptions|Dsn|string)
 	{	if (typeof(options) == 'string')
@@ -218,10 +242,10 @@ export class MyPool
 		const {idle, busy} = conns;
 		const now = Date.now();
 		while (true)
-		{	let conn;
+		{	let conn: MyProtocol|undefined;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await MyProtocol.inst(dsn, this.unusedBuffers.pop(), this.onLoadFile);
+			{	conn = await conns.newConn(dsn, this.unusedBuffers.pop());
 			}
 			else if (conn.useTill <= now)
 			{	this.nIdleAll--;

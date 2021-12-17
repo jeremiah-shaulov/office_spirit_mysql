@@ -6,6 +6,7 @@ const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(
 	Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
 	Example: `mysql://root@localhost/` or `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`.
 	Possible parameters:
+	`connectionTimeout` (number) milliseconds - will try to reconnect this amount of time;
 	`keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
 	`keepAliveMax` (number) - how many times at most to recycle each connection;
 	`maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
@@ -20,6 +21,7 @@ export class Dsn
 	private mPassword: string;
 	private mSchema: string;
 	private mPipe: string;
+	private mConnectionTimeout: number;
 	private mKeepAliveTimeout: number;
 	private mKeepAliveMax: number;
 	private mMaxColumnLen: number;
@@ -83,6 +85,14 @@ export class Dsn
 		{	value = '/'+value;
 		}
 		this.mPipe = value;
+		this.updateName();
+	}
+
+	get connectionTimeout()
+	{	return this.mConnectionTimeout;
+	}
+	set connectionTimeout(value: number)
+	{	this.mConnectionTimeout = Math.max(0, value);
 		this.updateName();
 	}
 
@@ -164,12 +174,14 @@ export class Dsn
 		this.mPipe = pathname.slice(0, pos);
 		this.mSchema = pathname.slice(pos + 1);
 		// params
+		const connectionTimeout = url.searchParams.get('connectionTimeout');
 		const keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
 		const keepAliveMax = url.searchParams.get('keepAliveMax');
 		const maxColumnLen = url.searchParams.get('maxColumnLen');
 		const foundRows = url.searchParams.get('foundRows');
 		const ignoreSpace = url.searchParams.get('ignoreSpace');
 		const multiStatements = url.searchParams.get('multiStatements');
+		this.mConnectionTimeout = connectionTimeout ? Math.max(0, Number(connectionTimeout)) : NaN;
 		this.mKeepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
 		this.mKeepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
 		this.mMaxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
@@ -186,7 +198,8 @@ export class Dsn
 	 **/
 	private updateName()
 	{	const params =
-		(	(!isNaN(this.mKeepAliveTimeout) ? '&keepAliveTimeout='+this.mKeepAliveTimeout : '') +
+		(	(!isNaN(this.mConnectionTimeout) ? '&connectionTimeout='+this.mConnectionTimeout : '') +
+			(!isNaN(this.mKeepAliveTimeout) ? '&keepAliveTimeout='+this.mKeepAliveTimeout : '') +
 			(!isNaN(this.mKeepAliveMax) ? '&keepAliveMax='+this.mKeepAliveMax : '') +
 			(!isNaN(this.mMaxColumnLen) ? '&maxColumnLen='+this.mMaxColumnLen : '') +
 			(this.mFoundRows ? '&foundRows' : '') +
