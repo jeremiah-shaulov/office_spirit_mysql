@@ -7,6 +7,8 @@ import {writeAll, readAll, copy} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
 import * as semver from 'https://deno.land/x/semver@v1.4.0/mod.ts';
 
+const {TESTS_DSN} = Deno.env.toObject();
+
 const encoder = new TextEncoder;
 
 // deno-lint-ignore no-explicit-any
@@ -40,21 +42,30 @@ class SqlSelectGenerator
 }
 
 Deno.test
-(	'With Docker containers',
+(	'All',
 	async () =>
-	{	await withDocker('mysql:latest', 'root', '', 'tests', [], tests);
-		await withDocker('mysql:latest', 'root', 'hello', 'tests', ['--default-authentication-plugin=caching_sha2_password', '--local-infile'], tests);
-		await withDocker('mysql:8.0', 'root', 'hello', 'tests', ['--default-authentication-plugin=mysql_native_password'], tests);
-		await withDocker('mysql:5.7', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
-		await withDocker('mysql:5.6', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
+	{	if (TESTS_DSN)
+		{	console.log('%cUsing DSN %s for tests', 'color:blue', TESTS_DSN);
 
-		await withDocker('mariadb:latest', 'root', '', 'tests', [], tests);
-		await withDocker('mariadb:latest', 'root', 'hello', 'tests', ['--default-authentication-plugin=caching_sha2_password', '--local-infile'], tests);
-		await withDocker('mariadb:10.7', 'root', 'hello', 'tests', ['--default-authentication-plugin=mysql_native_password'], tests);
-		await withDocker('mariadb:10.5', 'root', 'hello', 'tests', ['--local-infile'], tests);
-		await withDocker('mariadb:10.2', 'root', 'hello', 'tests', ['--local-infile'], tests);
-		await withDocker('cytopia/mariadb-10.0', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
-		await withDocker('cytopia/mariadb-5.5', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
+			await tests(TESTS_DSN);
+		}
+		else
+		{	console.log("%cEnvironment variable TESTS_DSN is not set, so i'll download and run Docker images", 'color:blue', TESTS_DSN);
+
+			await withDocker('mysql:latest', 'root', '', 'tests', ['--innodb-idle-flush-pct=0'], tests);
+			await withDocker('mysql:latest', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
+			await withDocker('mysql:8.0', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--default-authentication-plugin=mysql_native_password'], tests);
+			await withDocker('mysql:5.7', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('mysql:5.6', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
+
+			await withDocker('mariadb:latest', 'root', '', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], tests);
+			await withDocker('mariadb:latest', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
+			await withDocker('mariadb:10.7', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--default-authentication-plugin=mysql_native_password'], tests);
+			await withDocker('mariadb:10.5', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('mariadb:10.2', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('cytopia/mariadb-10.0', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('cytopia/mariadb-5.5', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
+		}
 	}
 );
 
@@ -89,10 +100,10 @@ async function tests(dsnStr: string)
 		const elapsed = Date.now() - since;
 		const elapsedStr = elapsed<60000 ? (elapsed/1000)+'s' : Math.floor(elapsed/60000)+'m'+(Math.floor(elapsed/1000)%60)+'s';
 		if (!error)
-		{	console.log('\t%cok %c(%s)', 'color:green', 'color: gray', elapsedStr);
+		{	console.log('\t%cok %c(%s)', 'color:green', 'color:gray', elapsedStr);
 		}
 		else
-		{	console.log('\t%cFAILED %c(%s)', 'color:red', 'color: gray', elapsedStr);
+		{	console.log('\t%cFAILED %c(%s)', 'color:red', 'color:gray', elapsedStr);
 			throw error;
 		}
 	}
@@ -119,7 +130,7 @@ async function testBasic(dsnStr: string)
 				assert(conn.connectionId > 0);
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
-				assertEquals(conn.schema, dsn.schema);
+				assert(!conn.schema || conn.schema==dsn.schema);
 
 				const connId = await conn.queryCol("SELECT Connection_id()").first();
 				assertEquals(conn.connectionId, connId);
