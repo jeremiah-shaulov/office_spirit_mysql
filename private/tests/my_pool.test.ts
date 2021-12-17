@@ -45,16 +45,16 @@ Deno.test
 	{	await withDocker('mysql:latest', 'root', '', 'tests', [], tests);
 		await withDocker('mysql:latest', 'root', 'hello', 'tests', ['--default-authentication-plugin=caching_sha2_password', '--local-infile'], tests);
 		await withDocker('mysql:8.0', 'root', 'hello', 'tests', ['--default-authentication-plugin=mysql_native_password'], tests);
-		await withDocker('mysql:5.7', 'root', 'hello', 'tests', ['--max-allowed-packet=16777243', '--local-infile'], tests);
-		await withDocker('mysql:5.6', 'root', 'hello', 'tests', ['--max-allowed-packet=16777243', '--local-infile'], tests);
+		await withDocker('mysql:5.7', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
+		await withDocker('mysql:5.6', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
 
 		await withDocker('mariadb:latest', 'root', '', 'tests', [], tests);
 		await withDocker('mariadb:latest', 'root', 'hello', 'tests', ['--default-authentication-plugin=caching_sha2_password', '--local-infile'], tests);
 		await withDocker('mariadb:10.7', 'root', 'hello', 'tests', ['--default-authentication-plugin=mysql_native_password'], tests);
 		await withDocker('mariadb:10.5', 'root', 'hello', 'tests', ['--local-infile'], tests);
 		await withDocker('mariadb:10.2', 'root', 'hello', 'tests', ['--local-infile'], tests);
-		await withDocker('cytopia/mariadb-10.0', 'root', 'hello', 'tests', ['--max-allowed-packet=16777243', '--local-infile'], tests);
-		await withDocker('cytopia/mariadb-5.5', 'root', 'hello', 'tests', ['--max-allowed-packet=16777243', '--local-infile'], tests);
+		await withDocker('cytopia/mariadb-10.0', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
+		await withDocker('cytopia/mariadb-5.5', 'root', 'hello', 'tests', ['--max-allowed-packet=67108864', '--local-infile'], tests);
 	}
 );
 
@@ -1010,7 +1010,8 @@ async function testManyPlaceholders2(dsnStr: string)
 					sum += i;
 				}
 				const calcedSum = await conn.queryCol<Any>(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
-				assertEquals(calcedSum, sum);
+				const calcedSumNum = typeof(calcedSum)=='bigint' ? Number(calcedSum) : calcedSum; // MySQL5.7 returns bigint, MySQL8.0 returns number
+				assertEquals(calcedSumNum, sum);
 			}
 		);
 	}

@@ -65,29 +65,32 @@ export async function withDocker(imageName: string, username: string, password: 
 	// Work with it, and finally drop
 	try
 	{	// Find out port number
-		let portDesc = '';
+		let port = '';
 		let error;
-		for (let i=0; i<10*60; i++)
+		for (let i=0; i<15*60; i++)
 		{	await new Promise(y => setTimeout(y, 1000));
 			try
-			{	portDesc = await system(['docker', 'port', containerName]);
+			{	const portDesc = await system(['docker', 'port', containerName]);
+				const m = portDesc.match(/:(\d+)[\r\n]/);
+				if (m)
+				{	port = m[1];
+					break;
+				}
 			}
 			catch (e)
 			{	error = e;
 			}
 		}
-		const m = portDesc.match(/:(\d+)[\r\n]/);
-		if (!m)
-		{	throw error ?? new Error(`Cannot find out docker port: ${portDesc}`);
+		if (!port)
+		{	throw error ?? new Error(`Cannot find out docker port`);
 		}
-		const port = m[1];
 		// Call the cb
 		console.log(`%cWorking with ${imageName} on port ${port}`, 'color:blue');
 		const dsn = new Dsn(`mysql://127.0.0.1:${port}/`);
 		dsn.username = username;
 		dsn.password = password;
 		dsn.schema = database;
-		dsn.connectionTimeout = 10*60*1000;
+		dsn.connectionTimeout = 15*60*1000;
 		await cb(dsn+'');
 	}
 	finally
