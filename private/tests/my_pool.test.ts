@@ -52,19 +52,19 @@ Deno.test
 		else
 		{	console.log("%cEnvironment variable TESTS_DSN is not set, so i'll download and run Docker images", 'color:blue', TESTS_DSN);
 
-			await withDocker('mysql:latest', 'root', '', 'tests', ['--innodb-idle-flush-pct=0'], tests);
-			await withDocker('mysql:latest', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
-			await withDocker('mysql:8.0', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--default-authentication-plugin=mysql_native_password'], tests);
-			await withDocker('mysql:5.7', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
-			await withDocker('mysql:5.6', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
+			await withDocker('mysql:latest', false, ['--innodb-idle-flush-pct=0'], tests);
+			await withDocker('mysql:latest', true, ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
+			await withDocker('mysql:8.0', true, ['--innodb-idle-flush-pct=0', '--default-authentication-plugin=mysql_native_password'], tests);
+			await withDocker('mysql:5.7', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('mysql:5.6', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
 
-			await withDocker('mariadb:latest', 'root', '', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], tests);
-			await withDocker('mariadb:latest', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
-			await withDocker('mariadb:10.7', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--default-authentication-plugin=mysql_native_password'], tests);
-			await withDocker('mariadb:10.5', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
-			await withDocker('mariadb:10.2', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
-			await withDocker('cytopia/mariadb-10.0', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
-			await withDocker('cytopia/mariadb-5.5', 'root', 'hello', 'tests', ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
+			await withDocker('mariadb:latest', false, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], tests);
+			await withDocker('mariadb:latest', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], tests);
+			await withDocker('mariadb:10.7', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--default-authentication-plugin=mysql_native_password'], tests);
+			await withDocker('mariadb:10.5', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('mariadb:10.2', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('cytopia/mariadb-10.0', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], tests);
+			await withDocker('cytopia/mariadb-5.5', true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], tests);
 		}
 	}
 );
@@ -115,7 +115,7 @@ async function testBasic(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	assertEquals(conn.serverVersion, '');
 				assertEquals(conn.connectionId, 0);
 				assertEquals(conn.autocommit, false);
@@ -177,7 +177,7 @@ async function testBasic(dsnStr: string)
 				now -= now % 1000;
 				await conn.forQuery
 				(	"INSERT INTO t_log SET `time`=?, message=?",
-					async (prepared) =>
+					async prepared =>
 					{	await prepared.exec([new Date(now+1000), 'Message 1']);
 						assertEquals(prepared.lastInsertId, 1);
 						assertEquals(prepared.affectedRows, 1);
@@ -391,6 +391,10 @@ async function testBasic(dsnStr: string)
 				assertEquals(res.lastInsertId, 19);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [19]).first(), {time: new Date(now+19000), message: '123.5'});
+
+				// Drop databases that i created
+				await conn.query("DROP DATABASE test1");
+				await conn.query("DROP DATABASE test2");
 			}
 		);
 	}
@@ -406,7 +410,7 @@ async function testPrepared(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
@@ -422,7 +426,7 @@ async function testPrepared(dsnStr: string)
 				now -= now % 1000;
 				await conn.forQuery
 				(	"INSERT INTO t_log SET `time`=?, message=?",
-					async (prepared) =>
+					async prepared =>
 					{	for (let i=1; i<=N_ROWS; i++)
 						{	await prepared.exec([new Date(now+i*1000), 'Message '+i]);
 						}
@@ -432,7 +436,7 @@ async function testPrepared(dsnStr: string)
 				// SELECT no read at end
 				await conn.forQuery
 				(	"SELECT * FROM t_log WHERE id=?",
-					async (prepared) =>
+					async prepared =>
 					{	await prepared.exec([1]);
 						assertEquals(prepared.columns.length, 3);
 					}
@@ -441,7 +445,7 @@ async function testPrepared(dsnStr: string)
 				// SELECT
 				await conn.forQuery
 				(	"SELECT * FROM t_log WHERE id=?",
-					async (prepared) =>
+					async prepared =>
 					{	for (let i=1; i<=N_ROWS; i++)
 						{	await prepared.exec([i]);
 							for await (const row of prepared)
@@ -455,7 +459,7 @@ async function testPrepared(dsnStr: string)
 				let error: Error|undefined;
 				await conn.forQuery
 				(	"SELECT * FROM t_log WHERE id=?",
-					async (prepared) =>
+					async prepared =>
 					{	await prepared.exec([1]);
 						assertEquals(prepared.columns.length, 3);
 						conn.end();
@@ -468,6 +472,9 @@ async function testPrepared(dsnStr: string)
 					}
 				);
 				assert(error instanceof BusyError);
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -484,7 +491,7 @@ async function testVariousColumnTypes(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// CREATE TABLE
 				const res = await conn.query
 				(	`	DROP DATABASE IF EXISTS test1;
@@ -600,6 +607,9 @@ async function testVariousColumnTypes(dsnStr: string)
 				assertEquals(await res.nextResultset(), false);
 				assertEquals(await res.nextResultset(), false);
 				assertEquals(await res.nextResultset(), false);
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -614,7 +624,7 @@ async function testSqlError(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
@@ -646,6 +656,9 @@ async function testSqlError(dsnStr: string)
 
 				// SELECT
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -660,7 +673,7 @@ async function testNoBackslashEscapes(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	await conn.query("SET sql_mode=''");
 				assertEquals(conn.noBackslashEscapes, false);
 				assertEquals(await conn.queryCol("SELECT 'a\\nb'").first(), 'a\nb');
@@ -684,7 +697,7 @@ async function testInitSql(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	let value = await conn.queryCol("SELECT @hello").first();
 				if (value instanceof Uint8Array)
 				{	value = new TextDecoder().decode(value);
@@ -703,7 +716,7 @@ async function testInitSql(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	let value = await conn.queryCol("SELECT @myvar").first();
 				if (value instanceof Uint8Array)
 				{	value = new TextDecoder().decode(value);
@@ -723,7 +736,7 @@ async function testBusyState(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1`");
@@ -758,6 +771,9 @@ async function testBusyState(dsnStr: string)
 				// previous query must be executed completely, although it's resultsets cancelled
 				value = conn.queryCol("SELECT message FROM t_log WHERE id=1").first();
 				assertEquals(await value, 'Message 1');
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -774,7 +790,7 @@ async function testSessions(dsnStr: string)
 
 	try
 	{	pool.session
-		(	async (session) =>
+		(	async session =>
 			{	const conn1 = session.conn(); // default DSN
 				const conn2 = session.conn(); // the same object
 				const conn3 = session.conn(undefined, true); // another connection to default DSN
@@ -800,13 +816,13 @@ async function testSessions(dsnStr: string)
 	}
 }
 
-async function testPoolDsn(dsnStr: string)
+async function testPoolDsn(_dsnStr: string)
 {	const pool = new MyPool;
 
 	try
 	{	pool.session
 		(	// deno-lint-ignore require-await
-			async (session) =>
+			async session =>
 			{	let error;
 				try
 				{	session.conn();
@@ -830,7 +846,7 @@ async function testLoadBigDump(dsnStr: string)
 	const pool = new MyPool(dsn);
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// Createa and use db
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1`");
@@ -961,6 +977,9 @@ async function testLoadBigDump(dsnStr: string)
 						}
 					}
 				}
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -975,7 +994,7 @@ async function testManyPlaceholders(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1`");
@@ -998,6 +1017,9 @@ async function testManyPlaceholders(dsnStr: string)
 				const res = await conn.execute(q, params);
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}
@@ -1012,7 +1034,7 @@ async function testManyPlaceholders2(dsnStr: string)
 
 	try
 	{	pool.forConn
-		(	async (conn) =>
+		(	async conn =>
 			{	const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
 				const pp = [];
 				let sum = 0;

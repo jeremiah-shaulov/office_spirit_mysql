@@ -119,9 +119,10 @@ export class MyConn
 								this.onend(this.dsn, theProtocol);
 							}
 						);
-						return;
 					}
-					this.onend(this.dsn, protocol);
+					else
+					{	this.onend(this.dsn, protocol);
+					}
 					return;
 				case State.QUERYING:
 					return; // fetch routine must call onend()
@@ -133,7 +134,7 @@ export class MyConn
 
 	private async protocolOp<T>(protocol: MyProtocol, canRedoNAttempt: number, origStateId: number, callback: () => Promise<T>): Promise<T|undefined>
 	{	const {state} = this;
-		if (this.state==State.QUERYING || this.state==State.CONNECTING)
+		if (state==State.QUERYING || state==State.CONNECTING)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
 		debugAssert(state==State.IDLE_FRESH || state==State.IDLE);

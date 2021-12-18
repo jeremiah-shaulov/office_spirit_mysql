@@ -17,7 +17,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -106,7 +106,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root@localhost');
 
 pool.session
-(	async (session) =>
+(	async session =>
 	{	let conn1 = session.conn(); // default DSN
 		let conn2 = session.conn(); // the same object
 		let conn3 = session.conn(undefined, true); // another connection to default DSN
@@ -164,7 +164,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -191,7 +191,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -220,7 +220,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -255,7 +255,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -291,7 +291,7 @@ import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.t
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -320,7 +320,7 @@ import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.t
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
@@ -353,7 +353,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
@@ -378,7 +378,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
@@ -461,7 +461,7 @@ class SqlSelectGenerator
 const pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='message'");
 
@@ -502,7 +502,7 @@ import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
 
@@ -526,7 +526,7 @@ import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 
 		let file = await Deno.open('/etc/passwd', {read: true});
@@ -565,7 +565,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	let filename = await Deno.makeTempFile();
 		try
 		{	await Deno.writeTextFile
@@ -610,14 +610,14 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	// CREATE TABLE
 		await conn.query("CREATE TEMPORARY TABLE t_messages (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 
 		// INSERT
 		await conn.forQuery
 		(	"INSERT INTO t_messages SET message=?",
-			async (prepared) =>
+			async prepared =>
 			{	for (let i=1; i<=3; i++)
 				{	await prepared.exec(['Message '+i]);
 				}
@@ -661,7 +661,7 @@ await Deno.writeTextFile(filename, await data.text());
 
 // Create temporary table, load the data to it, and then select it back
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	// CREATE TABLE
 		await conn.execute
 		(	`	CREATE TEMPORARY TABLE t_countries
@@ -727,7 +727,7 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
 let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
 
 pool.forConn
-(	async (conn) =>
+(	async conn =>
 	{	let resultsets = await conn.query
 		(	`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
 

@@ -1,5 +1,3 @@
-import {Dsn} from "../../mod.ts";
-
 const decoder = new TextDecoder;
 
 async function system(cmd: string[])
@@ -30,28 +28,19 @@ async function stopLeftRunning()
 	}
 }
 
-export async function withDocker(imageName: string, username: string, password: string, database: string, params: string[], cb: (dsnStr: string) => Promise<unknown>)
+export async function withDocker(imageName: string, withPassword: boolean, params: string[], cb: (dsnStr: string) => Promise<unknown>)
 {	await stopLeftRunning();
 	const containerName = `office_spirit_mysql_${Math.floor(Math.random() * 256)}`;
 	// Format command line
 	const cmd = ['docker', 'run', '--rm', '-p', '3306'];
-	if (username == 'root')
-	{	cmd.push('-e');
+	let password = '';
+	cmd.push('-e');
+	if (withPassword)
+	{	password = '@אя';
 		cmd.push(`MYSQL_ROOT_PASSWORD=${password}`);
 	}
 	else
-	{	cmd.push('-e');
-		cmd.push(`MYSQL_USER=${username}`);
-		cmd.push('-e');
-		cmd.push(`MYSQL_PASSWORD=${password}`);
-	}
-	if (!password)
-	{	cmd.push('-e');
-		cmd.push(`MYSQL_ALLOW_EMPTY_PASSWORD=1`);
-	}
-	if (database)
-	{	cmd.push('-e');
-		cmd.push(`MYSQL_DATABASE=${database}`);
+	{	cmd.push(`MYSQL_ALLOW_EMPTY_PASSWORD=1`);
 	}
 	cmd.push('--name');
 	cmd.push(containerName);
@@ -60,7 +49,7 @@ export async function withDocker(imageName: string, username: string, password: 
 	{	cmd.push(p);
 	}
 	// Run
-	console.log(`%cStarting ${imageName} %c${username}, password: ${password ? 'yes' : 'no'}, ${params.join(' ')}`, 'color:blue', 'color:gray');
+	console.log(`%cStarting ${imageName} %cpassword: ${withPassword ? 'yes' : 'no'}, ${params.join(' ')}`, 'color:blue', 'color:gray');
 	const hDb = Deno.run({cmd});
 	// Work with it, and finally drop
 	try
@@ -86,12 +75,7 @@ export async function withDocker(imageName: string, username: string, password: 
 		}
 		// Call the cb
 		console.log(`%cWorking with ${imageName} on port ${port}`, 'color:blue');
-		const dsn = new Dsn(`mysql://127.0.0.1:${port}/`);
-		dsn.username = username;
-		dsn.password = password;
-		dsn.schema = database;
-		dsn.connectionTimeout = 15*60*1000;
-		await cb(dsn+'');
+		await cb(`mysql://root:${password}@127.0.0.1:${port}/?connectionTimeout=${15*60*1000}`);
 	}
 	finally
 	{	// Drop the container
