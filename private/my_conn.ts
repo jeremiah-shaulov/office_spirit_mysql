@@ -11,7 +11,6 @@ export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
-	private stateId = 0; // TODO: better solution?
 
 	constructor
 	(	private dsn: Dsn,
@@ -57,29 +56,23 @@ export class MyConn
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
 		if (!this.protocol)
-		{	const {stateId} = this;
-			this.isConnecting = true;
+		{	this.isConnecting = true;
 			try
 			{	const protocol = await this.onbegin(this.dsn);
-				if (this.stateId != stateId)
+				if (!this.isConnecting) // end() called
 				{	this.onend(this.dsn, protocol);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
-				this.isConnecting = false;
 			}
-			catch (e)
-			{	if (this.stateId == stateId)
-				{	this.isConnecting = false;
-				}
-				throw e;
+			finally
+			{	this.isConnecting = false;
 			}
 		}
 	}
 
 	end()
-	{	this.stateId = (this.stateId + 1) & 0x7FFF_FFFF;
-		const {protocol} = this;
+	{	const {protocol} = this;
 		this.isConnecting = false;
 		this.protocol = undefined;
 		if (protocol)
