@@ -84,7 +84,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		if (schema.length > 256) // must fit packet
 		{	throw new SqlError('Schema name is too long');
 		}
-		const conn = await Deno.connect(addr);
+		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
 		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer);
 		protocol.initSchema = schema;
 		protocol.initSql = initSql;

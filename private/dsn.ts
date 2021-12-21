@@ -2,6 +2,9 @@ const wantUrlDecodeUsername = new URL('http://ф@localhost/').username.charAt(0)
 const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(0) == '%';
 const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(0) == '%';
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 /** Data source name. URL string that specifies how to connect to MySQL server.
 	Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`.
 	Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
@@ -220,9 +223,9 @@ export class Dsn
 		);
 	}
 
-	get addr(): Deno.ConnectOptions | Deno.UnixConnectOptions
+	get addr(): Deno.ConnectOptions | {transport: 'unix', path: string}
 	{	if (this.mPipe)
-		{	return {transport: 'unix', path: this.mPipe};
+		{	return {transport: 'unix', path: this.mPipe} as Any; // "as any" in order to avoid requireing --unstable
 		}
 		else
 		{	return {transport: 'tcp', hostname: this.mHostname, port: this.mPort};

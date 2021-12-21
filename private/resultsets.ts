@@ -162,8 +162,8 @@ export class ResultsetsProtocol<Row> extends Resultsets<Row>
 	}
 
 	async discard()
-	{	if (this.hasMoreProtocol && this.protocol)
-		{	while (await this.protocol.nextResultset(true));
+	{	if (this.hasMoreProtocol)
+		{	while (this.protocol && await this.protocol.nextResultset(true));
 		}
 	}
 

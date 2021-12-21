@@ -267,7 +267,7 @@ export class MyPool
 		{	let conn: MyProtocol|undefined;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await conns.newConn(dsn, this.unusedBuffers.pop());
+			{	conn = await conns.newConn(dsn, this.unusedBuffers.pop(), this.onLoadFile);
 			}
 			else if (conn.useTill <= now)
 			{	this.nIdleAll--;

@@ -1,27 +1,33 @@
-MySQL and MariaDB driver for Deno. Tested on: MySQL 5.6, 8.0, MariaDB 5.5, 10.0, 10.2, 10.5.
+MySQL and MariaDB driver for Deno. Tested on: MySQL 5.6, 5.7, 8.0, MariaDB 5.5, 10.0, 10.2, 10.5, 10.7.
 
 Features:
 - Prepared statements.
 - Binary protocol. Query parameters are sent separately from text query.
 - Sane connections pooling. Connections are reset after usage (locks are freed).
 - Pool for connections to multiple servers.
-- Streaming BLOBs and Deno.Reader's.
+- Streaming BLOBs and `Deno.Reader`s.
 - Custom handler for LOCAL INFILE.
 - Made with CPU and RAM efficiency in mind.
 
 Basic example:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example1.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		for await (let row of await conn.query("SELECT * FROM t_log"))
+		for await (const row of await conn.query("SELECT * FROM t_log"))
 		{	console.log(row);
 		}
 	}
@@ -101,22 +107,28 @@ MySession.conn(dsn?: Dsn|string, fresh=false): MyConn
 With `true` second argument, always new connection is returned. Otherwise, if there's already a connection to the same DSN in this session, it will be picked up.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root@localhost');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example2.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
 
 pool.session
 (	async session =>
-	{	let conn1 = session.conn(); // default DSN
-		let conn2 = session.conn(); // the same object
-		let conn3 = session.conn(undefined, true); // another connection to default DSN
-		let conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
+	{	const conn1 = session.conn(); // default DSN
+		const conn2 = session.conn(); // the same object
+		const conn3 = session.conn(undefined, true); // another connection to default DSN
+		const conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
 
 		console.log(conn1 == conn2); // prints true
 
-		let connId2 = conn2.queryCol("SELECT Connection_id()").first();
-		let connId3 = conn3.queryCol("SELECT Connection_id()").first();
-		let connId4 = conn4.queryCol("SELECT Connection_id()").first();
+		const connId2 = conn2.queryCol("SELECT Connection_id()").first();
+		const connId3 = conn3.queryCol("SELECT Connection_id()").first();
+		const connId4 = conn4.queryCol("SELECT Connection_id()").first();
 
 		console.log(await Promise.all([connId2, connId3, connId4])); // prints 3 different connection ids
 	}
@@ -159,9 +171,15 @@ If there're rows, you need to iterate them to the end, before you can execute an
 You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example3.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
@@ -172,7 +190,7 @@ pool.forConn
 		console.log(await conn.query("SELECT * FROM t_log").all());
 
 		// use Resultsets.all()
-		let res = await conn.query("SELECT * FROM t_log");
+		const res = await conn.query("SELECT * FROM t_log");
 		console.log(res.columns);
 		console.log(await res.all());
 	}
@@ -186,9 +204,15 @@ It returns the first row itself, not an array of rows.
 And it skips all further rows, if they exist.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example4.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
@@ -199,7 +223,7 @@ pool.forConn
 		console.log(await conn.query("SELECT Count(*) FROM t_log").first());
 
 		// use Resultsets.first()
-		let res = await conn.query("SELECT Count(*) FROM t_log");
+		const res = await conn.query("SELECT Count(*) FROM t_log");
 		console.log(res.columns);
 		console.log(await res.first());
 	}
@@ -215,9 +239,15 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 ```
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example5.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
@@ -225,7 +255,7 @@ pool.forConn
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		// for await loop
-		for await (let row of await conn.query("SELECT * FROM t_log"))
+		for await (const row of await conn.query("SELECT * FROM t_log"))
 		{	console.log(row);
 		}
 
@@ -250,16 +280,22 @@ await pool.closeIdle();
 For example, using `queryCol().first()` you can get the result of `SELECT Count(*)` as a single number value:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example6.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		let count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
+		const count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
 		console.log(count); // prints 3
 	}
 );
@@ -286,16 +322,22 @@ type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array
 By default `query*()` functions produce rows where each column is of `ColumnValue` type.
 
 ```ts
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example7.ts
+*/
+
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		let row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
+		const row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
 		if (row)
 		{	// The type of `row` here is `Record<string, ColumnValue>`
 			let message = '';
@@ -315,19 +357,25 @@ await pool.closeIdle();
 If you're sure about column types, you can override the column type with `any` (or something else), so each column value will be assumed to have this type.
 
 ```ts
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example8.ts
+*/
+
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		let row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
+		const row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
 		if (row)
 		{	// The type of `row` here is `Record<string, any>`
-			let message: string = row.message;
+			const message: string = row.message;
 			console.log(message); // Prints 'Message 1'
 		}
 	}
@@ -348,16 +396,22 @@ Placeholders can appear only in places where expressions are allowed.
 MySQL supports up to 2**16-1 = 65535 placeholders.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example9.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
-		let row = await conn.query("SELECT `time` + INTERVAL ? DAY AS 'time', message FROM t_log WHERE id=?", [3, 1]).first();
+		const row = await conn.query("SELECT `time` + INTERVAL ? DAY AS 'time', message FROM t_log WHERE id=?", [3, 1]).first();
 		console.log(row);
 	}
 );
@@ -373,16 +427,22 @@ To execute such query, another pre-query is sent to the server, like `SET @days=
 Parameter names will override session variables with the same names.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example10.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
-		let row = await conn.query("SELECT `time` + INTERVAL @days DAY AS 'time', message FROM t_log WHERE id=@`id`", {days: 3, id: 1}).first();
+		const row = await conn.query("SELECT `time` + INTERVAL @days DAY AS 'time', message FROM t_log WHERE id=@`id`", {days: 3, id: 1}).first();
 		console.log(row);
 	}
 );
@@ -426,7 +486,13 @@ Any external SQL generator can implement this function. This library will call i
 Example:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
+
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example11.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
 
 // 1. Define the generator
 
@@ -448,7 +514,7 @@ class SqlSelectGenerator
 		else
 		{	sql = `SELECT * FROM ${this.table} WHERE id = ${this.idValue}`;
 		}
-		let {read, written} = encoder.encodeInto(sql, buffer);
+		const {read, written} = encoder.encodeInto(sql, buffer);
 		if (read == sql.length)
 		{	return buffer.subarray(0, written);
 		}
@@ -458,14 +524,14 @@ class SqlSelectGenerator
 
 // 2. Use the generator
 
-const pool = new MyPool('mysql://root:hello@localhost/tests');
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='message'");
 
-		let rows = await conn.query<any>(new SqlSelectGenerator('t_log', 1), []).all();
+		const rows = await conn.query<any>(new SqlSelectGenerator('t_log', 1), []).all();
 		console.log(rows);
 	}
 );
@@ -496,17 +562,23 @@ If the `params` is an empty array, and the first argument (sqlSource) implements
 This library tries to have everything needed in real life usage. It's possible to read long data without storing it in memory.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
+
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example12.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 		await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
 
-		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
+		const row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
 		await copy(row!.message, Deno.stdout);
 	}
 );
@@ -520,16 +592,22 @@ await pool.closeIdle();
 Query parameter values can be of various types, including `Deno.Reader`. If some parameter is `Deno.Reader`, the parameter value will be read from this reader (without storing the whole BLOB in memory).
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
+
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example13.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 
-		let file = await Deno.open('/etc/passwd', {read: true});
+		const file = await Deno.open('/etc/passwd', {read: true});
 		try
 		{	// Write the file to db
 			await conn.execute("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
@@ -539,7 +617,7 @@ pool.forConn
 		}
 
 		// Read the contents back from db
-		let row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
+		const row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
 		await copy(row!.message, Deno.stdout);
 	}
 );
@@ -560,13 +638,20 @@ type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{re
 This allows to read SQL from files.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
+DSN='mysql://root:hello@localhost/tests?multiStatements' deno run --allow-env --allow-net /tmp/example14.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+// Don't forget `?multiStatements`
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
 pool.forConn
 (	async conn =>
-	{	let filename = await Deno.makeTempFile();
+	{	const filename = await Deno.makeTempFile();
 		try
 		{	await Deno.writeTextFile
 			(	filename,
@@ -576,7 +661,7 @@ pool.forConn
 				`
 			);
 
-			let file = await Deno.open(filename, {read: true});
+			const file = await Deno.open(filename, {read: true});
 			try
 			{	await conn.execute(file);
 			}
@@ -605,9 +690,15 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 ```
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example15.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 pool.forConn
 (	async conn =>
@@ -638,25 +729,34 @@ await pool.closeIdle();
 If this feature is enabled on your server, you can register a custom handler that will take `LOAD DATA LOCAL INFILE` requests.
 
 ```ts
-import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
+
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example16.ts
+*/
+
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
 import {dirname} from "https://deno.land/std@0.117.0/path/mod.ts";
 
-let pool = new MyPool('mysql://root:hello@localhost/tests');
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 // Set handler for LOAD DATA LOCAL INFILE queries
 const ALLOWED_DIRS = ['/tmp'];
 pool.options
-(	{	async onLoadFile(filename: string)
+(	{	onLoadFile(filename: string)
 		{	if (ALLOWED_DIRS.includes(dirname(filename)))
 			{	return Deno.open(filename, {read: true});
+			}
+			else
+			{	return Promise.resolve(undefined);
 			}
 		}
 	}
 );
 
 // Download some public example CSV file from github
-let data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
-let filename = await Deno.makeTempFile();
+const data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
+const filename = await Deno.makeTempFile();
 await Deno.writeTextFile(filename, await data.text());
 
 // Create temporary table, load the data to it, and then select it back
@@ -671,10 +771,12 @@ pool.forConn
 			`
 		);
 
+		// SQL-quote filename, because `LOAD DATA LOCAL INFILE` doesn't accept parameters
+		const filenameSql = await conn.queryCol("SELECT Quote(?)", [filename]).first();
+
 		// LOAD DATA
-		let res = await conn.execute
-		(	sql
-			`	LOAD DATA LOCAL INFILE '${filename}'
+		const res = await conn.execute
+		(	`	LOAD DATA LOCAL INFILE ${filenameSql}
 				INTO TABLE t_countries
 				FIELDS TERMINATED BY ','
 				ENCLOSED BY '"'
@@ -722,13 +824,19 @@ If there are no more resultsets, `await resultsets.nextResultset()` returns fals
 And you must read or discard all the resultsets before being able to issue next queries.
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql/mod.ts';
+/* To download and run this example:
 
-let pool = new MyPool('mysql://root:hello@localhost/tests?multiStatements');
+curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
+DSN='mysql://root:hello@localhost/tests' deno run --allow-env --allow-net /tmp/example17.ts
+*/
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
 pool.forConn
 (	async conn =>
-	{	let resultsets = await conn.query
+	{	const resultsets = await conn.query
 		(	`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
 
 				INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3');
@@ -745,7 +853,7 @@ pool.forConn
 		await resultsets.nextResultset();
 		console.log(resultsets.columns.length); // prints 2
 
-		for await (let row of resultsets)
+		for await (const row of resultsets)
 		{	console.log(row);
 		}
 	}
