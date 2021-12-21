@@ -1,5 +1,6 @@
 const wantUrlDecodeUsername = new URL('http://ф@localhost/').username.charAt(0) == '%';
 const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(0) == '%';
+const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(0) == '%';
 
 /** Data source name. URL string that specifies how to connect to MySQL server.
 	Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`.
@@ -170,6 +171,7 @@ export class Dsn
 		this.mPort = !url.port ? 3306 : Number(url.port) || 3306;
 		this.mUsername = wantUrlDecodeUsername ? decodeURIComponent(username) : username;
 		this.mPassword = wantUrlDecodePassword ? decodeURIComponent(password) : password;
+		pathname = wantUrlDecodePathname ? decodeURIComponent(pathname) : pathname;
 		pos = pathname.lastIndexOf('/');
 		this.mPipe = pathname.slice(0, pos);
 		this.mSchema = pathname.slice(pos + 1);

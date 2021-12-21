@@ -26,6 +26,17 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 	}
 
+	protected startWritingNextPacket(resetSequenceId=false)
+	{	debugAssert(this.bufferEnd > this.bufferStart);
+		this.setHeader(this.bufferEnd - this.bufferStart - 4);
+		const packetStart = this.bufferEnd;
+		this.bufferStart = packetStart;
+		this.bufferEnd = packetStart + 4; // after header
+		if (resetSequenceId)
+		{	this.sequenceId = 0;
+		}
+	}
+
 	protected discardPacket()
 	{	debugAssert(this.bufferEnd >= this.bufferStart+4);
 		this.bufferEnd = this.bufferStart;

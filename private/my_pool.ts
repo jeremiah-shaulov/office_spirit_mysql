@@ -50,6 +50,7 @@ export class MySession
 	constructor
 	(	protected pool: MyPool,
 		private defaultDsn: Dsn|undefined,
+		private maxConns: number,
 		protected getConn: (dsn: Dsn) => Promise<MyProtocol>,
 		protected returnConn: (dsn: Dsn, conn: MyProtocol) => void,
 	)
@@ -72,7 +73,7 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	const conn = new MyConn(dsn, this.getConn, this.returnConn);
+		{	const conn = new MyConn(dsn, this.maxConns, this.getConn, this.returnConn);
 			conns[conns.length] = conn;
 			return conn;
 		}
@@ -170,8 +171,7 @@ export class MyPool
 	}
 
 	closeIdle()
-	{	this.closeKeptAliveTimedOut(true);
-		debugAssert(this.nIdleAll == 0);
+	{	return this.closeKeptAliveTimedOut(true);
 	}
 
 	haveSlots(): boolean
@@ -185,7 +185,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this, this.dsn, this.getConn.bind(this), this.returnConn.bind(this));
+	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.getConn.bind(this), this.returnConn.bind(this));
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -208,7 +208,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConn(dsn, this.getConn.bind(this), this.returnConn.bind(this));
+		const conn = new MyConn(dsn, this.maxConns, this.getConn.bind(this), this.returnConn.bind(this));
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
@@ -224,6 +224,28 @@ export class MyPool
 	private saveUnusedBuffer(buffer: Uint8Array)
 	{	if (this.unusedBuffers.length < SAVE_UNUSED_BUFFERS)
 		{	this.unusedBuffers.push(buffer);
+		}
+	}
+
+	private async closeConn(conn: MyProtocol)
+	{	this.nBusyAll++;
+		try
+		{	const buffer = await conn.end();
+			if (buffer instanceof Uint8Array)
+			{	this.saveUnusedBuffer(buffer);
+			}
+		}
+		catch (e)
+		{	// must not happen
+			console.error(e);
+		}
+		this.nBusyAll--;
+		if (this.nBusyAll+this.nIdleAll == 0)
+		{	clearInterval(this.hTimer);
+			this.hTimer = undefined;
+		}
+		if (this.nSessionsOrConns==0 && this.nBusyAll==0)
+		{	this.onend();
 		}
 	}
 
@@ -249,12 +271,7 @@ export class MyPool
 			}
 			else if (conn.useTill <= now)
 			{	this.nIdleAll--;
-				try
-				{	this.saveUnusedBuffer(conn.close());
-				}
-				catch (e)
-				{	this.onerror(e);
-				}
+				this.closeConn(conn);
 				continue;
 			}
 			else
@@ -273,64 +290,59 @@ export class MyPool
 	}
 
 	private returnConn(dsn: Dsn, conn: MyProtocol)
-	{	const conns = this.connsPool.get(dsn.name);
-		if (!conns)
-		{	// assume: returnConn() already called for this connection
-			return;
-		}
-		const i = conns.busy.indexOf(conn);
-		if (i == -1)
-		{	// assume: returnConn() already called for this connection
-			return;
-		}
-		this.nBusyAll--;
-		debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
-		if (this.nSessionsOrConns==0 && this.nBusyAll==0)
-		{	this.onend();
-		}
-		conns.busy[i] = conns.busy[conns.busy.length - 1];
-		conns.busy.length--;
-		if (conn.isBrokenConnection || --conn.useNTimes<=0 || conn.useTill<=Date.now())
-		{	try
-			{	this.saveUnusedBuffer(conn.close());
-			}
-			catch (e)
-			{	this.onerror(e);
-			}
-		}
-		else
-		{	conns.idle.push(conn);
-			this.nIdleAll++;
-		}
-		if (this.nBusyAll < this.maxConns)
-		{	let n = this.haveSlotsCallbacks.length;
-			if (n > 0)
-			{	while (n-- > 0)
-				{	this.haveSlotsCallbacks[n]();
+	{	conn.end(--conn.useNTimes>0 && conn.useTill>Date.now()).then
+		(	protocolOrBuffer =>
+			{	const conns = this.connsPool.get(dsn.name);
+				if (!conns)
+				{	// assume: returnConn() already called for this connection
+					return;
 				}
-				this.haveSlotsCallbacks.length = 0;
+				const i = conns.busy.indexOf(conn);
+				if (i == -1)
+				{	// assume: returnConn() already called for this connection
+					return;
+				}
+				this.nBusyAll--;
+				debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
+				conns.busy[i] = conns.busy[conns.busy.length - 1];
+				conns.busy.length--;
+				if (protocolOrBuffer instanceof Uint8Array)
+				{	this.saveUnusedBuffer(protocolOrBuffer);
+				}
+				else if (protocolOrBuffer)
+				{	conns.idle.push(protocolOrBuffer);
+					this.nIdleAll++;
+				}
+				if (this.nBusyAll < this.maxConns)
+				{	let n = this.haveSlotsCallbacks.length;
+					if (n > 0)
+					{	while (n-- > 0)
+						{	this.haveSlotsCallbacks[n]();
+						}
+						this.haveSlotsCallbacks.length = 0;
+					}
+					else if (this.nBusyAll == 0)
+					{	this.closeKeptAliveTimedOut();
+					}
+				}
+				if (this.nSessionsOrConns==0 && this.nBusyAll==0)
+				{	this.onend();
+				}
 			}
-			else if (this.nBusyAll == 0)
-			{	this.closeKeptAliveTimedOut();
-			}
-		}
+		);
 	}
 
 	private closeKeptAliveTimedOut(closeAllIdle=false)
 	{	const {connsPool} = this;
 		const now = Date.now();
+		const promises = [];
 		for (const [dsn, {idle, busy}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
 				{	idle.splice(i, 1);
 					this.nIdleAll--;
-					try
-					{	this.saveUnusedBuffer(conn.close());
-					}
-					catch (e)
-					{	this.onerror(e);
-					}
+					promises[promises.length] = this.closeConn(conn);
 				}
 			}
 			//
@@ -342,6 +354,8 @@ export class MyPool
 		{	clearInterval(this.hTimer);
 			this.hTimer = undefined;
 		}
+		debugAssert(!closeAllIdle || this.nIdleAll==0);
+		return Promise.all(promises);
 	}
 
 	private closeExceedingIdleConns(idle: MyProtocol[])
@@ -358,12 +372,7 @@ export class MyPool
 						}
 						nCloseIdle--;
 						this.nIdleAll--;
-						try
-						{	this.saveUnusedBuffer(conn.close());
-						}
-						catch (e)
-						{	this.onerror(e);
-						}
+						this.closeConn(conn);
 						debugAssert(this.nIdleAll >= 0);
 						if (nCloseIdle == 0)
 						{	return;
@@ -374,12 +383,7 @@ export class MyPool
 			}
 			nCloseIdle--;
 			this.nIdleAll--;
-			try
-			{	this.saveUnusedBuffer(conn.close());
-			}
-			catch (e)
-			{	this.onerror(e);
-			}
+			this.closeConn(conn);
 			debugAssert(this.nIdleAll >= 0);
 		}
 	}

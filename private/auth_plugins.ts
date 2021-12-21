@@ -67,7 +67,7 @@ const enum AuthStatusFlags
 {	FastPath = 3,
 	FullAuth = 4,
 }
-const REQUEST_PUBLIC_KEY = 0x02;
+const REQUEST_PUBLIC_KEY = 2;
 
 class AuthPluginCachingSha2Password extends AuthPlugin
 {	private state = State.Initial;
@@ -94,7 +94,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 					return false;
 				}
 				else if (statusFlag == AuthStatusFlags.FullAuth)
-				{	await writer.sendUint8Packet(REQUEST_PUBLIC_KEY);
+				{	await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
 					this.state = State.Encrypt;
 					return false;
 				}
@@ -107,7 +107,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				const stage1 = appendZeroByte(encoder.encode(password));
 				xor(stage1, this.scramble);
 				const encryptedPassword = RSA.encrypt(stage1, RSA.parseKey(publicKey));
-				await writer.sendBytesPacket(encryptedPassword);
+				await writer.authSendBytesPacket(encryptedPassword);
 				this.state = State.Done;
 				return false;
 			}

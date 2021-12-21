@@ -28,7 +28,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Connections
@@ -123,7 +123,7 @@ pool.session
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 At the end of callback all active connections will be returned to the pool. However you can call `conn.end()` to free a connection earlier.
 
@@ -179,7 +179,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 If your query returns single row, you can read it with `Resultsets.first()` or `ResultsetsPromise.first()`.
 It returns the first row itself, not an array of rows.
@@ -206,7 +206,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 You can iterate the resultset with `for await` loop, or you can call `ResultsetsPromise.forEach()` or `Resultsets.forEach()` method.
 
@@ -239,7 +239,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 - `MyConn.query()` method iterates over rows as Javascript default objects with fields.
@@ -265,7 +265,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 Here is the complete definition of query functions:
@@ -309,7 +309,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 If you're sure about column types, you can override the column type with `any` (or something else), so each column value will be assumed to have this type.
@@ -334,7 +334,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Query parameters
@@ -363,7 +363,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ### Named parameters
@@ -388,7 +388,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ### Using external SQL generators
@@ -471,7 +471,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 There're the following external libraries that implement `toSqlBytesWithParamsBackslashAndBuffer()` to optimally support `x/office_spirit_mysql`:
@@ -512,7 +512,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Writing long BLOBS
@@ -545,7 +545,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Importing big dumps
@@ -593,7 +593,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Prepared statements
@@ -630,7 +630,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## LOAD DATA LOCAL INFILE
@@ -693,7 +693,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 ## Connection status
@@ -752,7 +752,7 @@ pool.forConn
 );
 
 await pool.onEnd();
-pool.closeIdle();
+await pool.closeIdle();
 ```
 
 `Resultsets` object has the following properties and methods:

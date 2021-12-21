@@ -12,9 +12,9 @@ export class MyProtocolReader
 	protected sequenceId = 0;
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
-	protected origBuffer: Uint8Array;
-
 	protected dataView: DataView;
+
+	private origBuffer: Uint8Array;
 
 	protected constructor
 	(	protected conn: Deno.Conn,
@@ -27,9 +27,8 @@ export class MyProtocolReader
 		debugAssert(this.buffer.length == INIT_BUFFER_LEN);
 	}
 
-	close()
-	{	this.conn.close();
-		const {origBuffer} = this;
+	recycleBuffer()
+	{	const {origBuffer} = this;
 		this.origBuffer = this.buffer = STUB;
 		this.dataView = new DataView(STUB.buffer);
 		return origBuffer; // this buffer can be recycled

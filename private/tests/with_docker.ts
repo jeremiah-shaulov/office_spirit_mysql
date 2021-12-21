@@ -28,12 +28,13 @@ async function stopLeftRunning()
 	}
 }
 
-export async function withDocker(imageName: string, withPassword: boolean, params: string[], cb: (dsnStr: string) => Promise<unknown>)
+export async function withDocker(imageName: string, withPassword: boolean, withSchema: boolean, params: string[], cb: (dsnStr: string) => Promise<unknown>)
 {	await stopLeftRunning();
 	const containerName = `office_spirit_mysql_${Math.floor(Math.random() * 256)}`;
 	// Format command line
 	const cmd = ['docker', 'run', '--rm', '-p', '3306'];
 	let password = '';
+	let schema = '';
 	cmd.push('-e');
 	if (withPassword)
 	{	password = '@אя';
@@ -41,6 +42,11 @@ export async function withDocker(imageName: string, withPassword: boolean, param
 	}
 	else
 	{	cmd.push(`MYSQL_ALLOW_EMPTY_PASSWORD=1`);
+	}
+	if (withSchema)
+	{	schema = 'tests';
+		cmd.push('-e');
+		cmd.push(`MYSQL_DATABASE=${schema}`);
 	}
 	cmd.push('--name');
 	cmd.push(containerName);
@@ -75,7 +81,7 @@ export async function withDocker(imageName: string, withPassword: boolean, param
 		}
 		// Call the cb
 		console.log(`%cWorking with ${imageName} on port ${port}`, 'color:blue');
-		await cb(`mysql://root:${password}@127.0.0.1:${port}/?connectionTimeout=${15*60*1000}`);
+		await cb(`mysql://root:${password}@127.0.0.1:${port}/${schema}?connectionTimeout=${15*60*1000}`);
 	}
 	finally
 	{	// Drop the container

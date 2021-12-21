@@ -1,5 +1,6 @@
 import {FieldType, Charset} from './constants.ts';
 import {CanceledError} from "./errors.ts";
+import {MyProtocol, RowType} from "./my_protocol.ts";
 
 export type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
 // deno-lint-ignore no-explicit-any
@@ -63,33 +64,20 @@ export class Resultsets<Row>
 
 	/**	True if there are more rows or resultsets to read.
 	 **/
-	get hasMore(): boolean
-	{	return this instanceof ResultsetsDriver ? this.hasMoreSomething : false;
+	get hasMore()
+	{	return false;
 	}
 
 	/**	Execute (again) a prepared statement.
 	 **/
-	exec(params: Param[])
-	{	if (this instanceof ResultsetsDriver)
-		{	return this.stmtExecute(params);
-		}
-		else
-		{	return Promise.resolve();
-		}
+	exec(_params: Param[])
+	{	return Promise.resolve();
 	}
 
 	/**	Iterates over rows in current resultset.
 	 **/
-	async *[Symbol.asyncIterator]()
-	{	if (this instanceof ResultsetsDriver)
-		{	while (true)
-			{	const row: Row = await this.fetch();
-				if (row == undefined)
-				{	break;
-				}
-				yield row;
-			}
-		}
+	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
+	{
 	}
 
 	/**	Reads all rows in current resultset to an array.
@@ -126,45 +114,72 @@ export class Resultsets<Row>
 	/**	Advances to the next resultset of this query, if there is one. Returns true if moved to the next resultset.
 	 **/
 	nextResultset()
-	{	if (this instanceof ResultsetsDriver)
-		{	return this.gotoNextResultset();
-		}
-		else
-		{	return Promise.resolve(false);
-		}
+	{	return Promise.resolve(false);
 	}
 
 	/**	Reads and discards all the rows in all the resultsets of this query.
 	 **/
 	async discard()
-	{	if (this instanceof ResultsetsDriver)
-		{	if (this.hasMoreSomething)
-			{	try
-				{	while (await this.gotoNextResultset());
-				}
-				catch (e)
-				{	if (!(e instanceof CanceledError))
-					{	throw e;
-					}
-				}
-			}
-			this.stmtExecute = () => Promise.resolve();
-			this.fetch = () => Promise.resolve(undefined);
-			this.gotoNextResultset = () => Promise.resolve(false);
-		}
-		else
-		{	while (await this.nextResultset());
-		}
+	{	while (await this.nextResultset());
 	}
 }
 
-export class ResultsetsDriver<Row> extends Resultsets<Row>
-{	stmtId = -1;
-	hasMoreRows = false;
-	hasMoreSomething = false;
-	stmtExecute: (params: Param[]) => Promise<void> = () => Promise.resolve();
-	fetch: () => Promise<Row | undefined> = () => Promise.resolve(undefined);
-	gotoNextResultset: () => Promise<boolean> = () => Promise.resolve(false);
+export class ResultsetsProtocol<Row> extends Resultsets<Row>
+{	protocol: MyProtocol | undefined;
+	isPreparedStmt = false; // `stmtId` can be reset to -1 when the stmt is disposed, but `isPreparedStmt` must remain true, because the stmt can be disposed before resultsets are read, and prepared stmts have different packet format
+	stmtId = -1;
+	hasMoreProtocol = false;
+
+	constructor(public rowType: RowType)
+	{	super();
+	}
+
+	get hasMore(): boolean
+	{	return this.hasMoreProtocol;
+	}
+
+	exec(params: Param[]): Promise<void>
+	{	if (!this.protocol)
+		{	throw new CanceledError(`Connection terminated`);
+		}
+		return this.protocol.sendComStmtExecute(this, params);
+	}
+
+	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
+	{	if (this.hasMoreProtocol && this.protocol)
+		{	while (true)
+			{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+				if (row === undefined)
+				{	break;
+				}
+				yield row;
+			}
+		}
+	}
+
+	nextResultset(): Promise<boolean>
+	{	return !this.hasMoreProtocol || !this.protocol ? Promise.resolve(false) : this.protocol.nextResultset();
+	}
+
+	async discard()
+	{	if (this.hasMoreProtocol && this.protocol)
+		{	while (await this.protocol.nextResultset(true));
+		}
+	}
+
+	disposePreparedStmt()
+	{	const {protocol, stmtId} = this;
+		if (protocol)
+		{	this.stmtId = -1;
+			if (!this.hasMoreProtocol)
+			{	this.protocol = undefined;
+			}
+			return protocol.disposePreparedStmt(stmtId);
+		}
+		else
+		{	return Promise.resolve();
+		}
+	}
 
 	resetFields()
 	{	this.lastInsertId = 0;
@@ -175,7 +190,6 @@ export class ResultsetsDriver<Row> extends Resultsets<Row>
 		this.noGoodIndexUsed = false;
 		this.noIndexUsed = false;
 		this.isSlowQuery = false;
-		this.stmtId = -1;
 	}
 }
 

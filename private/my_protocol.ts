@@ -1,17 +1,19 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
 import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, FieldType} from './constants.ts';
-import {SqlError} from './errors.ts';
+import {BusyError, CanceledError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
-import {Column, ResultsetsDriver} from './resultsets.ts';
+import {Column, ResultsetsProtocol} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
 import {convColumnValue} from './conv_column_value.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
+
+const BUFFER_FOR_END_SESSION = new Uint8Array(4096);
 
 export const enum ReadPacketMode
 {	REGULAR,
@@ -27,6 +29,16 @@ export const enum RowType
 	LAST_COLUMN_READER,
 }
 
+const enum ProtocolState
+{	IDLE,
+	IDLE_IN_POOL,
+	QUERYING,
+	HAS_MORE_ROWS,
+	HAS_MORE_RESULTSETS,
+	ERROR,
+	TERMINATED,
+}
+
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
@@ -36,7 +48,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 	capabilityFlags = 0;
 	statusFlags = 0;
 	schema = '';
-	isBrokenConnection = false; // set on i/o error
 
 	// for connections pool:
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
@@ -47,28 +58,51 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private lastInsertId: number|bigint = 0;
 	private statusInfo = '';
 
+	private state = ProtocolState.IDLE;
+	private initSchema = '';
+	private initSql = '';
 	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
 	private onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+
+	private curResultsets: ResultsetsProtocol<unknown> | undefined;
+	private pendingCloseStmts: number[] = [];
+	private curLastColumnReader: Deno.Reader | undefined;
+	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
 	static async inst
 	(	dsn: Dsn,
 		useBuffer?: Uint8Array,
 		onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>,
 	): Promise<MyProtocol>
-	{	const conn = await Deno.connect(dsn.addr);
+	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements} = dsn;
+		if (username.length > 256) // must fit packet
+		{	throw new SqlError('Username is too long');
+		}
+		if (password.length > 256) // must fit packet
+		{	throw new SqlError('Password is too long');
+		}
+		if (schema.length > 256) // must fit packet
+		{	throw new SqlError('Schema name is too long');
+		}
+		const conn = await Deno.connect(addr);
 		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer);
-		if (dsn.maxColumnLen > 0)
-		{	protocol.maxColumnLen = dsn.maxColumnLen;
+		protocol.initSchema = schema;
+		protocol.initSql = initSql;
+		if (maxColumnLen > 0)
+		{	protocol.maxColumnLen = maxColumnLen;
 		}
 		protocol.onloadfile = onloadfile;
 		try
 		{	const authPlugin = await protocol.readHandshake();
-			const {username, password, schema} = dsn;
-			await protocol.writeHandshakeResponse(username, password, schema, authPlugin, dsn.foundRows, dsn.ignoreSpace, dsn.multiStatements);
+			await protocol.writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
 			const authPlugin2 = await protocol.readAuthResponse(password, authPlugin);
 			if (authPlugin2)
 			{	await protocol.writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.readAuthResponse(password, authPlugin2);
+			}
+			if (initSql)
+			{	const resultsets = await protocol.sendComQuery(initSql, RowType.FIRST_COLUMN);
+				await resultsets!.discard();
 			}
 			return protocol;
 		}
@@ -337,12 +371,12 @@ export class MyProtocol extends MyProtocolReaderWriter
 									}
 								}
 							}
+							this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 						}
 						else
 						{	this.statusInfo = this.readShortEofString() ?? await this.readShortEofStringAsync();
 						}
 					}
-					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 				}
 				return mode==ReadPacketMode.REGULAR ? PacketType.OK : type;
 			}
@@ -406,19 +440,21 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	sendUint8Packet(value: number)
-	{	this.startWritingNewPacket();
+	authSendUint8Packet(value: number)
+	{	debugAssert(this.state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
+		this.startWritingNewPacket();
 		this.writeUint8(value);
 		return this.send();
 	}
 
-	sendBytesPacket(value: Uint8Array)
-	{	this.startWritingNewPacket();
+	authSendBytesPacket(value: Uint8Array)
+	{	debugAssert(this.state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
+		this.startWritingNewPacket();
 		this.writeBytes(value);
 		return this.send();
 	}
 
-	private initResultsets(resultsets: ResultsetsDriver<unknown>)
+	private initResultsets(resultsets: ResultsetsProtocol<unknown>)
 	{	resultsets.lastInsertId = this.lastInsertId;
 		resultsets.warnings = this.warnings;
 		resultsets.statusInfo = this.statusInfo;
@@ -433,9 +469,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private async readQueryResponse(resultsets: ResultsetsDriver<unknown>, mode: ReadPacketMode)
+	private async readQueryResponse(resultsets: ResultsetsProtocol<unknown>, mode: ReadPacketMode)
 	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
-		debugAssert(resultsets.stmtId == -1);
+		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
 		{	const type = await this.readPacket(mode);
 			let nColumns: number|bigint = 0;
@@ -447,7 +483,8 @@ L:		while (true)
 						nColumns = 0;
 					}
 					else
-					{	resultsets.stmtId = this.readUint32() ?? await this.readUint32Async();
+					{	resultsets.isPreparedStmt = true;
+						resultsets.stmtId = this.readUint32() ?? await this.readUint32Async();
 						nColumns = this.readUint16() ?? await this.readUint16Async();
 						nPlaceholders = this.readUint16() ?? await this.readUint16Async();
 						this.readUint8() ?? await this.readUint8Async(); // skip reserved1
@@ -508,19 +545,27 @@ L:		while (true)
 			const nColumnsNum = Number(nColumns);
 
 			// Read sequence of ColumnDefinition packets
-			await this.skipColumnDefinitionPackets(nPlaceholders);
-			const columns = nColumnsNum==0 ? [] : await this.readColumnDefinitionPackets(nColumnsNum);
-
-			resultsets.nPlaceholders = nPlaceholders;
-			resultsets.columns = columns;
-			resultsets.hasMoreRows = mode==ReadPacketMode.REGULAR && nColumnsNum!=0;
-			resultsets.hasMoreSomething = mode==ReadPacketMode.REGULAR && (nColumnsNum != 0 || (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0);
-
-			if (!resultsets.hasMoreSomething)
-			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
-				resultsets.gotoNextResultset = () => Promise.resolve(false);
+			if (nPlaceholders > 0)
+			{	await this.skipColumnDefinitionPackets(nPlaceholders);
 			}
-			break;
+			resultsets.nPlaceholders = nPlaceholders;
+			resultsets.columns = nColumnsNum==0 ? [] : await this.readColumnDefinitionPackets(nColumnsNum);
+
+			return nColumnsNum!=0 ? ProtocolState.HAS_MORE_ROWS : this.statusFlags&StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
+		}
+	}
+
+	private async skipColumnDefinitionPackets(nPackets: number)
+	{	debugAssert(nPackets > 0);
+		for (let i=0; i<nPackets; i++)
+		{	// Read ColumnDefinition41 packet
+			this.readPacketHeader() || await this.readPacketHeaderAsync();
+			this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+		}
+		if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
+		{	// Read EOF after columns list
+			const type = await this.readPacket();
+			debugAssert(type == PacketType.OK);
 		}
 	}
 
@@ -590,81 +635,213 @@ L:		while (true)
 		return columns;
 	}
 
-	private async skipColumnDefinitionPackets(nPackets: number)
-	{	if (nPackets > 0)
-		{	for (let i=0; i<nPackets; i++)
-			{	// Read ColumnDefinition41 packet
-				this.readPacketHeader() || await this.readPacketHeaderAsync();
-				this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
-			}
-			if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
-			{	// Read EOF after columns list
-				const type = await this.readPacket();
-				debugAssert(type == PacketType.OK);
-			}
+	private setQueryingState()
+	{	switch (this.state)
+		{	case ProtocolState.QUERYING:
+				throw new BusyError('Previous operation is still in progress');
+			case ProtocolState.HAS_MORE_ROWS:
+				throw new BusyError('Rows from previous query are not read to the end');
+			case ProtocolState.HAS_MORE_RESULTSETS:
+				throw new BusyError('Previous query has unread resultsets');
+			case ProtocolState.TERMINATED:
+				throw new CanceledError('Connection terminated');
+			case ProtocolState.ERROR:
+				throw new Error('Protocol error');
+			case ProtocolState.IDLE_IN_POOL:
+				this.state = ProtocolState.QUERYING;
+				return true;
+			default:
+				debugAssert(this.state == ProtocolState.IDLE);
+				this.state = ProtocolState.QUERYING;
+				return false;
 		}
 	}
 
-	sendComResetConnection()
+	private rethrowError(error: Error): never
+	{	let state = ProtocolState.IDLE;
+		if (!(error instanceof SqlError))
+		{	try
+			{	this.conn.close();
+			}
+			catch (e)
+			{	console.error(e);
+			}
+			state = ProtocolState.ERROR;
+		}
+		this.setState(state);
+		throw error;
+	}
+
+	private rethrowErrorIfFatal(error: Error, isFromPool=false)
+	{	let state = ProtocolState.IDLE;
+		if (!(error instanceof SqlError))
+		{	try
+			{	this.conn.close();
+			}
+			catch (e)
+			{	console.error(e);
+			}
+			if (isFromPool)
+			{	return;
+			}
+			state = ProtocolState.ERROR;
+		}
+		this.setState(state);
+		throw error;
+	}
+
+	private setState(state: ProtocolState)
+	{	if (this.onEndSession)
+		{	this.onEndSession(state);
+		}
+		else
+		{	this.state = state;
+		}
+	}
+
+	/**	Call this before entering ProtocolState.IDLE.
+	 **/
+	private async doPending()
+	{	const {pendingCloseStmts} = this;
+		debugAssert(pendingCloseStmts.length != 0);
+		this.state = ProtocolState.QUERYING;
+		for (let i=0; i<pendingCloseStmts.length; i++)
+		{	await this.sendComStmtClose(pendingCloseStmts[i]);
+		}
+		pendingCloseStmts.length = 0;
+	}
+
+	/**	I assume that i'm in ProtocolState.IDLE.
+	 **/
+	private async sendComResetConnectionAndInitDb(schema: string)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_RESET_CONNECTION);
-		return this.send();
+		if (schema)
+		{	this.startWritingNextPacket(true);
+			this.writeUint8(Command.COM_INIT_DB);
+			this.writeString(schema);
+		}
+		await this.send();
+		try
+		{	await this.readPacket();
+		}
+		catch (e)
+		{	if ((e instanceof SqlError) && e.message=='Unknown command')
+			{	console.error(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
+			}
+			else
+			{	throw e;
+			}
+		}
+		if (schema)
+		{	await this.readPacket();
+		}
 	}
 
-	sendComQuery(sql: SqlSource)
-	{	this.startWritingNewPacket(true);
-		this.writeUint8(Command.COM_QUERY);
-		return this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
-	}
-
-	sendComStmtPrepare(sql: SqlSource, putParamsTo?: Any[])
-	{	this.startWritingNewPacket(true);
-		this.writeUint8(Command.COM_STMT_PREPARE);
-		return this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, false, putParamsTo);
-	}
-
-	readComQueryResponse(resultsets: ResultsetsDriver<unknown>)
-	{	return this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-	}
-
-	readComStmtPrepareResponse(resultsets: ResultsetsDriver<unknown>)
-	{	return this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT);
-	}
-
-	sendComStmtClose(stmtId: number)
+	/**	I assume that i'm in ProtocolState.IDLE.
+	 **/
+	private sendComStmtClose(stmtId: number)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_CLOSE);
 		this.writeUint32(stmtId);
 		return this.send();
 	}
 
-	async sendComStmtExecute(resultsets: ResultsetsDriver<unknown>, params: Param[])
-	{	const {stmtId, nPlaceholders} = resultsets;
-		const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
-		let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
-		let packetStart = 0;
-		const placeholdersSent = new Set<number>();
-		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
-		for (let i=0; i<nPlaceholders; i++)
-		{	const param = params[i];
-			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-			{	if (typeof(param) == 'string')
-				{	const maxByteLen = param.length * 4;
-					if (maxByteLen > extraSpaceForParams)
-					{	this.startWritingNewPacket(true, packetStart);
-						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-						this.writeUint32(stmtId);
-						this.writeUint16(i);
-						packetStart = await this.sendWithData(param, false, true);
-						placeholdersSent.add(i);
-					}
-					else
-					{	extraSpaceForParams -= maxByteLen;
-					}
+	/**	On success returns ResultsetsProtocol<Row>.
+		On error throws exception.
+		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
+	 **/
+	async sendComQuery<Row>(sql: SqlSource, rowType: RowType, letReturnUndefined=false)
+	{	const isFromPool = this.setQueryingState();
+		try
+		{	this.startWritingNewPacket(true);
+			this.writeUint8(Command.COM_QUERY);
+			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
+			const resultsets = new ResultsetsProtocol<Row>(rowType);
+			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+			if (state != ProtocolState.IDLE)
+			{	resultsets.protocol = this;
+				resultsets.hasMoreProtocol = true;
+				this.curResultsets = resultsets;
+			}
+			else if (this.pendingCloseStmts.length != 0)
+			{	await this.doPending();
+			}
+			this.setState(state);
+			return resultsets;
+		}
+		catch (e)
+		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+		}
+	}
+
+	/**	On success returns ResultsetsProtocol<Row>.
+		On error throws exception.
+		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
+	 **/
+	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false)
+	{	const isFromPool = this.setQueryingState();
+		try
+		{	this.startWritingNewPacket(true);
+			this.writeUint8(Command.COM_STMT_PREPARE);
+			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, false, putParamsTo);
+			const resultsets = new ResultsetsProtocol<Row>(rowType);
+			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT);
+			resultsets.protocol = this;
+			if (this.pendingCloseStmts.length != 0)
+			{	await this.doPending();
+			}
+			this.setState(ProtocolState.IDLE);
+			return resultsets;
+		}
+		catch (e)
+		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+		}
+	}
+
+	/**	This function can be called at any time. If the connection is busy, the operation will be performed later.
+	 **/
+	async disposePreparedStmt(stmtId: number)
+	{	const {state} = this;
+		if (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL)
+		{	this.state = ProtocolState.QUERYING;
+			try
+			{	await this.sendComStmtClose(stmtId);
+				this.setState(ProtocolState.IDLE);
+			}
+			catch (error)
+			{	try
+				{	this.rethrowError(error);
 				}
-				else if (typeof(param) == 'object')
-				{	if (param instanceof Uint8Array)
-					{	if (param.byteLength > extraSpaceForParams)
+				catch (e)
+				{	console.error(e);
+				}
+			}
+		}
+		else if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
+		{	this.pendingCloseStmts.push(stmtId);
+		}
+	}
+
+	async sendComStmtExecute(resultsets: ResultsetsProtocol<unknown>, params: Param[])
+	{	this.setQueryingState();
+		const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
+		if (stmtId < 0)
+		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
+		}
+		debugAssert(!resultsets.hasMoreProtocol); // because setQueryingState() ensures that current resultset is read to the end
+		try
+		{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
+			let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
+			let packetStart = 0;
+			const placeholdersSent = new Set<number>();
+			// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
+			for (let i=0; i<nPlaceholders; i++)
+			{	const param = params[i];
+				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+				{	if (typeof(param) == 'string')
+					{	const maxByteLen = param.length * 4;
+						if (maxByteLen > extraSpaceForParams)
 						{	this.startWritingNewPacket(true, packetStart);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
@@ -673,468 +850,709 @@ L:		while (true)
 							placeholdersSent.add(i);
 						}
 						else
-						{	extraSpaceForParams -= param.byteLength;
+						{	extraSpaceForParams -= maxByteLen;
 						}
 					}
-					else if (param.buffer instanceof ArrayBuffer)
-					{	if (param.byteLength > extraSpaceForParams)
+					else if (typeof(param) == 'object')
+					{	if (param instanceof Uint8Array)
+						{	if (param.byteLength > extraSpaceForParams)
+							{	this.startWritingNewPacket(true, packetStart);
+								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+								this.writeUint32(stmtId);
+								this.writeUint16(i);
+								packetStart = await this.sendWithData(param, false, true);
+								placeholdersSent.add(i);
+							}
+							else
+							{	extraSpaceForParams -= param.byteLength;
+							}
+						}
+						else if (param.buffer instanceof ArrayBuffer)
+						{	if (param.byteLength > extraSpaceForParams)
+							{	this.startWritingNewPacket(true, packetStart);
+								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+								this.writeUint32(stmtId);
+								this.writeUint16(i);
+								packetStart = await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
+								placeholdersSent.add(i);
+							}
+							else
+							{	extraSpaceForParams -= param.byteLength;
+							}
+						}
+						else if (typeof(param.read) == 'function')
+						{	let isEmpty = true;
+							while (true)
+							{	this.startWritingNewPacket(isEmpty, packetStart);
+								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+								this.writeUint32(stmtId);
+								this.writeUint16(i);
+								const n = await this.writeReadChunk(param);
+								if (n == null)
+								{	this.discardPacket();
+									break;
+								}
+								await this.send();
+								packetStart = 0;
+								isEmpty = false;
+							}
+							if (!isEmpty)
+							{	placeholdersSent.add(i);
+							}
+						}
+						else if (!(param instanceof Date))
 						{	this.startWritingNewPacket(true, packetStart);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
-							packetStart = await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
+							packetStart = await this.sendWithData(JSON.stringify(param), false, true);
 							placeholdersSent.add(i);
 						}
-						else
-						{	extraSpaceForParams -= param.byteLength;
-						}
-					}
-					else if (typeof(param.read) == 'function')
-					{	let isEmpty = true;
-						while (true)
-						{	this.startWritingNewPacket(isEmpty, packetStart);
-							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-							this.writeUint32(stmtId);
-							this.writeUint16(i);
-							const n = await this.writeReadChunk(param);
-							if (n == null)
-							{	this.discardPacket();
-								break;
-							}
-							await this.send();
-							packetStart = 0;
-							isEmpty = false;
-						}
-						if (!isEmpty)
-						{	placeholdersSent.add(i);
-						}
-					}
-					else if (!(param instanceof Date))
-					{	this.startWritingNewPacket(true, packetStart);
-						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-						this.writeUint32(stmtId);
-						this.writeUint16(i);
-						packetStart = await this.sendWithData(JSON.stringify(param), false, true);
-						placeholdersSent.add(i);
 					}
 				}
 			}
-		}
-		// Flush, if not enuogh space in buffer for the placeholders packet
-		if (packetStart > 0 && packetStart + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
-		{	await this.send();
-			packetStart = 0;
-		}
-		// Send params in binary protocol
-		this.startWritingNewPacket(true, packetStart);
-		this.writeUint8(Command.COM_STMT_EXECUTE);
-		this.writeUint32(stmtId);
-		this.writeUint8(CursorType.NO_CURSOR);
-		this.writeUint32(1); // iteration_count
-		if (nPlaceholders > 0)
-		{	// Send null-bitmap for each param
-			this.ensureRoom((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
-			let nullBits = 0;
-			let nullBitMask = 1;
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
-				{	nullBits |= nullBitMask;
+			// Flush, if not enuogh space in buffer for the placeholders packet
+			if (packetStart > 0 && packetStart + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
+			{	await this.send();
+				packetStart = 0;
+			}
+			// Send params in binary protocol
+			this.startWritingNewPacket(true, packetStart);
+			this.writeUint8(Command.COM_STMT_EXECUTE);
+			this.writeUint32(stmtId);
+			this.writeUint8(CursorType.NO_CURSOR);
+			this.writeUint32(1); // iteration_count
+			if (nPlaceholders > 0)
+			{	// Send null-bitmap for each param
+				this.ensureRoom((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
+				let nullBits = 0;
+				let nullBitMask = 1;
+				for (let i=0; i<nPlaceholders; i++)
+				{	const param = params[i];
+					if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
+					{	nullBits |= nullBitMask;
+					}
+					if (nullBitMask != 0x80)
+					{	nullBitMask <<= 1;
+					}
+					else
+					{	this.writeUint8(nullBits);
+						nullBits = 0;
+						nullBitMask = 1;
+					}
 				}
-				if (nullBitMask != 0x80)
-				{	nullBitMask <<= 1;
-				}
-				else
+				if (nullBitMask != 1)
 				{	this.writeUint8(nullBits);
-					nullBits = 0;
-					nullBitMask = 1;
 				}
-			}
-			if (nullBitMask != 1)
-			{	this.writeUint8(nullBits);
-			}
-			this.writeUint8(1); // new_params_bound_flag
-			// Send type of each param
-			let paramsLen = 0;
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				let type = FieldType.MYSQL_TYPE_STRING;
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-				{	if (typeof(param) == 'boolean')
-					{	type = FieldType.MYSQL_TYPE_TINY;
-						paramsLen++;
-					}
-					else if (typeof(param) == 'number')
-					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-						{	type = FieldType.MYSQL_TYPE_LONG;
-							paramsLen += 4;
-						}
-						else
-						{	type = FieldType.MYSQL_TYPE_DOUBLE;
-							paramsLen+= 8;
-						}
-					}
-					else if (typeof(param) == 'bigint')
-					{	type = FieldType.MYSQL_TYPE_LONGLONG;
-						paramsLen += 8;
-					}
-					else if (typeof(param) == 'object')
-					{	if (param instanceof Date)
-						{	type = FieldType.MYSQL_TYPE_DATETIME;
-							paramsLen += 12;
-						}
-						else if (param.buffer instanceof ArrayBuffer)
-						{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
-							paramsLen += param.byteLength;
-						}
-						else if (typeof(param.read) == 'function')
-						{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+				this.writeUint8(1); // new_params_bound_flag
+				// Send type of each param
+				let paramsLen = 0;
+				for (let i=0; i<nPlaceholders; i++)
+				{	const param = params[i];
+					let type = FieldType.MYSQL_TYPE_STRING;
+					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+					{	if (typeof(param) == 'boolean')
+						{	type = FieldType.MYSQL_TYPE_TINY;
 							paramsLen++;
 						}
-					}
-					else
-					{	debugAssert(typeof(param) == 'string');
-					}
-				}
-				this.writeUint16(type);
-			}
-			// Send value of each param
-			this.ensureRoom(paramsLen);
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
-				{	if (typeof(param) == 'boolean')
-					{	this.writeUint8(param ? 1 : 0);
-					}
-					else if (typeof(param) == 'number')
-					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-						{	this.writeUint32(param);
+						else if (typeof(param) == 'number')
+						{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+							{	type = FieldType.MYSQL_TYPE_LONG;
+								paramsLen += 4;
+							}
+							else
+							{	type = FieldType.MYSQL_TYPE_DOUBLE;
+								paramsLen+= 8;
+							}
+						}
+						else if (typeof(param) == 'bigint')
+						{	type = FieldType.MYSQL_TYPE_LONGLONG;
+							paramsLen += 8;
+						}
+						else if (typeof(param) == 'object')
+						{	if (param instanceof Date)
+							{	type = FieldType.MYSQL_TYPE_DATETIME;
+								paramsLen += 12;
+							}
+							else if (param.buffer instanceof ArrayBuffer)
+							{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+								paramsLen += param.byteLength;
+							}
+							else if (typeof(param.read) == 'function')
+							{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+								paramsLen++;
+							}
 						}
 						else
-						{	this.writeDouble(param);
+						{	debugAssert(typeof(param) == 'string');
 						}
 					}
-					else if (typeof(param) == 'bigint')
-					{	this.writeUint64(param);
-					}
-					else if (typeof(param) == 'string')
-					{	this.writeLenencString(param);
-					}
-					else if (param instanceof Date)
-					{	const frac = param.getMilliseconds();
-						this.writeUint8(frac ? 11 : 7); // length
-						this.writeUint16(param.getFullYear());
-						this.writeUint8(param.getMonth() + 1);
-						this.writeUint8(param.getDate());
-						this.writeUint8(param.getHours());
-						this.writeUint8(param.getMinutes());
-						this.writeUint8(param.getSeconds());
-						if (frac)
-						{	this.writeUint32(frac * 1000);
+					this.writeUint16(type);
+				}
+				// Send value of each param
+				this.ensureRoom(paramsLen);
+				for (let i=0; i<nPlaceholders; i++)
+				{	const param = params[i];
+					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
+					{	if (typeof(param) == 'boolean')
+						{	this.writeUint8(param ? 1 : 0);
 						}
-					}
-					else if (param instanceof Uint8Array)
-					{	this.writeLenencBytes(param);
-					}
-					else if (param.buffer instanceof ArrayBuffer)
-					{	this.writeLenencBytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
-					}
-					else
-					{	debugAssert(typeof(param.read) == 'function');
-						// nothing written for this param (as it's not in placeholdersSent), so write empty string
-						this.writeUint8(0); // 0-length lenenc-string
+						else if (typeof(param) == 'number')
+						{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+							{	this.writeUint32(param);
+							}
+							else
+							{	this.writeDouble(param);
+							}
+						}
+						else if (typeof(param) == 'bigint')
+						{	this.writeUint64(param);
+						}
+						else if (typeof(param) == 'string')
+						{	this.writeLenencString(param);
+						}
+						else if (param instanceof Date)
+						{	const frac = param.getMilliseconds();
+							this.writeUint8(frac ? 11 : 7); // length
+							this.writeUint16(param.getFullYear());
+							this.writeUint8(param.getMonth() + 1);
+							this.writeUint8(param.getDate());
+							this.writeUint8(param.getHours());
+							this.writeUint8(param.getMinutes());
+							this.writeUint8(param.getSeconds());
+							if (frac)
+							{	this.writeUint32(frac * 1000);
+							}
+						}
+						else if (param instanceof Uint8Array)
+						{	this.writeLenencBytes(param);
+						}
+						else if (param.buffer instanceof ArrayBuffer)
+						{	this.writeLenencBytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+						}
+						else
+						{	debugAssert(typeof(param.read) == 'function');
+							// nothing written for this param (as it's not in placeholdersSent), so write empty string
+							this.writeUint8(0); // 0-length lenenc-string
+						}
 					}
 				}
 			}
-		}
-		await this.send();
-		// Read Binary Protocol Resultset
-		const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
-		this.unput(type);
-		let rowNColumns = this.readLenencInt() ?? await this.readLenencIntAsync();
-		if (rowNColumns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
-		{	throw new Error(`Can't handle so many columns: ${rowNColumns}`);
-		}
-		rowNColumns = Number(rowNColumns);
-		if (rowNColumns > 0)
-		{	resultsets.columns = await this.readColumnDefinitionPackets(rowNColumns);
-			resultsets.hasMoreRows = true;
-			resultsets.hasMoreSomething = true;
-		}
-		else
-		{	resultsets.hasMoreRows = false;
-			resultsets.hasMoreSomething = (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0;
-			if (!resultsets.hasMoreSomething)
-			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
-				resultsets.gotoNextResultset = () => Promise.resolve(false);
-			}
-			if (!this.isAtEndOfPacket())
-			{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
-				this.initResultsets(resultsets);
-			}
-		}
-	}
-
-	async fetch<Row>(resultsets: ResultsetsDriver<Row>, rowType: RowType, onreadend?: () => Promise<void>): Promise<Row | undefined>
-	{	debugAssert(resultsets.hasMoreRows && resultsets.hasMoreSomething);
-		const {stmtId, columns} = resultsets;
-		const nColumns = columns.length;
-		const type = await this.readPacket(stmtId==-1 ? ReadPacketMode.REGULAR : ReadPacketMode.PREPARED_STMT);
-		if (type == (stmtId==-1 ? PacketType.OK : PacketType.EOF))
-		{	resultsets.hasMoreRows = false;
-			resultsets.hasMoreSomething = (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0;
-			if (!resultsets.hasMoreSomething)
-			{	resultsets.fetch = () => Promise.resolve(undefined); // eof
-				resultsets.gotoNextResultset = () => Promise.resolve(false);
-			}
-			return undefined;
-		}
-		let buffer: Uint8Array|undefined;
-		let row: Any;
-		switch (rowType)
-		{	case RowType.ARRAY:
-				row = [];
-				break;
-			case RowType.OBJECT:
-			case RowType.LAST_COLUMN_READER:
-				row = {};
-				break;
-			case RowType.MAP:
-				row = new Map;
-				break;
-			default:
-				debugAssert(rowType == RowType.FIRST_COLUMN);
-		}
-		let lastColumnReaderLen = 0;
-		if (stmtId == -1)
-		{	// Text protocol row
+			await this.send();
+			// Read Binary Protocol Resultset
+			const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
 			this.unput(type);
-			for (let i=0; i<nColumns; i++)
-			{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
-				if (len > Number.MAX_SAFE_INTEGER)
-				{	throw new Error(`Field is too long: ${len} bytes`);
-				}
-				len = Number(len);
-				let value: ColumnValue = null;
-				if (len != -1) // if not a null value
-				{	if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
-					{	lastColumnReaderLen = len;
-					}
-					else if (len > this.maxColumnLen)
-					{	this.readVoid(len) || this.readVoidAsync(len);
-					}
-					else if (len <= this.buffer.length)
-					{	const v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
-						value = convColumnValue(v, columns[i].type, this.decoder);
-					}
-					else
-					{	if (!buffer || buffer.length<len)
-						{	buffer = new Uint8Array(len);
-						}
-						const v = buffer.subarray(0, len);
-						await this.readBytesToBuffer(v);
-						value = convColumnValue(v, columns[i].type, this.decoder);
-					}
-				}
-				switch (rowType)
-				{	case RowType.ARRAY:
-						row[i] = value;
-						break;
-					case RowType.OBJECT:
-					case RowType.LAST_COLUMN_READER:
-						row[columns[i].name] = value;
-						break;
-					case RowType.MAP:
-						row.set(columns[i].name, value);
-						break;
-					default:
-						debugAssert(rowType == RowType.FIRST_COLUMN);
-						if (i == 0)
-						{	row = value;
-						}
-				}
+			let rowNColumns = this.readLenencInt() ?? await this.readLenencIntAsync();
+			if (rowNColumns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
+			{	throw new Error(`Can't handle so many columns: ${rowNColumns}`);
 			}
-		}
-		else
-		{	// Binary protocol row
-			const nullBitsLen = (nColumns + 2 + 7) >> 3;
-			const nullBits = (this.readShortBytes(nullBitsLen) ?? await this.readShortBytesAsync(nullBitsLen)).slice();
-			let nullBitsI = 0;
-			let nullBitMask = 4; // starts from bit offset 1 << 2, according to protocol definition
-			for (let i=0; i<nColumns; i++)
-			{	let value: ColumnValue = null;
-				const isNull = nullBits[nullBitsI] & nullBitMask;
-				if (nullBitMask != 0x80)
-				{	nullBitMask <<= 1;
+			rowNColumns = Number(rowNColumns);
+			if (rowNColumns > 0)
+			{	if (resultsets.columns.length == 0)
+				{	const columns = await this.readColumnDefinitionPackets(rowNColumns);
+					resultsets.columns = columns;
 				}
 				else
-				{	nullBitsI++;
-					nullBitMask = 1;
+				{	await this.skipColumnDefinitionPackets(rowNColumns);
 				}
-				if (!isNull)
-				{	switch (columns[i].type)
-					{	case FieldType.MYSQL_TYPE_TINY:
-							value = this.readUint8() ?? await this.readUint8Async();
-							break;
-						case FieldType.MYSQL_TYPE_SHORT:
-						case FieldType.MYSQL_TYPE_YEAR:
-							value = this.readUint16() ?? await this.readUint16Async();
-							break;
-						case FieldType.MYSQL_TYPE_LONG:
-							value = this.readUint32() ?? await this.readUint32Async();
-							break;
-						case FieldType.MYSQL_TYPE_LONGLONG:
-							value = this.readUint64() ?? await this.readUint64Async();
-							break;
-						case FieldType.MYSQL_TYPE_FLOAT:
-							value = this.readFloat() ?? await this.readFloatAsync();
-							break;
-						case FieldType.MYSQL_TYPE_DOUBLE:
-							value = this.readDouble() ?? await this.readDoubleAsync();
-							break;
-						case FieldType.MYSQL_TYPE_DATE:
-						case FieldType.MYSQL_TYPE_DATETIME:
-						case FieldType.MYSQL_TYPE_TIMESTAMP:
-						{	const len = this.readUint8() ?? await this.readUint8Async();
-							if (len >= 4)
-							{	const year = this.readUint16() ?? await this.readUint16Async();
-								const month = this.readUint8() ?? await this.readUint8Async();
-								const day = this.readUint8() ?? await this.readUint8Async();
-								let hour=0, minute=0, second=0, micro=0;
-								if (len >= 7)
-								{	hour = this.readUint8() ?? await this.readUint8Async();
-									minute = this.readUint8() ?? await this.readUint8Async();
-									second = this.readUint8() ?? await this.readUint8Async();
-									if (len >= 11)
-									{	micro = this.readUint32() ?? await this.readUint32Async();
-									}
-								}
-								value = new Date(year, month-1, day, hour, minute, second, micro/1000);
-							}
-							else
-							{	value = new Date(0);
-							}
-							break;
-						}
-						case FieldType.MYSQL_TYPE_TIME:
-						{	const len = this.readUint8() ?? await this.readUint8Async();
-							if (len >= 8)
-							{	const isNegative = this.readUint8() ?? await this.readUint8Async();
-								const days = this.readUint32() ?? await this.readUint32Async();
-								let hours = this.readUint8() ?? await this.readUint8Async();
-								let minutes = this.readUint8() ?? await this.readUint8Async();
-								let seconds = this.readUint8() ?? await this.readUint8Async();
-								hours += days * 24;
-								minutes += hours * 60;
-								seconds += minutes * 60;
-								if (len >= 12)
-								{	const micro = this.readUint32() ?? await this.readUint32Async();
-									seconds += micro / 1_000_000;
-								}
-								value = isNegative ? -seconds : seconds;
-							}
-							else
-							{	value = 0;
-							}
-							break;
-						}
-						default:
-						{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
-							if (len > Number.MAX_SAFE_INTEGER)
-							{	throw new Error(`Field is too long: ${len} bytes`);
-							}
-							len = Number(len);
-							if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
-							{	lastColumnReaderLen = len;
-							}
-							else if (len > this.maxColumnLen)
-							{	this.readVoid(len) || this.readVoidAsync(len);
-							}
-							else if (len <= this.buffer.length)
-							{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
-							}
-							else
-							{	if (!buffer || buffer.length<len)
-								{	buffer = new Uint8Array(len);
-								}
-								const v = buffer.subarray(0, len);
-								await this.readBytesToBuffer(v);
-								value = this.decoder.decode(v);
-							}
-						}
-					}
+				resultsets.protocol = this;
+				resultsets.hasMoreProtocol = true;
+				this.curResultsets = resultsets;
+				this.setState(ProtocolState.HAS_MORE_ROWS);
+			}
+			else if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
+			{	resultsets.protocol = this;
+				resultsets.hasMoreProtocol = true;
+				if (!this.isAtEndOfPacket())
+				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					this.initResultsets(resultsets);
 				}
-				switch (rowType)
-				{	case RowType.ARRAY:
-						row[i] = value;
-						break;
-					case RowType.OBJECT:
-					case RowType.LAST_COLUMN_READER:
-						row[columns[i].name] = value;
-						break;
-					case RowType.MAP:
-						row.set(columns[i].name, value);
-						break;
-					default:
-						debugAssert(rowType == RowType.FIRST_COLUMN);
-						if (i == 0)
-						{	row = value;
-						}
+				this.curResultsets = resultsets;
+				this.setState(ProtocolState.HAS_MORE_RESULTSETS);
+			}
+			else
+			{	if (!this.isAtEndOfPacket())
+				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					this.initResultsets(resultsets);
 				}
+				if (this.pendingCloseStmts.length != 0)
+				{	await this.doPending();
+				}
+				this.setState(ProtocolState.IDLE);
 			}
 		}
-		if (rowType == RowType.LAST_COLUMN_READER)
-		{	// deno-lint-ignore no-this-alias
-			const that = this;
-			const columnName = columns[columns.length - 1].name;
-			let dataInCurPacketLen = Math.min(lastColumnReaderLen, this.payloadLength - this.packetOffset);
-			row[columnName] =
-			{	async read(dest: Uint8Array)
-				{	if (lastColumnReaderLen <= 0)
-					{	debugAssert(lastColumnReaderLen==0 && dataInCurPacketLen==0);
-						if (that.payloadLength == 0xFFFFFF) // packet of 0xFFFFFF length must be followed by one empty packet
-						{	that.readPacketHeader() || await that.readPacketHeaderAsync();
-							debugAssert((that.payloadLength as Any) == 0);
-						}
-						await onreadend?.();
-						return null;
-					}
-					if (dataInCurPacketLen <= 0)
-					{	debugAssert(dataInCurPacketLen == 0);
-						that.readPacketHeader() || await that.readPacketHeaderAsync();
-						dataInCurPacketLen = Math.min(lastColumnReaderLen, that.payloadLength - that.packetOffset);
-					}
-					const n = Math.min(dest.length, dataInCurPacketLen);
-					await that.readBytesToBuffer(dest.subarray(0, n));
-					dataInCurPacketLen -= n;
-					lastColumnReaderLen -= n;
-					return n;
-				}
-			};
+		catch (e)
+		{	this.rethrowError(e);
 		}
-		return row;
 	}
 
-	async nextResultset(resultsets: ResultsetsDriver<unknown>)
-	{	const mode = resultsets.stmtId==-1 ? ReadPacketMode.REGULAR : ReadPacketMode.PREPARED_STMT;
-		if (resultsets.hasMoreRows)
-		{	while (true)
-			{	const type = await this.readPacket(mode);
-				this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
-				if (type == (resultsets.stmtId==-1 ? PacketType.OK : PacketType.EOF))
-				{	resultsets.hasMoreRows = false;
-					resultsets.hasMoreSomething = (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS) != 0;
+	async fetch<Row>(rowType: RowType): Promise<Row | undefined>
+	{	switch (this.state)
+		{	case ProtocolState.IDLE:
+			case ProtocolState.IDLE_IN_POOL:
+			case ProtocolState.HAS_MORE_RESULTSETS:
+				return undefined; // no more rows in this resultset
+			case ProtocolState.QUERYING:
+				throw new BusyError('Previous operation is still in progress');
+			case ProtocolState.TERMINATED:
+				throw new CanceledError('Connection terminated');
+		}
+		debugAssert(this.state == ProtocolState.HAS_MORE_ROWS);
+		debugAssert(this.curResultsets?.hasMoreProtocol); // because we're in ProtocolState.HAS_MORE_ROWS
+		this.state = ProtocolState.QUERYING;
+		try
+		{	const {isPreparedStmt, stmtId, columns} = this.curResultsets;
+			const nColumns = columns.length;
+			const type = await this.readPacket(isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+			if (type == (isPreparedStmt ? PacketType.EOF : PacketType.OK))
+			{	if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
+				{	this.setState(ProtocolState.HAS_MORE_RESULTSETS);
+				}
+				else
+				{	if (this.curResultsets)
+					{	if (stmtId < 0)
+						{	this.curResultsets.protocol = undefined;
+						}
+						this.curResultsets.hasMoreProtocol = false;
+						this.curResultsets = undefined;
+					}
+					if (this.pendingCloseStmts.length != 0)
+					{	await this.doPending();
+					}
+					this.setState(ProtocolState.IDLE);
+				}
+				return undefined;
+			}
+			let buffer: Uint8Array|undefined;
+			let row: Any;
+			switch (rowType)
+			{	case RowType.ARRAY:
+					row = [];
 					break;
+				case RowType.OBJECT:
+				case RowType.LAST_COLUMN_READER:
+					row = {};
+					break;
+				case RowType.MAP:
+					row = new Map;
+					break;
+				default:
+					debugAssert(rowType == RowType.FIRST_COLUMN);
+			}
+			let lastColumnReaderLen = 0;
+			if (!isPreparedStmt)
+			{	// Text protocol row
+				this.unput(type);
+				for (let i=0; i<nColumns; i++)
+				{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
+					if (len > Number.MAX_SAFE_INTEGER)
+					{	throw new Error(`Field is too long: ${len} bytes`);
+					}
+					len = Number(len);
+					let value: ColumnValue = null;
+					if (len != -1) // if not a null value
+					{	if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
+						{	lastColumnReaderLen = len;
+						}
+						else if (len > this.maxColumnLen)
+						{	this.readVoid(len) || this.readVoidAsync(len);
+						}
+						else if (len <= this.buffer.length)
+						{	const v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
+							value = convColumnValue(v, columns[i].type, this.decoder);
+						}
+						else
+						{	if (!buffer || buffer.length<len)
+							{	buffer = new Uint8Array(len);
+							}
+							const v = buffer.subarray(0, len);
+							await this.readBytesToBuffer(v);
+							value = convColumnValue(v, columns[i].type, this.decoder);
+						}
+					}
+					switch (rowType)
+					{	case RowType.ARRAY:
+							row[i] = value;
+							break;
+						case RowType.OBJECT:
+						case RowType.LAST_COLUMN_READER:
+							row[columns[i].name] = value;
+							break;
+						case RowType.MAP:
+							row.set(columns[i].name, value);
+							break;
+						default:
+							debugAssert(rowType == RowType.FIRST_COLUMN);
+							if (i == 0)
+							{	row = value;
+							}
+					}
 				}
 			}
+			else
+			{	// Binary protocol row
+				const nullBitsLen = (nColumns + 2 + 7) >> 3;
+				const nullBits = (this.readShortBytes(nullBitsLen) ?? await this.readShortBytesAsync(nullBitsLen)).slice();
+				let nullBitsI = 0;
+				let nullBitMask = 4; // starts from bit offset 1 << 2, according to protocol definition
+				for (let i=0; i<nColumns; i++)
+				{	let value: ColumnValue = null;
+					const isNull = nullBits[nullBitsI] & nullBitMask;
+					if (nullBitMask != 0x80)
+					{	nullBitMask <<= 1;
+					}
+					else
+					{	nullBitsI++;
+						nullBitMask = 1;
+					}
+					if (!isNull)
+					{	switch (columns[i].type)
+						{	case FieldType.MYSQL_TYPE_TINY:
+								value = this.readUint8() ?? await this.readUint8Async();
+								break;
+							case FieldType.MYSQL_TYPE_SHORT:
+							case FieldType.MYSQL_TYPE_YEAR:
+								value = this.readUint16() ?? await this.readUint16Async();
+								break;
+							case FieldType.MYSQL_TYPE_LONG:
+								value = this.readUint32() ?? await this.readUint32Async();
+								break;
+							case FieldType.MYSQL_TYPE_LONGLONG:
+								value = this.readUint64() ?? await this.readUint64Async();
+								break;
+							case FieldType.MYSQL_TYPE_FLOAT:
+								value = this.readFloat() ?? await this.readFloatAsync();
+								break;
+							case FieldType.MYSQL_TYPE_DOUBLE:
+								value = this.readDouble() ?? await this.readDoubleAsync();
+								break;
+							case FieldType.MYSQL_TYPE_DATE:
+							case FieldType.MYSQL_TYPE_DATETIME:
+							case FieldType.MYSQL_TYPE_TIMESTAMP:
+							{	const len = this.readUint8() ?? await this.readUint8Async();
+								if (len >= 4)
+								{	const year = this.readUint16() ?? await this.readUint16Async();
+									const month = this.readUint8() ?? await this.readUint8Async();
+									const day = this.readUint8() ?? await this.readUint8Async();
+									let hour=0, minute=0, second=0, micro=0;
+									if (len >= 7)
+									{	hour = this.readUint8() ?? await this.readUint8Async();
+										minute = this.readUint8() ?? await this.readUint8Async();
+										second = this.readUint8() ?? await this.readUint8Async();
+										if (len >= 11)
+										{	micro = this.readUint32() ?? await this.readUint32Async();
+										}
+									}
+									value = new Date(year, month-1, day, hour, minute, second, micro/1000);
+								}
+								else
+								{	value = new Date(0);
+								}
+								break;
+							}
+							case FieldType.MYSQL_TYPE_TIME:
+							{	const len = this.readUint8() ?? await this.readUint8Async();
+								if (len >= 8)
+								{	const isNegative = this.readUint8() ?? await this.readUint8Async();
+									const days = this.readUint32() ?? await this.readUint32Async();
+									let hours = this.readUint8() ?? await this.readUint8Async();
+									let minutes = this.readUint8() ?? await this.readUint8Async();
+									let seconds = this.readUint8() ?? await this.readUint8Async();
+									hours += days * 24;
+									minutes += hours * 60;
+									seconds += minutes * 60;
+									if (len >= 12)
+									{	const micro = this.readUint32() ?? await this.readUint32Async();
+										seconds += micro / 1_000_000;
+									}
+									value = isNegative ? -seconds : seconds;
+								}
+								else
+								{	value = 0;
+								}
+								break;
+							}
+							default:
+							{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
+								if (len > Number.MAX_SAFE_INTEGER)
+								{	throw new Error(`Field is too long: ${len} bytes`);
+								}
+								len = Number(len);
+								if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
+								{	lastColumnReaderLen = len;
+								}
+								else if (len > this.maxColumnLen)
+								{	this.readVoid(len) || this.readVoidAsync(len);
+								}
+								else if (len <= this.buffer.length)
+								{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
+								}
+								else
+								{	if (!buffer || buffer.length<len)
+									{	buffer = new Uint8Array(len);
+									}
+									const v = buffer.subarray(0, len);
+									await this.readBytesToBuffer(v);
+									value = this.decoder.decode(v);
+								}
+							}
+						}
+					}
+					switch (rowType)
+					{	case RowType.ARRAY:
+							row[i] = value;
+							break;
+						case RowType.OBJECT:
+						case RowType.LAST_COLUMN_READER:
+							row[columns[i].name] = value;
+							break;
+						case RowType.MAP:
+							row.set(columns[i].name, value);
+							break;
+						default:
+							debugAssert(rowType == RowType.FIRST_COLUMN);
+							if (i == 0)
+							{	row = value;
+							}
+					}
+				}
+			}
+			if (rowType == RowType.LAST_COLUMN_READER)
+			{	// deno-lint-ignore no-this-alias
+				const that = this;
+				let dataInCurPacketLen = Math.min(lastColumnReaderLen, this.payloadLength - this.packetOffset);
+				const enum IsReading
+				{	NO,
+					YES,
+					YES_BY_END_SESSION,
+				}
+				let isReading = IsReading.NO;
+				const reader =
+				{	async read(dest: Uint8Array)
+					{	if (isReading != IsReading.NO)
+						{	if (isReading==IsReading.YES && that.onEndSession)
+							{	isReading = IsReading.YES_BY_END_SESSION;
+								return null; // assume: endSession() called me (maybe in parallel with user's reader)
+							}
+							throw new BusyError('Data is being read by another reader');
+						}
+						isReading = that.onEndSession ? IsReading.YES_BY_END_SESSION : IsReading.YES;
+						let n = 0;
+						try
+						{	while (true)
+							{	if (lastColumnReaderLen <= 0)
+								{	// read to the end of the last column
+									debugAssert(lastColumnReaderLen==0 && dataInCurPacketLen==0);
+									if (that.payloadLength == 0xFFFFFF) // packet of 0xFFFFFF length must be followed by one empty packet
+									{	that.readPacketHeader() || await that.readPacketHeaderAsync();
+										debugAssert((that.payloadLength as Any) == 0);
+									}
+									// discard next rows and resultsets
+									await that.doDiscard(ProtocolState.HAS_MORE_ROWS);
+									// done
+									that.curLastColumnReader = undefined;
+									if (that.curResultsets)
+									{	that.curResultsets.protocol = undefined;
+										that.curResultsets.hasMoreProtocol = false;
+										that.curResultsets = undefined;
+									}
+									if (that.pendingCloseStmts.length != 0)
+									{	await that.doPending();
+									}
+									that.setState(ProtocolState.IDLE);
+									if (that.onEndSession)
+									{	throw new CanceledError('Connection terminated');
+									}
+									return null;
+								}
+								if (dataInCurPacketLen <= 0)
+								{	debugAssert(dataInCurPacketLen == 0);
+									that.readPacketHeader() || await that.readPacketHeaderAsync();
+									dataInCurPacketLen = Math.min(lastColumnReaderLen, that.payloadLength - that.packetOffset);
+								}
+								n = Math.min(dest.length, dataInCurPacketLen);
+								await that.readBytesToBuffer(dest.subarray(0, n));
+								dataInCurPacketLen -= n;
+								lastColumnReaderLen -= n;
+								if (!that.onEndSession)
+								{	break;
+								}
+							}
+						}
+						catch (e)
+						{	that.rethrowError(e);
+						}
+						finally
+						{	isReading = IsReading.NO;
+						}
+						return n;
+					}
+				};
+				const columnName = columns[columns.length - 1].name;
+				row[columnName] = reader;
+				this.curLastColumnReader = reader;
+			}
+			else
+			{	this.setState(ProtocolState.HAS_MORE_ROWS);
+			}
+			return row;
 		}
-		if (!resultsets.hasMoreSomething)
-		{	resultsets.fetch = () => Promise.resolve(undefined); // eof
-			resultsets.gotoNextResultset = () => Promise.resolve(false);
+		catch (e)
+		{	this.rethrowError(e);
 		}
-		else
-		{	resultsets.resetFields();
-			await this.readQueryResponse(resultsets, mode);
+	}
+
+	/**	If `onlyRows` is false returns `ProtocolState.IDLE`. Else can also return `ProtocolState.HAS_MORE_RESULTSETS`.
+	 **/
+	private async doDiscard(state: ProtocolState, onlyRows=false)
+	{	const {curResultsets} = this;
+		debugAssert(curResultsets);
+		const {isPreparedStmt} = curResultsets;
+		const mode = isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR;
+		const okType = isPreparedStmt ? PacketType.EOF : PacketType.OK;
+		while (true)
+		{	if (state == ProtocolState.HAS_MORE_ROWS)
+			{	while (true)
+				{	const type = await this.readPacket(mode);
+					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+					if (type == okType)
+					{	state = this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
+						break;
+					}
+				}
+			}
+			if (!onlyRows && state==ProtocolState.HAS_MORE_RESULTSETS)
+			{	state = await this.readQueryResponse(curResultsets, mode);
+			}
+			else
+			{	break;
+			}
+		}
+		return state;
+	}
+
+	async nextResultset(ignoreTerminated=false)
+	{	let {state} = this;
+		switch (state)
+		{	case ProtocolState.IDLE:
+			case ProtocolState.IDLE_IN_POOL:
+				return false;
+			case ProtocolState.QUERYING:
+				throw new BusyError('Previous operation is still in progress');
+			case ProtocolState.ERROR:
+				throw new Error('Protocol error');
+			case ProtocolState.TERMINATED:
+				if (ignoreTerminated)
+				{	return false;
+				}
+				throw new CanceledError('Connection terminated');
+		}
+		try
+		{	if (state == ProtocolState.HAS_MORE_ROWS)
+			{	this.state = ProtocolState.QUERYING;
+				state = await this.doDiscard(state, true);
+			}
+			const {curResultsets} = this;
+			debugAssert(curResultsets?.hasMoreProtocol);
+			let yes = false;
+			if (state == ProtocolState.HAS_MORE_RESULTSETS)
+			{	yes = true;
+				this.state = ProtocolState.QUERYING;
+				curResultsets.resetFields();
+				state = await this.readQueryResponse(curResultsets, curResultsets.isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+				if (state == ProtocolState.IDLE)
+				{	if (curResultsets.stmtId < 0)
+					{	curResultsets.protocol = undefined;
+					}
+					curResultsets.hasMoreProtocol = false;
+					this.curResultsets = undefined;
+					if (this.pendingCloseStmts.length != 0)
+					{	await this.doPending();
+					}
+				}
+				else
+				{	curResultsets.hasMoreProtocol = true;
+				}
+			}
+			else
+			{	curResultsets.hasMoreProtocol = false;
+			}
+			this.setState(state);
+			return yes;
+		}
+		catch (e)
+		{	this.rethrowError(e);
+		}
+	}
+
+	/**	Finalize session (skip unread resultsets, and execute COM_RESET_CONNECTION), then if the connection is alive, reinitialize it (set dsn.schema and execute dsn.initSql).
+		If the connection was alive, and `recycleConnection` was true, returns new `MyProtocol` object with the same `Deno.Conn` to the database, and current object marks as terminated (method calls will throw `CanceledError`).
+		If the connection was dead, returns Uint8Array buffer to be recycled.
+		This function doesn't throw errors (errors can be considered fatal).
+	 **/
+	async end(recycleConnection=false)
+	{	let {state} = this;
+		if (state != ProtocolState.TERMINATED)
+		{	this.state = ProtocolState.TERMINATED;
+			if (state == ProtocolState.QUERYING)
+			{	const promise = new Promise<ProtocolState>(y => {this.onEndSession = y});
+				try
+				{	await this.curLastColumnReader?.read(BUFFER_FOR_END_SESSION);
+				}
+				catch (e)
+				{	if (!(e instanceof CanceledError))
+					{	console.error(e);
+					}
+				}
+				state = await promise;
+				debugAssert(!this.curLastColumnReader);
+				this.onEndSession = undefined;
+			}
+			if (state==ProtocolState.HAS_MORE_ROWS || state==ProtocolState.HAS_MORE_RESULTSETS)
+			{	try
+				{	state = await this.doDiscard(state);
+				}
+				catch (e)
+				{	console.error(e);
+					recycleConnection = false;
+				}
+			}
+			this.curResultsets = undefined;
+			this.curLastColumnReader = undefined;
+			this.onEndSession = undefined;
+			const buffer = this.recycleBuffer();
+			if (!recycleConnection || state!=ProtocolState.IDLE && state!=ProtocolState.IDLE_IN_POOL)
+			{	// don't recycle connection (only buffer)
+				if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
+				{	try
+					{	this.conn.close();
+					}
+					catch (e)
+					{	console.error(e);
+					}
+				}
+				return buffer;
+			}
+			else
+			{	// recycle connection
+				const protocol = new MyProtocol(this.conn, this.decoder, buffer);
+				protocol.serverVersion = this.serverVersion;
+				protocol.connectionId = this.connectionId;
+				protocol.capabilityFlags = this.capabilityFlags;
+				protocol.initSchema = this.initSchema;
+				protocol.initSql = this.initSql;
+				protocol.maxColumnLen = this.maxColumnLen;
+				protocol.onloadfile = this.onloadfile;
+				const {initSchema, initSql} = this;
+				await protocol.sendComResetConnectionAndInitDb(initSchema);
+				if (initSql)
+				{	const resultsets = await protocol.sendComQuery(initSql, RowType.FIRST_COLUMN);
+					await resultsets!.discard();
+				}
+				debugAssert(protocol.state == ProtocolState.IDLE);
+				protocol.state = ProtocolState.IDLE_IN_POOL;
+				return protocol;
+			}
 		}
 	}
 }
