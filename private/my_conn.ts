@@ -11,7 +11,7 @@ export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
-	private stateId = 0;
+	private stateId = 0; // TODO: better solution?
 
 	constructor
 	(	private dsn: Dsn,
@@ -171,7 +171,7 @@ export class MyConn
 			}
 			else if (Array.isArray(params))
 			{	// Prepare to execute immediately: positional parameters
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0);
+				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true);
 				if (resultsets)
 				{	try
 					{	await resultsets.exec(params);
@@ -194,7 +194,7 @@ export class MyConn
 
 				let ok = true;
 				if (sqlSet.length != 0)
-				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sqlSet+"`=?", undefined, rowType, nRetriesRemaining-->0);
+				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sqlSet+"`=?", undefined, rowType, nRetriesRemaining-->0, true);
 					if (resultsets)
 					{	try
 						{	await resultsets.exec(paramsSet);
@@ -209,7 +209,7 @@ export class MyConn
 					}
 				}
 				if (ok)
-				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0);
+				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, true);
 					if (resultsets)
 					{	try
 						{	await resultsets.exec([]);

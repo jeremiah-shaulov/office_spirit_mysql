@@ -469,7 +469,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private async readQueryResponse(resultsets: ResultsetsProtocol<unknown>, mode: ReadPacketMode)
+	private async readQueryResponse(resultsets: ResultsetsProtocol<unknown>, mode: ReadPacketMode, skipColumns=false)
 	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
 		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
@@ -549,7 +549,16 @@ L:		while (true)
 			{	await this.skipColumnDefinitionPackets(nPlaceholders);
 			}
 			resultsets.nPlaceholders = nPlaceholders;
-			resultsets.columns = nColumnsNum==0 ? [] : await this.readColumnDefinitionPackets(nColumnsNum);
+			if (nColumnsNum == 0)
+			{	resultsets.columns = [];
+			}
+			else if (skipColumns)
+			{	resultsets.columns = [];
+				await this.skipColumnDefinitionPackets(nColumnsNum);
+			}
+			else
+			{	resultsets.columns = await this.readColumnDefinitionPackets(nColumnsNum);
+			}
 
 			return nColumnsNum!=0 ? ProtocolState.HAS_MORE_ROWS : this.statusFlags&StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
 		}
@@ -727,7 +736,7 @@ L:		while (true)
 		}
 		catch (e)
 		{	if ((e instanceof SqlError) && e.message=='Unknown command')
-			{	console.error(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
+			{	console.error(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e); // TODO: report about this error in better way
 			}
 			else
 			{	throw e;
@@ -779,14 +788,14 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false)
+	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.setQueryingState();
 		try
 		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, false, putParamsTo);
 			const resultsets = new ResultsetsProtocol<Row>(rowType);
-			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT);
+			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
 			if (this.pendingCloseStmts.length != 0)
 			{	await this.doPending();
@@ -1048,13 +1057,7 @@ L:		while (true)
 			}
 			rowNColumns = Number(rowNColumns);
 			if (rowNColumns > 0)
-			{	if (resultsets.columns.length == 0)
-				{	const columns = await this.readColumnDefinitionPackets(rowNColumns);
-					resultsets.columns = columns;
-				}
-				else
-				{	await this.skipColumnDefinitionPackets(rowNColumns);
-				}
+			{	resultsets.columns = await this.readColumnDefinitionPackets(rowNColumns);
 				resultsets.protocol = this;
 				resultsets.hasMoreProtocol = true;
 				this.curResultsets = resultsets;

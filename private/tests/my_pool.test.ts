@@ -178,6 +178,12 @@ async function testBasic(dsnStr: string)
 				await conn.query("USE test2");
 				assert(!conn.schema || conn.schema=='test2');
 
+				// Check simple query
+				assertEquals(await conn.queryCol<Any>("SELECT 123").first(), 123);
+
+				// Check query with params
+				assertEquals(Number(await conn.queryCol<Any>("SELECT ?", [123]).first()), 123); // can return bigint
+
 				// CREATE TABLE
 				await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp(3) NOT NULL, message text)");
 
@@ -1109,7 +1115,7 @@ async function testManyPlaceholders2(dsnStr: string)
 	try
 	{	pool.forConn
 		(	async conn =>
-			{	/*const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
+			{	const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
 				const pp = [];
 				let sum = 0;
 				for (let i=0; i<N_PARAMS; i++)
@@ -1122,7 +1128,7 @@ async function testManyPlaceholders2(dsnStr: string)
 				}
 				else
 				{	assertEquals(calcedSum, sum);
-				}*/
+				}
 			}
 		);
 	}
