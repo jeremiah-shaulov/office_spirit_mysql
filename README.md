@@ -36,7 +36,7 @@ await pool.onEnd();
 await pool.closeIdle();
 ```
 
-## Connections
+## Connections pool
 
 Connections to database servers are managed by `MyPool` object.
 
@@ -53,13 +53,13 @@ interface MyPoolOptions
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 }
 ```
-- `dsn` - Default data source name of this pool.
-- `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection request will wait.
+- `dsn` - Default Data Source Name for this pool, that will be used if the DSN is not specified when requesting a new connection.
+- `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
-Data source name is specified in URL format, with "mysql://" protocol.
+Data Source Name is specified in URL format, with "mysql://" protocol.
 
 Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`
 Or: `mysql://user:password@localhost/path/to/named.pipe/schema`
@@ -68,21 +68,23 @@ Example: `mysql://root@localhost/`
 Or: `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`
 
 Possible parameters:
-- `keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
-- `keepAliveMax` (number) - how many times at most to recycle each connection
-- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
-- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
-- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
-- `multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
+- `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
+- `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
+- `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
+- `foundRows` (boolean, default `false`) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
+- `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
+- `multiStatements` (boolean, default `false`) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
 
-Connection from the pool can be asked with `pool.forConn()` function:
+## Connections
+
+A new connection from connections pool can be asked with `pool.forConn()` function:
 
 ```ts
 MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Promise<T>
 ```
 If `dsn` is not provided, the default DSN of the pool will be used. You can ask connections to different servers.
 
-The requested connection will be available in the provided `callback`, and when it completes, this connection will return back to pool.
+The requested connection will be available in the provided `callback`, and when it completes, this connection will return back to the pool.
 
 Connection state is reset before returning to the pool. This means that incomplete transaction will be rolled back, and all kind of locks will be cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
@@ -90,6 +92,8 @@ If somebody killed a connection while it was idle in the pool, and you asked to 
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
 
 In the beginning of `callback`, `conn` may be not connected to the server. It will connect on first requested query.
+
+## Cross-server sessions
 
 If you want to deal with multiple simultaneous connections, you can call `pool.session()` to start a cross-server session.
 
@@ -103,7 +107,7 @@ MySession.conn(dsn?: Dsn|string, fresh=false): MyConn
 ```
 `MySession.conn()` returns the connection object (`MyConn`) immediately, but actual connection will be established on first SQL query.
 
-With `true` second argument, always new connection is returned. Otherwise, if there's already a connection to the same DSN in this session, it will be picked up.
+With `true` second argument, always new connection is returned. Otherwise, if there's already an active connection to the same DSN in this session, it will be picked up.
 
 ```ts
 // To download and run this example:
@@ -123,6 +127,7 @@ pool.session
 		const conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
 
 		console.log(conn1 == conn2); // prints true
+		console.log(conn2 != conn3); // prints true
 
 		const connId2 = conn2.queryCol("SELECT Connection_id()").first();
 		const connId3 = conn3.queryCol("SELECT Connection_id()").first();
@@ -364,6 +369,7 @@ pool.forConn
 	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
+		// Use query<any>()
 		const row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
 		if (row)
 		{	// The type of `row` here is `Record<string, any>`
@@ -448,7 +454,7 @@ Another option for parameters substitution is to use libraries that generate SQL
 Any library that produces SQL queries is alright if it takes into consideration the very important `conn.noBackslashEscapes` flag.
 Remember that the value of this flag can change during server session, if user executes a query like `SET sql_mode='no_backslash_escapes'`.
 
-Query functions can receive SQL queries in several forms:
+Query functions (`execute()`, `query()` and the such) can receive SQL queries in several forms:
 
 ```ts
 type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
@@ -791,7 +797,7 @@ await pool.closeIdle();
 - `conn.inTrx: boolean` - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
 - `conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
 - `conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
-- `conn.schema: string` - if your server supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value.
+- `conn.schema: string` - if your server version supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value. With old servers this will always remain empty string.
 
 Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call `await conn.connect()`.
 
