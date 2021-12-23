@@ -2,7 +2,9 @@ import {FieldType, Charset} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 import {MyProtocol, RowType} from "./my_protocol.ts";
 
-export type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+export type JsonNode = null | boolean | number | string | JsonNode[] | {[member: string]: JsonNode};
+export type ColumnValue = bigint | Date | Uint8Array | JsonNode;
+
 // deno-lint-ignore no-explicit-any
 export type Param = any;
 export type Params = Param[] | Record<string, Param> | null | undefined;

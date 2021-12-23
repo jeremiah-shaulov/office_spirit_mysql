@@ -315,7 +315,8 @@ MyConn.queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): Result
 type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
 type Params = any[] | Record<string, any> | null;
 class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
-type ColumnValue = null | boolean | number | bigint | Date | string | Uint8Array;
+type ColumnValue = bigint | Date | Uint8Array | JsonNode;
+type JsonNode = null | boolean | number | string | JsonNode[] | {[member: string]: JsonNode};
 ```
 
 By default `query*()` functions produce rows where each column is of `ColumnValue` type.
@@ -360,7 +361,7 @@ If you're sure about column types, you can override the column type with `any` (
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -382,6 +383,33 @@ pool.forConn
 await pool.onEnd();
 await pool.closeIdle();
 ```
+
+## Type conversions
+
+When rows are read, MySQL values are converted to matching Javascript types.
+
+- `NULL` → `null`
+- `bit` → `boolean`
+- `integer`, `mediumint`, `smallint`, `tinyint`, `year` → `number`
+- `bigint` → either `number` or `bigint`
+- `float`, `double` → `number`
+- `date`, `datetime`, `timestamp` → `Date`
+- `time` → `number` of seconds
+- `char`, `varchar`, `tinytext`, `smalltext`, `text`, `mediumtext`, `longtext` → `string`
+- `binary`, `varbinary`, `tinyblob`, `smallblob`, `blob`, `mediumblob`, `longblob` → `Uint8Array`
+- `json` → is deserialized
+
+Type conversions from Javascript to MySQL happen when you pass parameters to SQL queries.
+
+- `null`, `undefined`, `function`, `symbol` → `NULL`
+- `boolean` → `0` or `1`
+- `number` → `integer` or `double`
+- `bigint` → `bigint`
+- `string` → `char`
+- `Uint8Array` or other typed array → `binary`
+- `Deno.Reader` → `binary`
+- `Date` → `datetime`
+- others → `char` representing JSON serialized value
 
 ## Query parameters
 

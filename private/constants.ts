@@ -54,37 +54,69 @@ export const enum PacketType
 }
 
 export const enum FieldType
-{	MYSQL_TYPE_DECIMAL		= 0,
-	MYSQL_TYPE_TINY			= 1,
-	MYSQL_TYPE_SHORT		= 2,
-	MYSQL_TYPE_LONG			= 3,
-	MYSQL_TYPE_FLOAT		= 4,
-	MYSQL_TYPE_DOUBLE		= 5,
-	MYSQL_TYPE_NULL			= 6,
-	MYSQL_TYPE_TIMESTAMP	= 7,
-	MYSQL_TYPE_LONGLONG		= 8,
-	MYSQL_TYPE_INT24		= 9,
-	MYSQL_TYPE_DATE			= 10,
-	MYSQL_TYPE_TIME			= 11,
-	MYSQL_TYPE_DATETIME		= 12,
-	MYSQL_TYPE_YEAR			= 13,
+{	MYSQL_TYPE_DECIMAL		= 0, // decimal, numeric
+	MYSQL_TYPE_TINY			= 1, // tinyint
+	MYSQL_TYPE_SHORT		= 2, // smallint
+	MYSQL_TYPE_LONG			= 3, // integer
+	MYSQL_TYPE_FLOAT		= 4, // float
+	MYSQL_TYPE_DOUBLE		= 5, // double, real
+	MYSQL_TYPE_NULL			= 6, // NULL
+	MYSQL_TYPE_TIMESTAMP	= 7, // timestamp
+	MYSQL_TYPE_LONGLONG		= 8, // bigint
+	MYSQL_TYPE_INT24		= 9, // mediumint
+	MYSQL_TYPE_DATE			= 10, // date
+	MYSQL_TYPE_TIME			= 11, // time
+	MYSQL_TYPE_DATETIME		= 12, // datetime
+	MYSQL_TYPE_YEAR			= 13, // year
 	//MYSQL_TYPE_NEWDATE	= 14, // Internal to MySQL Server. Not used in ProtocolBinary::* nor ProtocolText::*.
 	MYSQL_TYPE_VARCHAR		= 15,
-	MYSQL_TYPE_BIT			= 16,
+	MYSQL_TYPE_BIT			= 16, // bit
 	//MYSQL_TYPE_TIMESTAMP2	= 17, // Internal to MySQL Server. Not used in ProtocolBinary::* nor ProtocolText::*.
 	//MYSQL_TYPE_DATETIME2	= 18, // Internal to MySQL Server. Not used in ProtocolBinary::* nor ProtocolText::*.
 	//MYSQL_TYPE_TIME2		= 19, // Internal to MySQL Server. Not used in ProtocolBinary::* nor ProtocolText::*.
-	MYSQL_TYPE_JSON			= 245,
+	MYSQL_TYPE_JSON			= 245, // json
 	MYSQL_TYPE_NEWDECIMAL	= 246,
-	MYSQL_TYPE_ENUM			= 247,
-	MYSQL_TYPE_SET			= 248,
-	MYSQL_TYPE_TINY_BLOB	= 249,
-	MYSQL_TYPE_MEDIUM_BLOB	= 250,
-	MYSQL_TYPE_LONG_BLOB	= 251,
-	MYSQL_TYPE_BLOB			= 252,
-	MYSQL_TYPE_VAR_STRING	= 253,
-	MYSQL_TYPE_STRING		= 254,
+	MYSQL_TYPE_ENUM			= 247, // enum
+	MYSQL_TYPE_SET			= 248, // set
+	MYSQL_TYPE_TINY_BLOB	= 249, // tinyblob, tinytext
+	MYSQL_TYPE_MEDIUM_BLOB	= 250, // mediumblob, mediumtext
+	MYSQL_TYPE_LONG_BLOB	= 251, // longblob, longtext
+	MYSQL_TYPE_BLOB			= 252, // blob, text
+	MYSQL_TYPE_VAR_STRING	= 253, // varchar, varbinary
+	MYSQL_TYPE_STRING		= 254, // char, binary
 	MYSQL_TYPE_GEOMETRY		= 255,
+}
+
+export const enum ColumnFlags
+{	NOT_NULL = 1, // Field can't be NULL
+	PRI_KEY = 2, // Field is part of a primary key
+	UNIQUE_KEY = 4, // Field is part of a unique key
+	MULTIPLE_KEY = 8, // Field is part of a key
+	BLOB = 16, // Field is a blob
+	UNSIGNED = 32, // Field is unsigned
+	ZEROFILL = 64, // Field is zerofill
+	BINARY = 128, // Field is binary
+	ENUM = 256, // Field is an enum
+	AUTO_INCREMENT = 512, // Field is a autoincrement field
+	TIMESTAMP = 1024, // Field is a timestamp
+	SET = 2048, // Field is a set
+	NO_DEFAULT_VALUE = 4096, // Field doesn't have default value
+	ON_UPDATE_NOW = 8192, // Field is set to NOW on UPDATE
+	NUM = 32768, // Field is num (for clients)
+	PART_KEY = 16384, // Intern; Part of some key
+	GROUP = 32768, // Intern: Group field
+	UNIQUE = 65536, // Intern: Used by sql_yacc
+	BINCMP = 131072, // Intern: Used by sql_yacc
+	GET_FIXED_FIELDS = 1 << 18, // Used to get fields in item tree
+	FIELD_IN_PART_FUNC = 1 << 19, // Field part of partition func
+	FIELD_IN_ADD_INDEX = 1 << 20, // Intern: Field in TABLE object for new version of altered table, which participates in a newly added index
+	FIELD_IS_RENAMED = 1 << 21, // Intern: Field is being renamed
+	STORAGE_MEDIA = 3 << 22, // Field storage media
+	COLUMN_FORMAT = 3 << 24, // Field column format
+	FIELD_IS_DROPPED = 1 << 26, // Intern: Field is being dropped
+	EXPLICIT_NULL = 1 << 27, // Field is explicitly specified as NULL by the user
+	NOT_SECONDARY = 1 << 29, // Field will not be loaded in secondary engine
+	FIELD_IS_INVISIBLE = 1 << 30, // Field is explicitly marked as invisible by the user
 }
 
 export const enum Command

@@ -215,6 +215,29 @@ export class MyProtocolReader
 		return value;
 	}
 
+	/**	If buffer contains full int8_t, consume it. Else return undefined.
+	 **/
+	protected readInt8()
+	{	if (this.bufferEnd > this.bufferStart && this.packetOffset <= 0xFFFFFF-1)
+		{	debugAssert(this.payloadLength-this.packetOffset >= 1);
+			this.packetOffset++;
+			return this.dataView.getInt8(this.bufferStart++);
+		}
+	}
+
+	/**	To read a int8_t, do: readInt8() ?? await readInt8Async().
+		This allows to avoid unnecessary promise awaiting.
+	 **/
+	protected async readInt8Async()
+	{	if (this.packetOffset > 0xFFFFFF-1)
+		{	await this.correctNearPacketBoundary();
+		}
+		await this.recvAtLeast(1);
+		const value = this.dataView.getInt8(this.bufferStart++);
+		this.packetOffset++;
+		return value;
+	}
+
 	/**	If buffer contains full uint16_t, consume it. Else return undefined.
 	 **/
 	protected readUint16()
@@ -236,6 +259,32 @@ export class MyProtocolReader
 		}
 		await this.recvAtLeast(2);
 		const value = this.dataView.getUint16(this.bufferStart, true);
+		this.bufferStart += 2;
+		this.packetOffset += 2;
+		return value;
+	}
+
+	/**	If buffer contains full int16_t, consume it. Else return undefined.
+	 **/
+	protected readInt16()
+	{	if (this.bufferEnd-this.bufferStart >= 2 && this.packetOffset <= 0xFFFFFF-2)
+		{	debugAssert(this.payloadLength-this.packetOffset >= 2);
+			const value = this.dataView.getInt16(this.bufferStart, true);
+			this.bufferStart += 2;
+			this.packetOffset += 2;
+			return value;
+		}
+	}
+
+	/**	To read a int16_t, do: readInt16() ?? await readInt16Async().
+		This allows to avoid unnecessary promise awaiting.
+	 **/
+	protected async readInt16Async()
+	{	if (this.packetOffset > 0xFFFFFF-2)
+		{	await this.correctNearPacketBoundary();
+		}
+		await this.recvAtLeast(2);
+		const value = this.dataView.getInt16(this.bufferStart, true);
 		this.bufferStart += 2;
 		this.packetOffset += 2;
 		return value;
@@ -267,6 +316,32 @@ export class MyProtocolReader
 		return value;
 	}
 
+	/**	If buffer contains full 3-byte little-endian int, consume it. Else return undefined.
+	 **/
+	/*protected readInt24()/////////
+	{	if (this.bufferEnd-this.bufferStart >= 3 && this.packetOffset <= 0xFFFFFF-3)
+		{	debugAssert(this.payloadLength-this.packetOffset >= 3);
+			const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getInt8(this.bufferStart+2) << 16);
+			this.bufferStart += 3;
+			this.packetOffset += 3;
+			return value;
+		}
+	}*/
+
+	/**	To read a 3-byte little-endian int, do: readInt24() ?? await readInt24Async().
+		This allows to avoid unnecessary promise awaiting.
+	 **/
+	/*protected async readInt24Async()
+	{	if (this.packetOffset > 0xFFFFFF-3)
+		{	await this.correctNearPacketBoundary();
+		}
+		await this.recvAtLeast(3);
+		const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getInt8(this.bufferStart+2) << 16);
+		this.bufferStart += 3;
+		this.packetOffset += 3;
+		return value;
+	}*/
+
 	/**	If buffer contains full uint32_t, consume it. Else return undefined.
 	 **/
 	protected readUint32()
@@ -293,6 +368,32 @@ export class MyProtocolReader
 		return value;
 	}
 
+	/**	If buffer contains full int32_t, consume it. Else return undefined.
+	 **/
+	protected readInt32()
+	{	if (this.bufferEnd-this.bufferStart >= 4 && this.packetOffset <= 0xFFFFFF-4)
+		{	debugAssert(this.payloadLength-this.packetOffset >= 4);
+			const value = this.dataView.getInt32(this.bufferStart, true);
+			this.bufferStart += 4;
+			this.packetOffset += 4;
+			return value;
+		}
+	}
+
+	/**	To read a int32_t, do: readInt32() ?? await readInt32Async().
+		This allows to avoid unnecessary promise awaiting.
+	 **/
+	protected async readInt32Async()
+	{	if (this.packetOffset > 0xFFFFFF-4)
+		{	await this.correctNearPacketBoundary();
+		}
+		await this.recvAtLeast(4);
+		const value = this.dataView.getInt32(this.bufferStart, true);
+		this.bufferStart += 4;
+		this.packetOffset += 4;
+		return value;
+	}
+
 	/**	If buffer contains full uint64_t, consume it. Else return undefined.
 	 **/
 	protected readUint64()
@@ -314,6 +415,32 @@ export class MyProtocolReader
 		}
 		await this.recvAtLeast(8);
 		const value = this.dataView.getBigUint64(this.bufferStart, true);
+		this.bufferStart += 8;
+		this.packetOffset += 8;
+		return value;
+	}
+
+	/**	If buffer contains full int64_t, consume it. Else return undefined.
+	 **/
+	protected readInt64()
+	{	if (this.bufferEnd-this.bufferStart >= 8 && this.packetOffset <= 0xFFFFFF-8)
+		{	debugAssert(this.payloadLength-this.packetOffset >= 8);
+			const value = this.dataView.getBigInt64(this.bufferStart, true);
+			this.bufferStart += 8;
+			this.packetOffset += 8;
+			return value;
+		}
+	}
+
+	/**	To read a int64_t, do: readInt64() ?? await readInt64Async().
+		This allows to avoid unnecessary promise awaiting.
+	 **/
+	protected async readInt64Async()
+	{	if (this.packetOffset > 0xFFFFFF-8)
+		{	await this.correctNearPacketBoundary();
+		}
+		await this.recvAtLeast(8);
+		const value = this.dataView.getBigInt64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
 		return value;

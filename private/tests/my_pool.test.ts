@@ -5,7 +5,6 @@ import {BusyError, CanceledError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
 import {writeAll, readAll, copy} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
-import * as semver from 'https://deno.land/x/semver@v1.4.0/mod.ts';
 
 const {TESTS_DSN, WITH_DOCKER} = Deno.env.toObject();
 
@@ -157,7 +156,7 @@ async function testBasic(dsnStr: string)
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
 
-				if (semver.gte(conn.serverVersion.match(/^[\d\.]*/)?.[0] || '', '6.0.0')) // conn.serverVersion can be: 8.0.25-0ubuntu0.21.04.1
+				if (parseFloat(conn.serverVersion) >= 6.0) // conn.serverVersion can be: 8.0.25-0ubuntu0.21.04.1
 				{	await conn.execute("START TRANSACTION READ ONLY");
 					assertEquals(conn.inTrx, true);
 					assertEquals(conn.inTrxReadonly, true);
@@ -517,7 +516,7 @@ async function testVariousColumnTypes(dsnStr: string)
 	{	pool.forConn
 		(	async conn =>
 			{	// CREATE TABLE
-				const res = await conn.query
+				let res = await conn.query
 				(	`	DROP DATABASE IF EXISTS test1;
 						CREATE DATABASE test1 /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/;
 						USE test1;
@@ -525,6 +524,10 @@ async function testVariousColumnTypes(dsnStr: string)
 						CREATE TEMPORARY TABLE t1
 						(	id integer PRIMARY KEY AUTO_INCREMENT,
 							c_null text,
+
+							c_bit0 bit NOT NULL,
+							c_bit1 bit NOT NULL,
+
 							c_tinyint tinyint NOT NULL,
 							c_tinyint_u tinyint unsigned NOT NULL,
 							c_smallint smallint NOT NULL,
@@ -535,11 +538,31 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_int_u int unsigned NOT NULL,
 							c_bigint bigint NOT NULL,
 							c_bigint_u bigint unsigned NOT NULL,
+
 							c_float float NOT NULL,
 							c_double double NOT NULL,
-							c_text text NOT NULL,
+
+							c_tinytext tinytext,
+							c_smalltext tinytext,
+							c_text tinytext,
+							c_mediumtext tinytext,
+							c_longtext tinytext,
+
 							c_tinyblob tinyblob,
+							c_smallblob tinyblob,
+							c_blob tinyblob,
+							c_mediumblob tinyblob,
+							c_longblob tinyblob,
+
+							c_char char(5),
+							c_binary binary(5),
+
+							c_varchar varchar(100),
+							c_varbinary varbinary(100),
+
 							/*!50708 c_json json,*/
+
+							c_year year NOT NULL,
 							c_timestamp timestamp NOT NULL,
 							c_date date NOT NULL,
 							c_datetime datetime NOT NULL
@@ -547,6 +570,10 @@ async function testVariousColumnTypes(dsnStr: string)
 
 						INSERT INTO t1 SET
 							c_null = NULL,
+
+							c_bit0 = 0,
+							c_bit1 = 1,
+
 							c_tinyint = 1,
 							c_tinyint_u = 2,
 							c_smallint = -3,
@@ -557,16 +584,34 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_int_u = 8,
 							c_bigint = -9007199254740991,
 							c_bigint_u = Pow(2, 63),
+
 							c_float = 11.5,
 							c_double = -12.25,
-							c_text = 'Text',
+
+							c_tinytext = 'abcd',
+							c_smalltext = 'efgh',
+							c_text = 'ijkl',
+							c_mediumtext = 'mnop',
+							c_longtext = 'qrst',
+
 							c_tinyblob = x'01020304',
+							c_smallblob = x'05060708',
+							c_blob = x'090A0B0C',
+							c_mediumblob = x'0D0E0F10',
+							c_longblob = x'11121314',
+
+							c_char = 'abc',
+							c_binary = x'010203',
+
+							c_varchar = 'abc',
+							c_varbinary = x'010203',
+
 							/*!50708 c_json = Json_object('a', 1, 'b', 2),*/
+
+							c_year = 2020,
 							c_timestamp = '2000-12-01 01:02:03',
 							c_date = '2000-12-02',
 							c_datetime = '2000-12-01 01:02:03';
-
-						SELECT * FROM t1;
 					`
 				);
 
@@ -595,42 +640,73 @@ async function testVariousColumnTypes(dsnStr: string)
 				assertEquals(await res.nextResultset(), true);
 
 				assertEquals(res.columns.length, 0);
-				assertEquals(res.hasMore, true);
+				assertEquals(res.affectedRows, 1);
+				assertEquals(res.lastInsertId, 1);
+				assertEquals(res.hasMore, false);
 				assertEquals(await res.first(), undefined);
-				assertEquals(res.hasMore, true);
-				assertEquals(await res.nextResultset(), true);
-
-				const expectedRow: Record<string, Any> =
-				{	id: 1,
-					'c_null': null,
-					'c_tinyint': 1,
-					'c_tinyint_u': 2,
-					'c_smallint': -3,
-					'c_smallint_u': 4,
-					'c_mediumint': 5,
-					'c_mediumint_u': 6,
-					'c_int': 7,
-					'c_int_u': 8,
-					'c_bigint': -9007199254740991,
-					'c_bigint_u': 2n ** 63n,
-					'c_float': 11.5,
-					'c_double': -12.25,
-					'c_text': 'Text',
-					'c_tinyblob': '\x01\x02\x03\x04',
-					'c_timestamp': new Date(2000, 11, 1, 1, 2, 3),
-					'c_date': new Date(2000, 11, 2),
-					'c_datetime': new Date(2000, 11, 1, 1, 2, 3)
-				};
-				if (semver.gte(conn.serverVersion.match(/^[\d\.]*/)?.[0] || '', '5.7.8'))
-				{	expectedRow.c_json = {a: 1, b: 2};
-				}
-				assertEquals(res.columns.length, Object.keys(expectedRow).length);
-				assertEquals(res.hasMore, true);
-				assertEquals(await res.first(), expectedRow);
 				assertEquals(res.hasMore, false);
 				assertEquals(await res.nextResultset(), false);
-				assertEquals(await res.nextResultset(), false);
-				assertEquals(await res.nextResultset(), false);
+				assertEquals(res.hasMore, false);
+
+				for (let i=0; i<2; i++)
+				{	res = await conn.query("SELECT * FROM t1", i==0 ? undefined : []);
+
+					assertEquals(res.hasMore, true);
+					const row = await res.first();
+					const expectedRow: Record<string, Any> =
+					{	id: 1,
+						'c_null': null,
+
+						'c_bit0': false,
+						'c_bit1': true,
+
+						'c_tinyint': 1,
+						'c_tinyint_u': 2,
+						'c_smallint': -3,
+						'c_smallint_u': 4,
+						'c_mediumint': 5,
+						'c_mediumint_u': 6,
+						'c_int': 7,
+						'c_int_u': 8,
+						'c_bigint': -9007199254740991,
+						'c_bigint_u': 2n ** 63n,
+
+						'c_float': 11.5,
+						'c_double': -12.25,
+
+						'c_tinytext': 'abcd',
+						'c_smalltext': 'efgh',
+						'c_text': 'ijkl',
+						'c_mediumtext': 'mnop',
+						'c_longtext': 'qrst',
+
+						'c_tinyblob': new Uint8Array([1, 2, 3, 4]),
+						'c_smallblob': new Uint8Array([5, 6, 7, 8]),
+						'c_blob': new Uint8Array([0x09, 0x0A, 0x0B, 0x0C]),
+						'c_mediumblob': new Uint8Array([0x0D, 0x0E, 0x0F, 0x10]),
+						'c_longblob': new Uint8Array([0x11, 0x12, 0x13, 0x14]),
+
+						'c_char': 'abc',
+						'c_binary': new Uint8Array([1, 2, 3, 0, 0]),
+
+						'c_varchar': 'abc',
+						'c_varbinary': new Uint8Array([1, 2, 3]),
+
+						'c_year': 2020,
+						'c_timestamp': new Date(2000, 11, 1, 1, 2, 3),
+						'c_date': new Date(2000, 11, 2),
+						'c_datetime': new Date(2000, 11, 1, 1, 2, 3)
+					};
+					if (row && ('c_json' in row))
+					{	expectedRow.c_json = {a: 1, b: 2};
+					}
+					assertEquals(res.columns.length, Object.keys(expectedRow).length);
+					assertEquals(row, expectedRow);
+					assertEquals(res.hasMore, false);
+					assertEquals(await res.nextResultset(), false);
+					assertEquals(await res.nextResultset(), false);
+					assertEquals(await res.nextResultset(), false);
+				}
 
 				// Drop database that i created
 				await conn.query("DROP DATABASE test1");

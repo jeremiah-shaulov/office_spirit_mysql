@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, FieldType} from './constants.ts';
+import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, FieldType, ColumnFlags} from './constants.ts';
 import {BusyError, CanceledError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
@@ -1146,7 +1146,8 @@ L:		while (true)
 			{	// Text protocol row
 				this.unput(type);
 				for (let i=0; i<nColumns; i++)
-				{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
+				{	const {type, flags, name} = columns[i];
+					let len = this.readLenencInt() ?? await this.readLenencIntAsync();
 					if (len > Number.MAX_SAFE_INTEGER)
 					{	throw new Error(`Field is too long: ${len} bytes`);
 					}
@@ -1161,7 +1162,7 @@ L:		while (true)
 						}
 						else if (len <= this.buffer.length)
 						{	const v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
-							value = convColumnValue(v, columns[i].type, this.decoder);
+							value = convColumnValue(v, type, flags, this.decoder);
 						}
 						else
 						{	if (!buffer || buffer.length<len)
@@ -1169,7 +1170,7 @@ L:		while (true)
 							}
 							const v = buffer.subarray(0, len);
 							await this.readBytesToBuffer(v);
-							value = convColumnValue(v, columns[i].type, this.decoder);
+							value = convColumnValue(v, type, flags, this.decoder);
 						}
 					}
 					switch (rowType)
@@ -1178,10 +1179,10 @@ L:		while (true)
 							break;
 						case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
-							row[columns[i].name] = value;
+							row[name] = value;
 							break;
 						case RowType.MAP:
-							row.set(columns[i].name, value);
+							row.set(name, value);
 							break;
 						default:
 							debugAssert(rowType == RowType.FIRST_COLUMN);
@@ -1207,20 +1208,48 @@ L:		while (true)
 					{	nullBitsI++;
 						nullBitMask = 1;
 					}
+					const {type, flags, name} = columns[i];
 					if (!isNull)
-					{	switch (columns[i].type)
+					{	switch (type)
 						{	case FieldType.MYSQL_TYPE_TINY:
-								value = this.readUint8() ?? await this.readUint8Async();
+								if (flags & ColumnFlags.UNSIGNED)
+								{	value = this.readUint8() ?? await this.readUint8Async();
+								}
+								else
+								{	value = this.readInt8() ?? await this.readInt8Async();
+								}
 								break;
 							case FieldType.MYSQL_TYPE_SHORT:
 							case FieldType.MYSQL_TYPE_YEAR:
-								value = this.readUint16() ?? await this.readUint16Async();
+								if (flags & ColumnFlags.UNSIGNED)
+								{	value = this.readUint16() ?? await this.readUint16Async();
+								}
+								else
+								{	value = this.readInt16() ?? await this.readInt16Async();
+								}
 								break;
+							case FieldType.MYSQL_TYPE_INT24:
 							case FieldType.MYSQL_TYPE_LONG:
-								value = this.readUint32() ?? await this.readUint32Async();
+								if (flags & ColumnFlags.UNSIGNED)
+								{	value = this.readUint32() ?? await this.readUint32Async();
+								}
+								else
+								{	value = this.readInt32() ?? await this.readInt32Async();
+								}
 								break;
 							case FieldType.MYSQL_TYPE_LONGLONG:
-								value = this.readUint64() ?? await this.readUint64Async();
+								if (flags & ColumnFlags.UNSIGNED)
+								{	value = this.readUint64() ?? await this.readUint64Async();
+									if (value <= Number.MAX_SAFE_INTEGER)
+									{	value = Number(value); // as happen in text protocol
+									}
+								}
+								else
+								{	value = this.readInt64() ?? await this.readInt64Async();
+									if (value>=Number.MIN_SAFE_INTEGER && value<=Number.MAX_SAFE_INTEGER)
+									{	value = Number(value); // as happen in text protocol
+									}
+								}
 								break;
 							case FieldType.MYSQL_TYPE_FLOAT:
 								value = this.readFloat() ?? await this.readFloatAsync();
@@ -1274,6 +1303,11 @@ L:		while (true)
 								}
 								break;
 							}
+							case FieldType.MYSQL_TYPE_BIT:
+							{	// MySQL sends bit value as blob with length=1
+								value = (this.readUint16() ?? await this.readUint16Async()) == 257;
+								break;
+							}
 							default:
 							{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
 								if (len > Number.MAX_SAFE_INTEGER)
@@ -1286,16 +1320,25 @@ L:		while (true)
 								else if (len > this.maxColumnLen)
 								{	this.readVoid(len) || this.readVoidAsync(len);
 								}
-								else if (len <= this.buffer.length)
-								{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
+								else if ((flags & ColumnFlags.BINARY) && type != FieldType.MYSQL_TYPE_JSON)
+								{	value = new Uint8Array(len);
+									await this.readBytesToBuffer(value);
 								}
 								else
-								{	if (!buffer || buffer.length<len)
-									{	buffer = new Uint8Array(len);
+								{	if (len <= this.buffer.length)
+									{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
 									}
-									const v = buffer.subarray(0, len);
-									await this.readBytesToBuffer(v);
-									value = this.decoder.decode(v);
+									else
+									{	if (!buffer || buffer.length<len)
+										{	buffer = new Uint8Array(len);
+										}
+										const v = buffer.subarray(0, len);
+										await this.readBytesToBuffer(v);
+										value = this.decoder.decode(v);
+									}
+									if (type == FieldType.MYSQL_TYPE_JSON)
+									{	value = JSON.parse(value);
+									}
 								}
 							}
 						}
@@ -1306,10 +1349,10 @@ L:		while (true)
 							break;
 						case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
-							row[columns[i].name] = value;
+							row[name] = value;
 							break;
 						case RowType.MAP:
-							row.set(columns[i].name, value);
+							row.set(name, value);
 							break;
 						default:
 							debugAssert(rowType == RowType.FIRST_COLUMN);
@@ -1464,8 +1507,16 @@ L:		while (true)
 				this.state = ProtocolState.QUERYING;
 				const {curResultsets} = this;
 				debugAssert(curResultsets?.hasMoreProtocol);
+				const {isPreparedStmt, stmtId} = curResultsets;
 				curResultsets.resetFields();
-				state = await this.readQueryResponse(curResultsets, curResultsets.isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+				state = await this.readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+				if (state == ProtocolState.IDLE)
+				{	if (stmtId < 0)
+					{	curResultsets.protocol = undefined;
+					}
+					curResultsets.hasMoreProtocol = false;
+					this.curResultsets = undefined;
+				}
 			}
 			this.setState(state);
 			return yes;
