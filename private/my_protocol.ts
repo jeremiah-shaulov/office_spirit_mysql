@@ -1104,7 +1104,8 @@ L:		while (true)
 		debugAssert(this.curResultsets?.hasMoreProtocol); // because we're in ProtocolState.HAS_MORE_ROWS
 		this.state = ProtocolState.QUERYING;
 		try
-		{	const {isPreparedStmt, stmtId, columns} = this.curResultsets;
+		{	const {curResultsets} = this;
+			const {isPreparedStmt, stmtId, columns} = curResultsets;
 			const nColumns = columns.length;
 			const type = await this.readPacket(isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
 			if (type == (isPreparedStmt ? PacketType.EOF : PacketType.OK))
@@ -1112,13 +1113,11 @@ L:		while (true)
 				{	this.setState(ProtocolState.HAS_MORE_RESULTSETS);
 				}
 				else
-				{	if (this.curResultsets)
-					{	if (stmtId < 0)
-						{	this.curResultsets.protocol = undefined;
-						}
-						this.curResultsets.hasMoreProtocol = false;
-						this.curResultsets = undefined;
+				{	if (stmtId < 0)
+					{	curResultsets.protocol = undefined;
 					}
+					curResultsets.hasMoreProtocol = false;
+					this.curResultsets = undefined;
 					if (this.pendingCloseStmts.length != 0)
 					{	await this.doPending();
 					}
@@ -1352,13 +1351,9 @@ L:		while (true)
 									}
 									// discard next rows and resultsets
 									await that.doDiscard(ProtocolState.HAS_MORE_ROWS);
+									debugAssert(!that.curResultsets);
 									// done
 									that.curLastColumnReader = undefined;
-									if (that.curResultsets)
-									{	that.curResultsets.protocol = undefined;
-										that.curResultsets.hasMoreProtocol = false;
-										that.curResultsets = undefined;
-									}
 									if (that.pendingCloseStmts.length != 0)
 									{	await that.doPending();
 									}
@@ -1410,7 +1405,7 @@ L:		while (true)
 	private async doDiscard(state: ProtocolState, onlyRows=false)
 	{	const {curResultsets} = this;
 		debugAssert(curResultsets);
-		const {isPreparedStmt} = curResultsets;
+		const {isPreparedStmt, stmtId} = curResultsets;
 		const mode = isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR;
 		const okType = isPreparedStmt ? PacketType.EOF : PacketType.OK;
 		while (true)
@@ -1430,6 +1425,14 @@ L:		while (true)
 			else
 			{	break;
 			}
+		}
+		debugAssert(state==ProtocolState.HAS_MORE_RESULTSETS || state==ProtocolState.IDLE);
+		if (state == ProtocolState.IDLE)
+		{	if (stmtId < 0)
+			{	curResultsets.protocol = undefined;
+			}
+			curResultsets.hasMoreProtocol = false;
+			this.curResultsets = undefined;
 		}
 		return state;
 	}
@@ -1455,30 +1458,14 @@ L:		while (true)
 			{	this.state = ProtocolState.QUERYING;
 				state = await this.doDiscard(state, true);
 			}
-			const {curResultsets} = this;
-			debugAssert(curResultsets?.hasMoreProtocol);
 			let yes = false;
 			if (state == ProtocolState.HAS_MORE_RESULTSETS)
 			{	yes = true;
 				this.state = ProtocolState.QUERYING;
+				const {curResultsets} = this;
+				debugAssert(curResultsets?.hasMoreProtocol);
 				curResultsets.resetFields();
 				state = await this.readQueryResponse(curResultsets, curResultsets.isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
-				if (state == ProtocolState.IDLE)
-				{	if (curResultsets.stmtId < 0)
-					{	curResultsets.protocol = undefined;
-					}
-					curResultsets.hasMoreProtocol = false;
-					this.curResultsets = undefined;
-					if (this.pendingCloseStmts.length != 0)
-					{	await this.doPending();
-					}
-				}
-				else
-				{	curResultsets.hasMoreProtocol = true;
-				}
-			}
-			else
-			{	curResultsets.hasMoreProtocol = false;
 			}
 			this.setState(state);
 			return yes;
@@ -1511,16 +1498,22 @@ L:		while (true)
 				debugAssert(!this.curLastColumnReader);
 				this.onEndSession = undefined;
 			}
-			if (state==ProtocolState.HAS_MORE_ROWS || state==ProtocolState.HAS_MORE_RESULTSETS)
-			{	try
-				{	state = await this.doDiscard(state);
+			const {curResultsets} = this;
+			if (curResultsets)
+			{	debugAssert(state==ProtocolState.HAS_MORE_ROWS || state==ProtocolState.HAS_MORE_RESULTSETS);
+				try
+				{	debugAssert(curResultsets.hasMoreProtocol);
+					state = await this.doDiscard(state);
+					debugAssert(!curResultsets.hasMoreProtocol && !curResultsets.protocol);
+					curResultsets.hasMoreProtocol = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
 				}
 				catch (e)
 				{	console.error(e);
 					recycleConnection = false;
+					this.curResultsets = undefined;
 				}
+				debugAssert(!this.curResultsets);
 			}
-			this.curResultsets = undefined;
 			this.curLastColumnReader = undefined;
 			this.onEndSession = undefined;
 			const buffer = this.recycleBuffer();

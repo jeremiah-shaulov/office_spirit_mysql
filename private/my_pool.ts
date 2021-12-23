@@ -98,7 +98,7 @@ export class MyPool
 	private nBusyAll = 0;
 	private hTimer: number | undefined;
 	private haveSlotsCallbacks: (() => void)[] = [];
-	private onerror: (error: Error) => void = () => {};
+	private onerror: (error: Error) => void = () => {}; // TODO: use
 	private onend: () => void = () => {};
 	private nSessionsOrConns = 0;
 

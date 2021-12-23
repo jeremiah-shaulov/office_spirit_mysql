@@ -146,8 +146,11 @@ export class ResultsetsProtocol<Row> extends Resultsets<Row>
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	if (this.hasMoreProtocol && this.protocol)
-		{	while (true)
+	{	if (this.hasMoreProtocol)
+		{	if (!this.protocol)
+			{	throw new CanceledError(`Connection terminated`);
+			}
+			while (true)
 			{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
 				if (row === undefined)
 				{	break;
@@ -158,7 +161,13 @@ export class ResultsetsProtocol<Row> extends Resultsets<Row>
 	}
 
 	nextResultset(): Promise<boolean>
-	{	return !this.hasMoreProtocol || !this.protocol ? Promise.resolve(false) : this.protocol.nextResultset();
+	{	if (!this.hasMoreProtocol)
+		{	return Promise.resolve(false);
+		}
+		if (!this.protocol)
+		{	throw new CanceledError(`Connection terminated`);
+		}
+		return this.protocol.nextResultset();
 	}
 
 	async discard()
