@@ -2,21 +2,27 @@ import {debugAssert} from './debug_assert.ts';
 import {StatusFlags} from './constants.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
-import {BusyError, CanceledError} from './errors.ts';
+import {BusyError, CanceledError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsProtocol, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
+import {XaInfoTable} from "./my_pool.ts";
 
 export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
+	private xaId: number | undefined;
+	private xaPrepared: XaInfoTable | true | undefined;
+	private pendingSql: string[] = [];
 
 	constructor
 	(	private dsn: Dsn,
 		private maxConns: number,
 		private onbegin: (dsn: Dsn) => Promise<MyProtocol>,
-		private onend: (dsn: Dsn, protocol: MyProtocol) => void,
+		private onend: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId?: number) => void,
+		private onbeforexaprepare?: (hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable | undefined>,
+		private onafterxacommit?: (hostname: string, port: number, connectionId: number, xaId: number, info: XaInfoTable) => Promise<void>,
 	)
 	{
 	}
@@ -63,6 +69,15 @@ export class MyConn
 				{	this.onend(this.dsn, protocol);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
+				const {pendingSql} = this;
+				for (let i=0; i<pendingSql.length; i++)
+				{	await protocol.sendComQuery(pendingSql[i]);
+					if (!this.isConnecting) // end() called
+					{	this.onend(this.dsn, protocol);
+						throw new CanceledError(`Operation cancelled: end() called during connection process`);
+					}
+				}
+				pendingSql.length = 0;
 				this.protocol = protocol;
 			}
 			finally
@@ -72,11 +87,14 @@ export class MyConn
 	}
 
 	end()
-	{	const {protocol} = this;
+	{	const {protocol, xaId, xaPrepared} = this;
 		this.isConnecting = false;
+		this.xaId = undefined;
+		this.xaPrepared = undefined;
+		this.pendingSql.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.onend(this.dsn, protocol);
+		{	this.onend(this.dsn, protocol, xaPrepared ? xaId : undefined);
 		}
 	}
 
@@ -136,7 +154,111 @@ export class MyConn
 		return resultsets;
 	}
 
-	private async doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType): Promise<ResultsetsProtocol<Row>>
+	async startTrx(options?: {readonly?: boolean, xa?: number})
+	{	const {protocol} = this;
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+		{	throw new SqlError(`There's already an active transaction`);
+		}
+		let sql;
+		const xa = options?.xa;
+		if (typeof(xa) == 'number')
+		{	this.xaId = xa;
+			this.xaPrepared = undefined;
+			sql = `XA START '${xa}'`;
+		}
+		else
+		{	const readonly = options?.readonly;
+			sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
+		}
+		if (protocol)
+		{	await this.doQuery(sql);
+		}
+		else
+		{	this.pendingSql.push(sql);
+		}
+	}
+
+	async savepoint()
+	{	const {protocol} = this;
+		const pointId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+		const sql = `SAVEPOINT p${pointId}`;
+		if (protocol)
+		{	if (!(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+			{	throw new SqlError(`There's no active transaction`);
+			}
+			// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
+			await protocol.sendComQuery(sql);
+		}
+		else
+		{	if (this.pendingSql.length == 0) // call startTrx() to add the first entry
+			{	throw new SqlError(`There's no active transaction`);
+			}
+			this.pendingSql.push(sql);
+		}
+		return pointId;
+	}
+
+	async prepareCommit()
+	{	const {protocol, xaId} = this;
+		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || typeof(xaId)!='number')
+		{	throw new SqlError(`There's no active global transaction`);
+		}
+		if (!this.xaPrepared)
+		{	// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
+			await protocol.sendComQuery(`XA END '${xaId}'`);
+			let xaPrepared;
+			if (this.onbeforexaprepare)
+			{	xaPrepared = await this.onbeforexaprepare(this.dsn.hostname, this.dsn.port, protocol.connectionId, xaId);
+			}
+			await protocol.sendComQuery(`XA PREPARE '${xaId}'`);
+			this.xaPrepared = xaPrepared || true;
+		}
+	}
+
+	async rollback(toPointId?: number)
+	{	const {protocol, xaId} = this;
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+		{	if (typeof(toPointId) == 'number')
+			{	await protocol.sendComQuery(`ROLLBACK TO p${toPointId}`);
+			}
+			else
+			{	if (typeof(xaId) == 'number')
+				{	if (!this.xaPrepared)
+					{	await protocol.sendComQuery(`XA END '${xaId}'`);
+					}
+					await protocol.sendComQuery(`XA ROLLBACK '${xaId}'`);
+				}
+				else
+				{	await protocol.sendComQuery(`ROLLBACK`);
+				}
+			}
+		}
+		this.xaId = undefined;
+		this.xaPrepared = undefined;
+	}
+
+	async commit()
+	{	const {protocol, xaId} = this;
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+		{	if (typeof(xaId) == 'number')
+			{	const {xaPrepared} = this;
+				if (!xaPrepared)
+				{	throw new SqlError(`Please, prepare commit first`);
+				}
+				await protocol.sendComQuery(`XA COMMIT '${xaId}'`);
+				if (this.onafterxacommit && xaPrepared!==true)
+				{	await this.onafterxacommit(this.dsn.hostname, this.dsn.port, protocol.connectionId, xaId, xaPrepared);
+				}
+			}
+			else
+			{	await protocol.sendComQuery(`COMMIT`);
+			}
+		}
+		this.xaId = undefined;
+		this.xaPrepared = undefined;
+	}
+
+	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsProtocol<Row>>
 	{	let nRetriesRemaining = this.maxConns;
 
 		while (true)

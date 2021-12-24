@@ -898,3 +898,72 @@ await pool.closeIdle();
 - `Resultsets.forEach<T>(callback: (row: any) => T | Promise<T>): Promise<T | undefined>` - Reads all rows, and calls the provided callback for each of them.
 - `Resultsets.nextResultset(): Promise<boolean>` - Advances to the next resultset of this query, if there is one. Returns true if moved to the next resultset.
 - `Resultsets.discard(): Promise<void>` - Reads and discards all the rows in all the resultsets of this query.
+
+## Transactions
+
+`MyConn` class has the following functions to work with transactions:
+
+```ts
+/// Start a transaction.
+function startTrx(options?: {readonly?: boolean, xa?: number}): Promise<void>;
+
+// Create a savepoint. Returns point Id that can be passed to `rollback()`.
+function savepoint(): Promise<number>;
+
+// If the transaction started with `xa`, this function prepares the 2-phase commit.
+function prepareCommit(): Promise<void>;
+
+// Rollback to a savepoint, or all.
+function rollback(toPointId?: number): Promise<void>;
+
+// Commit. 2-phase transactions must be prepared first.
+function commit(): Promise<void>;
+```
+
+To start regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or the whole transaction, and commit.
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
+// deno run --allow-env --allow-net /tmp/example18.ts
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.2/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
+
+await pool.forConn
+(	async conn =>
+	{	// CREATE DATABASE
+		await conn.query("DROP DATABASE IF EXISTS test1");
+		await conn.query("CREATE DATABASE `test1`");
+
+		// USE
+		await conn.query("USE test1");
+
+		// CREATE TABLE
+		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
+
+		// Start transaction
+		await conn.startTrx();
+
+		// Insert a row
+		await conn.query("INSERT INTO t_log SET a = 123");
+
+		// Ensure that the row is present
+		console.log(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first()); // prints: 123
+
+		// Rollback
+		await conn.rollback();
+
+		// The inserted row is not persisted
+		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
+
+		// Drop database that i created
+		await conn.query("DROP DATABASE test1");
+	}
+);
+
+await pool.onEnd();
+await pool.closeIdle();
+```

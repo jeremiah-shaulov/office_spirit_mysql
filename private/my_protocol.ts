@@ -101,7 +101,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				await protocol.readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
-			{	const resultsets = await protocol.sendComQuery(initSql, RowType.FIRST_COLUMN);
+			{	const resultsets = await protocol.sendComQuery(initSql);
 				await resultsets!.discard();
 			}
 			return protocol;
@@ -760,7 +760,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType: RowType, letReturnUndefined=false)
+	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.FIRST_COLUMN, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		try
 		{	this.startWritingNewPacket(true);
@@ -1531,7 +1531,7 @@ L:		while (true)
 		If the connection was dead, returns Uint8Array buffer to be recycled.
 		This function doesn't throw errors (errors can be considered fatal).
 	 **/
-	async end(recycleConnection=false)
+	async end(rollbackPreparedXaId?: number, recycleConnection=false)
 	{	let {state} = this;
 		if (state != ProtocolState.TERMINATED)
 		{	this.state = ProtocolState.TERMINATED;
@@ -1555,7 +1555,7 @@ L:		while (true)
 				try
 				{	debugAssert(curResultsets.hasMoreProtocol);
 					state = await this.doDiscard(state);
-					debugAssert(!curResultsets.hasMoreProtocol && !curResultsets.protocol);
+					debugAssert(!curResultsets.hasMoreProtocol && (!curResultsets.protocol || curResultsets.stmtId>=0));
 					curResultsets.hasMoreProtocol = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
 				}
 				catch (e)
@@ -1564,6 +1564,14 @@ L:		while (true)
 					this.curResultsets = undefined;
 				}
 				debugAssert(!this.curResultsets);
+			}
+			if (typeof(rollbackPreparedXaId) == 'number')
+			{	try
+				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
+				}
+				catch (e)
+				{	console.error(e);
+				}
 			}
 			this.curLastColumnReader = undefined;
 			this.onEndSession = undefined;
@@ -1593,7 +1601,7 @@ L:		while (true)
 				const {initSchema, initSql} = this;
 				await protocol.sendComResetConnectionAndInitDb(initSchema);
 				if (initSql)
-				{	const resultsets = await protocol.sendComQuery(initSql, RowType.FIRST_COLUMN);
+				{	const resultsets = await protocol.sendComQuery(initSql);
 					await resultsets!.discard();
 				}
 				debugAssert(protocol.state == ProtocolState.IDLE);

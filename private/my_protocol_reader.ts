@@ -316,32 +316,6 @@ export class MyProtocolReader
 		return value;
 	}
 
-	/**	If buffer contains full 3-byte little-endian int, consume it. Else return undefined.
-	 **/
-	/*protected readInt24()/////////
-	{	if (this.bufferEnd-this.bufferStart >= 3 && this.packetOffset <= 0xFFFFFF-3)
-		{	debugAssert(this.payloadLength-this.packetOffset >= 3);
-			const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getInt8(this.bufferStart+2) << 16);
-			this.bufferStart += 3;
-			this.packetOffset += 3;
-			return value;
-		}
-	}*/
-
-	/**	To read a 3-byte little-endian int, do: readInt24() ?? await readInt24Async().
-		This allows to avoid unnecessary promise awaiting.
-	 **/
-	/*protected async readInt24Async()
-	{	if (this.packetOffset > 0xFFFFFF-3)
-		{	await this.correctNearPacketBoundary();
-		}
-		await this.recvAtLeast(3);
-		const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getInt8(this.bufferStart+2) << 16);
-		this.bufferStart += 3;
-		this.packetOffset += 3;
-		return value;
-	}*/
-
 	/**	If buffer contains full uint32_t, consume it. Else return undefined.
 	 **/
 	protected readUint32()
