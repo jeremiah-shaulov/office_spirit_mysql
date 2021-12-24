@@ -50,7 +50,7 @@ const TESTS =
 	testBusyState,
 	testSessions,
 	testPoolDsn,
-	//testLoadBigDump,
+	testLoadBigDump,
 	testManyPlaceholders,
 	testManyPlaceholders2,
 	testTrx,
