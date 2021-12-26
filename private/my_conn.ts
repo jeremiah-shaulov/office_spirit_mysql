@@ -49,7 +49,7 @@ export class MyConn
 		trxOptions: {readonly: boolean, xa: boolean} | undefined,
 		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
 		private returnConnFunc: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void,
-		private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>,
+		private onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>,
 	)
 	{	this.dsnStr = dsn.name;
 		if (trxOptions)
@@ -284,8 +284,8 @@ export class MyConn
 		}
 		if (!this.isXaPrepared)
 		{	// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
-			if (this.beforeCommitFunc)
-			{	await this.beforeCommitFunc(this, this.ownerSession);
+			if (this.onBeforeCommit)
+			{	await this.onBeforeCommit(this.ownerSession ? this.ownerSession.conns : [this]);
 			}
 			await protocol.sendComQuery(`XA END '${curXaId}${protocol.connectionId}'`);
 			await protocol.sendComQuery(`XA PREPARE '${curXaId}${protocol.connectionId}'`);
@@ -338,8 +338,8 @@ export class MyConn
 				await protocol.sendComQuery(`XA COMMIT '${curXaId}${protocol.connectionId}'`);
 			}
 			else
-			{	if (this.beforeCommitFunc)
-				{	await this.beforeCommitFunc(this, this.ownerSession);
+			{	if (this.onBeforeCommit)
+				{	await this.onBeforeCommit(this.ownerSession ? this.ownerSession.conns : [this]);
 				}
 				await protocol.sendComQuery(`COMMIT`);
 			}

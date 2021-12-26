@@ -1567,6 +1567,12 @@ L:		while (true)
 			}
 			if (rollbackPreparedXaId1)
 			{	try
+				{	await this.sendComQuery(`XA END '${rollbackPreparedXaId1}${this.connectionId}'`);
+				}
+				catch (e)
+				{	// ok
+				}
+				try
 				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId1}${this.connectionId}'`);
 				}
 				catch (e)

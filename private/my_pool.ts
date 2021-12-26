@@ -13,11 +13,13 @@ const KEEPALIVE_CHECK_EACH = 1000;
 const TRY_CONNECT_INTERVAL_MSEC = 100;
 
 type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
 export interface MyPoolOptions
 {	dsn?: Dsn | string | (Dsn|string)[];
 	maxConns?: number;
 	onLoadFile?: OnLoadFile;
+	onBeforeCommit?: OnBeforeCommit;
 }
 
 class MyPoolConns
@@ -46,18 +48,22 @@ class MyPoolConns
 }
 
 export class MySession
-{	protected conns: Map<string, MyConn[]> = new Map;
+{	protected connsArr: MyConn[] = [];
 	private savepointEnum = 0;
-	private trxOptions: {readonly: boolean, xa: boolean} | undefined;
+	protected trxOptions: {readonly: boolean, xa: boolean} | undefined;
 
 	constructor
-	(	private defaultDsn: Dsn|undefined,
-		private maxConns: number,
-		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string) => void,
-		private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>,
+	(	protected defaultDsn: Dsn|undefined,
+		protected maxConns: number,
+		protected getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
+		protected returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string) => void,
+		protected onBeforeCommit?: OnBeforeCommit,
 	)
 	{
+	}
+
+	get conns(): Iterable<MyConn> // Iterable<MyConn>, not MyConn[], to ensure that the array will not be modified from outside
+	{	return this.connsArr;
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
@@ -67,20 +73,17 @@ export class MySession
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
 		}
-		else if (typeof(dsn) == 'string')
-		{	dsn = new Dsn(dsn);
+		if (!fresh)
+		{	const dsnStr = typeof(dsn)=='string' ? dsn : dsn.name;
+			for (const conn of this.connsArr)
+			{	if (conn.dsnStr == dsnStr)
+				{	return conn;
+				}
+			}
 		}
-		let conns = this.conns.get(dsn.name);
-		if (!conns)
-		{	conns = [];
-			this.conns.set(dsn.name, conns);
-		}
-		if (fresh || !conns.length)
-		{	const conn = new MyConn(this, dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
-			conns[conns.length] = conn;
-			return conn;
-		}
-		return conns[0];
+		const conn = new MyConn(this, typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+		this.connsArr[this.connsArr.length] = conn;
+		return conn;
 	}
 
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
@@ -88,21 +91,17 @@ export class MySession
 		const xa = !!options?.xa;
 		const trxOptions = {readonly, xa};
 		// 1. Fail if there are XA started
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	if (conn.xaId1)
-				{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
-				}
+		for (const conn of this.connsArr)
+		{	if (conn.xaId1)
+			{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
 			}
 		}
 		// 2. Commit current transactions
 		await this.commit();
 		// 3. Start transaction
 		const promises = [];
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	promises[promises.length] = conn.startTrx(trxOptions);
-			}
+		for (const conn of this.connsArr)
+		{	promises[promises.length] = conn.startTrx(trxOptions);
 		}
 		await this.doAll(promises, true);
 		this.trxOptions = trxOptions;
@@ -111,10 +110,8 @@ export class MySession
 	savepoint()
 	{	const pointId = ++this.savepointEnum;
 		const promises = [];
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	promises[promises.length] = conn[doSavepoint](pointId, `SAVEPOINT s${pointId}`);
-			}
+		for (const conn of this.connsArr)
+		{	promises[promises.length] = conn[doSavepoint](pointId, `SAVEPOINT s${pointId}`);
 		}
 		return this.doAll(promises);
 	}
@@ -122,10 +119,8 @@ export class MySession
 	rollback(toPointId?: number)
 	{	this.trxOptions = undefined;
 		const promises = [];
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	promises[promises.length] = conn.rollback(toPointId);
-			}
+		for (const conn of this.connsArr)
+		{	promises[promises.length] = conn.rollback(toPointId);
 		}
 		return this.doAll(promises);
 	}
@@ -134,20 +129,16 @@ export class MySession
 	{	this.trxOptions = undefined;
 		// 1. Prepare commit
 		const promises = [];
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	if (conn.xaId1)
-				{	promises[promises.length] = conn.prepareCommit();
-				}
+		for (const conn of this.connsArr)
+		{	if (conn.xaId1)
+			{	promises[promises.length] = conn.prepareCommit();
 			}
 		}
 		await this.doAll(promises, true);
 		// 2. Commit
 		promises.length = 0;
-		for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	promises[promises.length] = conn.commit();
-			}
+		for (const conn of this.connsArr)
+		{	promises[promises.length] = conn.commit();
 		}
 		await this.doAll(promises);
 	}
@@ -180,11 +171,9 @@ export class MySession
 }
 
 class MySessionInternal extends MySession
-{	end()
-	{	for (const conns of this.conns.values())
-		{	for (const conn of conns)
-			{	conn.end();
-			}
+{	endSession()
+	{	for (const conn of this.connsArr)
+		{	conn.end();
 		}
 	}
 }
@@ -204,10 +193,10 @@ export class MyPool
 	private defaultDsn: Dsn | undefined;
 	private maxConns = DEFAULT_MAX_CONNS;
 	private onLoadFile: OnLoadFile|undefined;
+	private onBeforeCommit: OnBeforeCommit|undefined;
 
 	private getConnFunc = this.getConn.bind(this);
 	private returnConnFunc = this.returnConn.bind(this);
-	private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>;
 
 	constructor(options?: Dsn | string | (Dsn|string)[] | MyPoolOptions)
 	{	this.options(options);
@@ -220,7 +209,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn) || Array.isArray(options))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile} = options;
+			const {dsn, maxConns, onLoadFile, onBeforeCommit} = options;
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? [new Dsn(dsn)] : [];
 			}
@@ -240,9 +229,10 @@ export class MyPool
 			{	this.maxConns = maxConns;
 			}
 			this.onLoadFile = onLoadFile;
+			this.onBeforeCommit = onBeforeCommit;
 		}
-		const {dsn, maxConns, onLoadFile} = this;
-		return {dsn, maxConns, onLoadFile};
+		const {dsn, maxConns, onLoadFile, onBeforeCommit} = this;
+		return {dsn, maxConns, onLoadFile, onBeforeCommit};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
@@ -298,13 +288,13 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this.defaultDsn, this.maxConns, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
+	{	const session = new MySessionInternal(this.defaultDsn, this.maxConns, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
 		}
 		finally
-		{	session.end();
+		{	session.endSession();
 			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
 			{	this.onend();
 			}
@@ -321,7 +311,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConn(undefined, dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
+		const conn = new MyConn(undefined, dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
