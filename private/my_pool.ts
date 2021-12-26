@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
-import {ServerDisconnectedError} from "./errors.ts";
-import {MyConn} from './my_conn.ts';
+import {ServerDisconnectedError, SqlError} from "./errors.ts";
+import {MyConn, doSavepoint} from './my_conn.ts';
 import {MyProtocol} from './my_protocol.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
@@ -26,6 +26,7 @@ export interface MyPoolOptions
 class MyPoolConns
 {	idle: MyProtocol[] = [];
 	busy: MyProtocol[] = [];
+	nCreating = 0;
 
 	async newConn(dsn: Dsn, unusedBuffer?: Uint8Array, onLoadFile?: OnLoadFile)
 	{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
@@ -49,23 +50,25 @@ class MyPoolConns
 
 export class MySession
 {	protected conns: Map<string, MyConn[]> = new Map;
+	private savepointEnum = 0;
+	private trxOptions: {readonly: boolean, xa: boolean} | undefined;
 
 	constructor
-	(	private pool: MyPool, // TODO: use
-		private defaultDsn: Dsn|undefined,
+	(	private defaultDsn: Dsn|undefined,
 		private maxConns: number,
-		private onbegin: (dsn: Dsn) => Promise<MyProtocol>,
-		private onend: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId?: number) => void,
-		private onbeforexaprepare?: (hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable | undefined>,
-		private onafterxacommit?: (hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable) => Promise<void>,
+		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
+		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId?: number) => void,
+		private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>,
+		private beforeXaPrepareFunc?: (hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable | undefined>,
+		private afterXaCommitFunc?: (hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable) => Promise<void>,
 	)
 	{
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
-	{	if (dsn == null)
+	{	if (dsn == undefined)
 		{	dsn = this.defaultDsn;
-			if (dsn == null)
+			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
 		}
@@ -78,11 +81,106 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	const conn = new MyConn(dsn, this.maxConns, this.onbegin, this.onend, this.onbeforexaprepare, this.onafterxacommit);
+		{	const conn = new MyConn(this, dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
 			conns[conns.length] = conn;
 			return conn;
 		}
 		return conns[0];
+	}
+
+	async startTrx(options?: {readonly?: boolean, xa?: boolean})
+	{	const readonly = !!options?.readonly;
+		const xa = !!options?.xa;
+		const trxOptions = {readonly, xa};
+		// 1. Fail if there are XA started
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	if (conn.xaId != undefined)
+				{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
+				}
+			}
+		}
+		// 2. Commit current transactions
+		await this.commit();
+		// 3. Start transaction
+		const promises = [];
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	promises[promises.length] = conn.startTrx(trxOptions);
+			}
+		}
+		await this.doAll(promises, true);
+		this.trxOptions = trxOptions;
+	}
+
+	savepoint()
+	{	const pointId = ++this.savepointEnum;
+		const promises = [];
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	promises[promises.length] = conn[doSavepoint](pointId, `SAVEPOINT s${pointId}`);
+			}
+		}
+		return this.doAll(promises);
+	}
+
+	rollback(toPointId?: number)
+	{	this.trxOptions = undefined;
+		const promises = [];
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	promises[promises.length] = conn.rollback(toPointId);
+			}
+		}
+		return this.doAll(promises);
+	}
+
+	async commit()
+	{	this.trxOptions = undefined;
+		// 1. Prepare commit
+		const promises = [];
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	if (conn.xaId != undefined)
+				{	promises[promises.length] = conn.prepareCommit();
+				}
+			}
+		}
+		await this.doAll(promises, true);
+		// 2. Commit
+		promises.length = 0;
+		for (const conns of this.conns.values())
+		{	for (const conn of conns)
+			{	promises[promises.length] = conn.commit();
+			}
+		}
+		await this.doAll(promises);
+	}
+
+	private async doAll(promises: Promise<unknown>[], rollbackOnError=false)
+	{	const result = await Promise.allSettled(promises);
+		let error;
+		for (const r of result)
+		{	if (r.status == 'rejected')
+			{	if (!error)
+				{	error = r.reason;
+				}
+				else
+				{	console.error(r.reason);
+				}
+			}
+		}
+		if (error)
+		{	if (rollbackOnError)
+			{	try
+				{	await this.rollback();
+				}
+				catch (e2)
+				{	console.error(e2);
+				}
+			}
+			throw error;
+		}
 	}
 }
 
@@ -108,43 +206,48 @@ export class MyPool
 	private nSessionsOrConns = 0;
 
 	private dsn: Dsn|undefined;
-	private maxConns: number;
+	private maxConns = DEFAULT_MAX_CONNS;
 	private onLoadFile: OnLoadFile|undefined;
 	private xaInfoTables: XaInfoTable[] = [];
 
+	private getConnFunc = this.getConn.bind(this);
+	private returnConnFunc = this.returnConn.bind(this);
+	private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>;
+	private beforeXaPrepareFunc: ((hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable|undefined>) | undefined;
+	private afterXaCommitFunc: ((hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable) => Promise<void>) | undefined;
+
 	constructor(options?: MyPoolOptions|Dsn|string)
-	{	if (typeof(options) == 'string')
-		{	this.dsn = new Dsn(options);
-			this.maxConns = DEFAULT_MAX_CONNS;
-		}
-		else if (options instanceof Dsn)
-		{	this.dsn = options;
-			this.maxConns = DEFAULT_MAX_CONNS;
-		}
-		else
-		{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn;
-			this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
-			this.onLoadFile = options?.onLoadFile;
-			const xaInfoTables = options?.xaInfoTables;
-			if (xaInfoTables)
-			{	for (const item of xaInfoTables)
-				{	this.xaInfoTables.push({dsn: typeof(item.dsn)=='string' ? new Dsn(item.dsn) : item.dsn, table: item.table});
-				}
-			}
-		}
+	{	this.options(options);
 	}
 
 	/**	Set and/or get configuration.
 	 **/
-	options(options?: MyPoolOptions): MyPoolOptions
-	{	this.dsn = typeof(options?.dsn)=='string' ? new Dsn(options.dsn) : options?.dsn ?? this.dsn;
-		this.maxConns = options?.maxConns ?? this.maxConns;
-		this.onLoadFile = options && 'onLoadFile' in options ? options.onLoadFile : this.onLoadFile;
-		{	const xaInfoTables = options?.xaInfoTables;
-			if (xaInfoTables)
-			{	this.xaInfoTables = [];
-				for (const item of xaInfoTables)
-				{	this.xaInfoTables.push({dsn: typeof(item.dsn)=='string' ? new Dsn(item.dsn) : item.dsn, table: item.table});
+	options(options?: MyPoolOptions|Dsn|string): MyPoolOptions
+	{	if (options)
+		{	if (typeof(options) == 'string')
+			{	this.dsn = new Dsn(options);
+			}
+			else if (options instanceof Dsn)
+			{	this.dsn = options;
+			}
+			else
+			{	const {dsn, maxConns, onLoadFile, xaInfoTables} = options;
+				if (dsn)
+				{	this.dsn = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
+				}
+				if (typeof(maxConns)=='number' && maxConns>0)
+				{	this.maxConns = maxConns;
+				}
+				this.onLoadFile = onLoadFile;
+				if (xaInfoTables)
+				{	this.xaInfoTables.length = 0;
+					for (const {dsn, table} of xaInfoTables)
+					{	if (dsn && table)
+						{	this.xaInfoTables.push({dsn: typeof(dsn)=='string' ? new Dsn(dsn) : dsn, table: table});
+						}
+					}
+					this.beforeXaPrepareFunc = this.xaInfoTables.length ? this.beforeXaPrepare.bind(this) : undefined;
+					this.afterXaCommitFunc = this.xaInfoTables.length ? this.afterXaCommit.bind(this) : undefined;
 				}
 			}
 		}
@@ -205,7 +308,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.getConn.bind(this), this.returnConn.bind(this), this.xaInfoTables.length ? this.beforeXaPrepare.bind(this) : undefined, this.xaInfoTables.length ? this.afterXaCommit.bind(this) : undefined);
+	{	const session = new MySessionInternal(this.dsn, this.maxConns, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -219,16 +322,16 @@ export class MyPool
 	}
 
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
-	{	if (dsn == null)
+	{	if (dsn == undefined)
 		{	dsn = this.dsn;
-			if (dsn == null)
+			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
 		}
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConn(dsn, this.maxConns, this.getConn.bind(this), this.returnConn.bind(this), this.xaInfoTables.length ? this.beforeXaPrepare.bind(this) : undefined, this.xaInfoTables.length ? this.afterXaCommit.bind(this) : undefined);
+		const conn = new MyConn(undefined, dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
@@ -287,7 +390,13 @@ export class MyPool
 		{	let conn: MyProtocol|undefined;
 			conn = idle.pop();
 			if (!conn)
-			{	conn = await conns.newConn(dsn, this.unusedBuffers.pop(), this.onLoadFile);
+			{	conns.nCreating++;
+				try
+				{	conn = await conns.newConn(dsn, this.unusedBuffers.pop(), this.onLoadFile);
+				}
+				finally
+				{	conns.nCreating--;
+				}
 			}
 			else if (conn.useTill <= now)
 			{	this.nIdleAll--;
@@ -356,7 +465,7 @@ export class MyPool
 	{	const {connsPool} = this;
 		const now = Date.now();
 		const promises = [];
-		for (const [dsn, {idle, busy}] of connsPool)
+		for (const [dsn, {idle, busy, nCreating}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
@@ -366,7 +475,7 @@ export class MyPool
 				}
 			}
 			//
-			if (busy.length+idle.length == 0)
+			if (busy.length+idle.length+nCreating == 0)
 			{	connsPool.delete(dsn);
 			}
 		}

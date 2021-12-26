@@ -7,7 +7,7 @@ Features:
 - Pool for connections to multiple servers.
 - Streaming BLOBs and `Deno.Reader`s.
 - Custom handler for LOCAL INFILE.
-- Transactions: regular, readonly, 2-phase, savepoints.
+- Advanced transactions manager: regular, readonly, distributed (2-phase commit), savepoints.
 - Made with CPU and RAM efficiency in mind.
 
 Basic example:
@@ -18,7 +18,7 @@ Basic example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
 // deno run --allow-env --allow-net /tmp/example1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -52,11 +52,13 @@ interface MyPoolOptions
 {	dsn?: Dsn|string;
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+	xaInfoTables?: {dsn: Dsn|string, table: string}[];
 }
 ```
 - `dsn` - Default Data Source Name for this pool, that will be used if the DSN is not specified when requesting a new connection.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
+- `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
@@ -116,7 +118,7 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
 
@@ -180,7 +182,7 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
 // deno run --allow-env --allow-net /tmp/example3.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -212,7 +214,7 @@ And it skips all further rows, if they exist.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
 // deno run --allow-env --allow-net /tmp/example4.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -246,7 +248,7 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
 // deno run --allow-env --allow-net /tmp/example5.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -286,7 +288,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
 // deno run --allow-env --allow-net /tmp/example6.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -328,7 +330,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
 // deno run --allow-env --allow-net /tmp/example7.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -362,7 +364,7 @@ If you're sure about column types, you can override the column type with `any` (
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -428,7 +430,7 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
 // deno run --allow-env --allow-net /tmp/example9.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -458,7 +460,7 @@ Parameter names will override session variables with the same names.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
 // deno run --allow-env --allow-net /tmp/example10.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -516,7 +518,7 @@ Example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
 // deno run --allow-env --allow-net /tmp/example11.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 // 1. Define the generator
 
@@ -591,7 +593,7 @@ This library tries to have everything needed in real life usage. It's possible t
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
 // deno run --allow-env --allow-net /tmp/example12.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -620,7 +622,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
 // deno run --allow-env --allow-net /tmp/example13.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -664,7 +666,7 @@ This allows to read SQL from files.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
 // DSN='mysql://root:hello@localhost/tests?multiStatements' deno run --allow-env --allow-net /tmp/example14.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 // Don't forget `?multiStatements`
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
@@ -715,7 +717,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
 // deno run --allow-env --allow-net /tmp/example15.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -753,7 +755,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
 // deno run --allow-env --allow-net /tmp/example16.ts
 
-import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 import {dirname} from "https://deno.land/std@0.117.0/path/mod.ts";
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -847,7 +849,7 @@ And you must read or discard all the resultsets before being able to issue next 
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
 // deno run --allow-env --allow-net /tmp/example17.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
@@ -905,20 +907,39 @@ await pool.closeIdle();
 `MyConn` class has the following functions to work with transactions:
 
 ```ts
-// Start a transaction.
-function startTrx(options?: {readonly?: boolean, xa?: number}): Promise<void>;
+/**	Start transaction.
+	To start regular transaction, call `startTrx()` without parameters.
+	To start READONLY transaction, pass `{readonly: true}`.
+	To start distributed transaction, pass `{xa: true}`.
+	The XA transaction Id will be generated automatically. It will be available through `conn.xaId`.
+ **/
+function MyConn.startTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<void>;
 
-// Create a savepoint. Returns point Id that can be passed to `rollback()`.
-function savepoint(): Promise<number>;
+/**	Creates transaction savepoint, and returns Id number of this new savepoint.
+	Then you can call `conn.rollback(pointId)`.
+ **/
+function MyConn.savepoint(): Promise<number>;
 
-// If the transaction started with `xa`, this function prepares the 2-phase commit.
-function prepareCommit(): Promise<void>;
+/**	If the current transaction started with `{xa: true}`, this function prepares the 2-phase commit.
+	If this function succeeded, the transaction will be saved on the server till you call `commit()`.
+	The saved transaction can survive server restart and unexpected halt.
+	You need to commit it as soon as possible, all the locks that it holds will be released.
+	Usually, you want to prepare transactions on all servers, and immediately commit them, it `prepareCommit()` succeeded, or rollback them, if it failed.
+	If you create cross-server session with `pool.session()`, you can start and commit transaction on session level, and in this case no need to explicitly prepare the commit (`session.commit()` will do it implicitly).
+ **/
+function MyConn.prepareCommit(): Promise<void>;
 
-// Rollback to a savepoint, or all.
-function rollback(toPointId?: number): Promise<void>;
+/**	Rollback to a savepoint, or all.
+	If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
+	If `toPointId` is number returned from `savepoint()` call, rolls back to that point (also works with XAs).
+	If `toPointId` is `0`, rolls back to the beginning of transaction (doesn't work with XAs).
+ **/
+function MyConn.rollback(toPointId?: number): Promise<void>;
 
-// Commit. 2-phase transactions must be prepared first.
-function commit(): Promise<void>;
+/**	Commit.
+	If the current transaction started with `{xa: true}`, you need to call `prepareCommit()` first.
+ **/
+function MyConn.commit(): Promise<void>;
 ```
 
 To start regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or the whole transaction, and commit.
@@ -929,7 +950,7 @@ To start regular transaction call `startTrx()` without parameters. Then you can 
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.4/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.5/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -968,3 +989,19 @@ await pool.forConn
 await pool.onEnd();
 await pool.closeIdle();
 ```
+
+It's also possible to start a READONLY transaction:
+
+```ts
+await conn.startTrx({readonly: true});
+```
+
+Or a distributed transaction:
+
+```ts
+await conn.startTrx({xa: true});
+```
+
+## Distributed (aka global) transactions
+
+To be continued...
