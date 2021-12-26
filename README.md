@@ -53,12 +53,14 @@ interface MyPoolOptions
 	maxConns?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 	onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>;
+	xaInfoTables?: {dsn: Dsn|string, table: string}[];
 }
 ```
 - `dsn` - Default Data Source Name for this pool, that will be used if the DSN is not specified when requesting a new connection.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
 - `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
+- `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
@@ -910,17 +912,17 @@ await pool.closeIdle();
 /**	Start transaction.
 	To start regular transaction, call `startTrx()` without parameters.
 	To start READONLY transaction, pass `{readonly: true}`.
-	To start distributed transaction, pass `{xa: true}`.
-	The XA transaction Id will be generated automatically. It will be available through `conn.xaId`.
+	To start distributed transaction, pass `{xaId1: '...'}`.
+	The XA transaction Id consists of 2 parts: `xaId1` - string that you provide, and `conn.connectionId` that will be appended automatically.
  **/
-function MyConn.startTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<void>;
+function MyConn.startTrx(options?: {readonly?: boolean, xaId1?: string}): Promise<void>;
 
 /**	Creates transaction savepoint, and returns Id number of this new savepoint.
 	Then you can call `conn.rollback(pointId)`.
  **/
 function MyConn.savepoint(): Promise<number>;
 
-/**	If the current transaction started with `{xa: true}`, this function prepares the 2-phase commit.
+/**	If the current transaction started with `{xaId1: '...'}`, this function prepares the 2-phase commit.
 	If this function succeeded, the transaction will be saved on the server till you call `commit()`.
 	The saved transaction can survive server restart and unexpected halt.
 	You need to commit it as soon as possible, all the locks that it holds will be released.
@@ -937,7 +939,7 @@ function MyConn.prepareCommit(): Promise<void>;
 function MyConn.rollback(toPointId?: number): Promise<void>;
 
 /**	Commit.
-	If the current transaction started with `{xa: true}`, you need to call `prepareCommit()` first.
+	If the current transaction started with `{xaId1: '...'}`, you need to call `prepareCommit()` first.
  **/
 function MyConn.commit(): Promise<void>;
 ```
@@ -999,7 +1001,7 @@ await conn.startTrx({readonly: true});
 Or a distributed transaction:
 
 ```ts
-await conn.startTrx({xa: true});
+await conn.startTrx({xaId1: Math.random()+'-'});
 ```
 
 ## Distributed (aka global) transactions

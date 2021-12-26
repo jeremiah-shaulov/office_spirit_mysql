@@ -10,43 +10,21 @@ import {MySession} from "./my_pool.ts";
 
 export const doSavepoint = Symbol('sessionSavepoint');
 
-class XaIdGen
-{	private lastTime = 0;
-	private lastEnum = 0;
-	private pid = Deno.pid;
-
-	next()
-	{	const curTime = Math.floor(Date.now()/1000);
-		let curEnum = 0;
-		if (curTime == this.lastTime)
-		{	curEnum = ++this.lastEnum;
-		}
-		else
-		{	this.lastTime = curTime;
-			this.lastEnum = 0;
-		}
-		return curTime.toString(36)+'.'+curEnum.toString(36)+'@'+this.pid.toString(36)+'-';
-	}
-}
-
-const xaIdGen = new XaIdGen;
-
 export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
 	private savepointEnum = 0;
-	private curXaId = '';
+	private curXaId1 = '';
 	private isXaPrepared = false;
 	private pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
 	constructor
-	(	private ownerSession: MySession | undefined,
-		private dsn: Dsn,
+	(	private dsn: Dsn,
 		private maxConns: number,
-		trxOptions: {readonly: boolean, xa: boolean} | undefined,
+		trxOptions: {readonly: boolean, xaId1: string} | undefined,
 		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
 		private returnConnFunc: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void,
 		private onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>,
@@ -86,7 +64,7 @@ export class MyConn
 	}
 
 	get xaId1()
-	{	return this.inTrx ? this.curXaId : '';
+	{	return this.inTrx ? this.curXaId1 : '';
 	}
 
 	/**	If end() called during connection process, the connection will not be established after this function returns.
@@ -105,7 +83,7 @@ export class MyConn
 				}
 				const {pendingTrxSql} = this;
 				for (let i=0; i<pendingTrxSql.length; i++)
-				{	const sql = pendingTrxSql[i] || `XA START '${this.curXaId}${protocol.connectionId}'`;
+				{	const sql = pendingTrxSql[i] || `XA START '${this.curXaId1}${protocol.connectionId}'`;
 					await protocol.sendComQuery(sql);
 					if (!this.isConnecting) // end() called
 					{	this.returnConnFunc(this.dsn, protocol, '');
@@ -122,15 +100,15 @@ export class MyConn
 	}
 
 	end()
-	{	const {protocol, curXaId, isXaPrepared} = this;
+	{	const {protocol, curXaId1, isXaPrepared} = this;
 		this.isConnecting = false;
 		this.savepointEnum = 0;
-		this.curXaId = '';
+		this.curXaId1 = '';
 		this.isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '');
+		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId1 : '');
 		}
 	}
 
@@ -193,30 +171,29 @@ export class MyConn
 	/**	Start transaction.
 		To start regular transaction, call `startTrx()` without parameters.
 		To start READONLY transaction, pass `{readonly: true}`.
-		To start distributed transaction, pass `{xa: true}`.
-		The XA transaction Id will be generated automatically. It will be available through `conn.xaId`.
+		To start distributed transaction, pass `{xaId1: '...'}`.
+		The XA transaction Id consists of 2 parts: `xaId1` - string that you provide, and `conn.connectionId` that will be appended automatically.
 	 **/
-	async startTrx(options?: {readonly?: boolean, xa?: boolean})
+	async startTrx(options?: {readonly?: boolean, xaId1?: string})
 	{	const {protocol} = this;
 		let sql;
-		if (options?.xa)
+		if (options?.xaId1)
 		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	if (this.curXaId)
+			{	if (this.curXaId1)
 				{	throw new SqlError(`There's already an active Distributed Transaction`);
 				}
 				await this.commit();
 			}
-			const xaId = xaIdGen.next();
-			this.curXaId = xaId;
-			this.isXaPrepared = false;
-			sql = !protocol ? '' : `XA START '${xaId}${protocol.connectionId}'`;
+			const xaId1 = options.xaId1;
+			this.curXaId1 = xaId1;
+			sql = !protocol ? '' : `XA START '${xaId1}${protocol.connectionId}'`;
 		}
 		else
-		{	this.curXaId = '';
-			this.isXaPrepared = false;
+		{	this.curXaId1 = '';
 			const readonly = options?.readonly;
 			sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
 		}
+		this.isXaPrepared = false;
 		if (protocol)
 		{	await this.doQuery(sql);
 		}
@@ -230,12 +207,11 @@ export class MyConn
 		this.savepointEnum = 0;
 	}
 
-	private startTrxFromConstructor(options: {readonly: boolean, xa: boolean})
+	private startTrxFromConstructor(options: {readonly: boolean, xaId1: string})
 	{	let sql;
-		const {readonly, xa} = options;
-		if (xa)
-		{	const xaId = xaIdGen.next();
-			this.curXaId = xaId;
+		const {readonly, xaId1} = options;
+		if (xaId1)
+		{	this.curXaId1 = xaId1;
 			sql = '';
 		}
 		else
@@ -278,17 +254,17 @@ export class MyConn
 		If you create cross-server session with `pool.session()`, you can start and commit transaction on session level, and in this case no need to explicitly prepare the commit (`session.commit()` will do it implicitly).
 	 **/
 	async prepareCommit()
-	{	const {protocol, curXaId} = this;
-		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId)
+	{	const {protocol, curXaId1} = this;
+		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId1)
 		{	throw new SqlError(`There's no active Distributed Transaction`);
 		}
 		if (!this.isXaPrepared)
 		{	// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
 			if (this.onBeforeCommit)
-			{	await this.onBeforeCommit(this.ownerSession ? this.ownerSession.conns : [this]);
+			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendComQuery(`XA END '${curXaId}${protocol.connectionId}'`);
-			await protocol.sendComQuery(`XA PREPARE '${curXaId}${protocol.connectionId}'`);
+			await protocol.sendComQuery(`XA END '${curXaId1}${protocol.connectionId}'`);
+			await protocol.sendComQuery(`XA PREPARE '${curXaId1}${protocol.connectionId}'`);
 			this.isXaPrepared = true;
 		}
 	}
@@ -299,29 +275,29 @@ export class MyConn
 		If `toPointId` is `0`, rolls back to the beginning of transaction (doesn't work with XAs).
 	 **/
 	async rollback(toPointId?: number)
-	{	const {protocol, curXaId} = this;
+	{	const {protocol, curXaId1} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
 		{	if (typeof(toPointId) == 'number')
 			{	await protocol.sendComQuery(toPointId>0 ? `ROLLBACK TO p${toPointId}` : `ROLLBACK AND CHAIN`);
 			}
 			else
-			{	if (curXaId)
+			{	if (curXaId1)
 				{	if (!this.isXaPrepared)
 					{	try
-						{	await protocol.sendComQuery(`XA END '${curXaId}${protocol.connectionId}'`);
+						{	await protocol.sendComQuery(`XA END '${curXaId1}${protocol.connectionId}'`);
 						}
 						catch (e)
 						{	console.error(e);
 						}
 					}
-					await protocol.sendComQuery(`XA ROLLBACK '${curXaId}${protocol.connectionId}'`);
+					await protocol.sendComQuery(`XA ROLLBACK '${curXaId1}${protocol.connectionId}'`);
 				}
 				else
 				{	await protocol.sendComQuery(`ROLLBACK`);
 				}
 			}
 		}
-		this.curXaId = '';
+		this.curXaId1 = '';
 		this.isXaPrepared = false;
 	}
 
@@ -329,22 +305,22 @@ export class MyConn
 		If the current transaction started with `{xa: true}`, you need to call `prepareCommit()` first.
 	 **/
 	async commit()
-	{	const {protocol, curXaId} = this;
+	{	const {protocol, curXaId1} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-		{	if (curXaId)
+		{	if (curXaId1)
 			{	if (!this.isXaPrepared)
 				{	throw new SqlError(`Please, prepare commit first`);
 				}
-				await protocol.sendComQuery(`XA COMMIT '${curXaId}${protocol.connectionId}'`);
+				await protocol.sendComQuery(`XA COMMIT '${curXaId1}${protocol.connectionId}'`);
 			}
 			else
 			{	if (this.onBeforeCommit)
-				{	await this.onBeforeCommit(this.ownerSession ? this.ownerSession.conns : [this]);
+				{	await this.onBeforeCommit([this]);
 				}
 				await protocol.sendComQuery(`COMMIT`);
 			}
 		}
-		this.curXaId = '';
+		this.curXaId1 = '';
 		this.isXaPrepared = false;
 	}
 

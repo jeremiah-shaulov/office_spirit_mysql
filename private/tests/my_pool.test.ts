@@ -1088,14 +1088,21 @@ async function testManyPlaceholders2(dsnStr: string)
 
 async function testTrx(dsnStr: string)
 {	const pool = new MyPool(dsnStr);
+	const MY_XA_ID = '6294554977320077-';
 
 	try
 	{	await pool.forConn
 		(	async conn =>
-			{	// Rollback if dangling from previous run
+			{	// Recover
 				try
 				{	for await (const row of await conn.query(`XA RECOVER`))
-					{	console.log("%cWarning: there's active XA:%c %s", 'background-color:black; color:yellow', 'font-weight:bold', row.data);
+					{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
+						{	await conn.query(`XA ROLLBACK '${row.data}'`);
+							console.log('Rolled back dangling XA');
+						}
+						else
+						{	console.log("%cWarning: there's active XA:%c %s", 'background-color:black; color:yellow', 'font-weight:bold', row.data);
+						}
 					}
 				}
 				catch
@@ -1105,8 +1112,6 @@ async function testTrx(dsnStr: string)
 				// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test58168");
 				await conn.query("CREATE DATABASE `test58168`");
-				await conn.query("DROP DATABASE IF EXISTS test38743");
-				await conn.query("CREATE DATABASE `test38743`");
 
 				// USE
 				await conn.query("USE test58168");
@@ -1182,7 +1187,7 @@ async function testTrx(dsnStr: string)
 				await conn.query("INSERT INTO t_log SET a = 123");
 				error = undefined;
 				try
-				{	await conn.startTrx({xa: true});
+				{	await conn.startTrx({xaId1: MY_XA_ID});
 				}
 				catch (e)
 				{	error = e;
@@ -1194,10 +1199,10 @@ async function testTrx(dsnStr: string)
 				assertEquals(res.affectedRows, 1);
 
 				// xa when another xa active
-				await conn.startTrx({xa: true});
+				await conn.startTrx({xaId1: MY_XA_ID});
 				error = undefined;
 				try
-				{	await conn.startTrx({xa: true});
+				{	await conn.startTrx({xaId1: MY_XA_ID});
 				}
 				catch (e)
 				{	error = e;
@@ -1206,7 +1211,7 @@ async function testTrx(dsnStr: string)
 				await conn.rollback();
 
 				// xa
-				await conn.startTrx({xa: true});
+				await conn.startTrx({xaId1: MY_XA_ID});
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				await conn.query("INSERT INTO t_log SET a = 123");
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
@@ -1230,6 +1235,53 @@ async function testTrx(dsnStr: string)
 				await conn.commit();
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				res = await conn.query("DELETE FROM t_log");
+				assertEquals(res.affectedRows, 1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+			}
+		);
+
+		// XA Info: create db
+		await pool.forConn
+		(	async conn =>
+			{	await conn.query("DROP DATABASE IF EXISTS test38743");
+				await conn.query("CREATE DATABASE `test38743`");
+				await conn.query("DROP DATABASE IF EXISTS test2");
+				await conn.query("CREATE DATABASE `test2`");
+				await conn.query("USE test2");
+				await conn.query("CREATE TABLE t_xa_info (xa_id char(32) PRIMARY KEY)");
+				await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(32), op enum('insert', 'delete'))");
+				await conn.query("CREATE TRIGGER t1 AFTER INSERT ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (NEW.xa_id, 'insert')");
+				await conn.query("CREATE TRIGGER t2 AFTER DELETE ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (OLD.xa_id, 'delete')");
+			}
+		);
+		const xaInfoDsn = new Dsn(dsnStr);
+		xaInfoDsn.schema = 'test2';
+		pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
+
+		// XA Info: test
+		await pool.session
+		(	async session =>
+			{	await session.startTrx({xa: true});
+				const conn = session.conn();
+				await conn.query("USE test58168");
+				await conn.query("INSERT INTO t_log SET a = 123");
+				await pool.forConn
+				(	async conn2 =>
+					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
+						assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info_sub").first(), 0);
+					},
+					xaInfoDsn
+				);
+				await session.commit();
+				await pool.forConn
+				(	async conn2 =>
+					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
+						assertEquals(await conn2.queryArr("SELECT Count(*), Count(DISTINCT op) FROM test2.t_xa_info_sub").first(), [2, 2]);
+					},
+					xaInfoDsn
+				);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				const res = await conn.query("DELETE FROM t_log");
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 			}
@@ -1295,6 +1347,7 @@ async function testTrx(dsnStr: string)
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
 				await conn1.query(`XA END '${conn1.xaId1}${conn1.connectionId}'`); // break state - after this commit will fail on conn1
+				console.log('%cThe following exceptions must be ignored', 'color:blue');
 
 				let error;
 				try
