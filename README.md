@@ -42,23 +42,21 @@ await pool.closeIdle();
 Connections to database servers are managed by `MyPool` object.
 
 ```ts
-MyPool.constructor(options?: MyPoolOptions|Dsn|string)
+MyPool.constructor(options?: Dsn | string | (Dsn|string)[] | MyPoolOptions)
 ```
 
 Options are:
 
 ```ts
 interface MyPoolOptions
-{	dsn?: Dsn|string;
+{	dsn?: Dsn | string | (Dsn|string)[];
 	maxConns?: number;
-	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-	xaInfoTables?: {dsn: Dsn|string, table: string}[];
+	onLoadFile?: OnLoadFile;
 }
 ```
 - `dsn` - Default Data Source Name for this pool, that will be used if the DSN is not specified when requesting a new connection.
 - `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
-- `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 
 Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 

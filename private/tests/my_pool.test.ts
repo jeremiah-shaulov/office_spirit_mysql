@@ -1105,6 +1105,8 @@ async function testTrx(dsnStr: string)
 				// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test58168");
 				await conn.query("CREATE DATABASE `test58168`");
+				await conn.query("DROP DATABASE IF EXISTS test38743");
+				await conn.query("CREATE DATABASE `test38743`");
 
 				// USE
 				await conn.query("USE test58168");
@@ -1233,57 +1235,6 @@ async function testTrx(dsnStr: string)
 			}
 		);
 
-		// XA Info: create db
-		await pool.forConn
-		(	async conn =>
-			{	await conn.query("DROP DATABASE IF EXISTS test38743");
-				await conn.query("CREATE DATABASE `test38743`");
-				await conn.query("DROP DATABASE IF EXISTS test2");
-				await conn.query("CREATE DATABASE `test2`");
-				await conn.query("USE test2");
-				await conn.query("CREATE TABLE t_xa_info (host varchar(100), port smallint unsigned, connection_id integer unsigned, xa_id bigint unsigned, prepare_time timestamp)");
-			}
-		);
-		const xaInfoDsn = new Dsn(dsnStr);
-		xaInfoDsn.schema = 'test2';
-		pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
-
-		// XA Info: test
-		await pool.forConn
-		(	async conn =>
-			{	await conn.startTrx({xa: true});
-				await conn.query("USE test58168");
-				await conn.query("INSERT INTO t_log SET a = 123");
-				await pool.forConn
-				(	async conn2 =>
-					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-					},
-					xaInfoDsn
-				);
-				await conn.prepareCommit();
-				await pool.forConn
-				(	async conn2 =>
-					{	assertEquals
-						(	await conn2.query("SELECT connection_id, xa_id FROM test2.t_xa_info").all(),
-							[{connection_id: conn.connectionId, xa_id: conn.xaId}]
-						);
-					},
-					xaInfoDsn
-				);
-				await conn.commit();
-				await pool.forConn
-				(	async conn2 =>
-					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-					},
-					xaInfoDsn
-				);
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-				const res = await conn.query("DELETE FROM t_log");
-				assertEquals(res.affectedRows, 1);
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			}
-		);
-
 		// XA session
 		const xaInfoDsn1 = new Dsn(dsnStr);
 		xaInfoDsn1.schema = 'test58168';
@@ -1343,7 +1294,7 @@ async function testTrx(dsnStr: string)
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
-				await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
+				await conn1.query(`XA END '${conn1.xaId1}${conn1.connectionId}'`); // break state - after this commit will fail on conn1
 
 				let error;
 				try
@@ -1359,19 +1310,11 @@ async function testTrx(dsnStr: string)
 			}
 		);
 
-		await pool.forConn
-		(	async conn =>
-			{	assertEquals(await conn.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-			},
-			xaInfoDsn
-		);
-
 		// Drop databases that i created
 		await pool.forConn
 		(	async conn =>
 			{	await conn.query("DROP DATABASE test58168");
 				await conn.query("DROP DATABASE test38743");
-				await conn.query("DROP DATABASE test2");
 			}
 		);
 	}

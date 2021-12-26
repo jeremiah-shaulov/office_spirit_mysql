@@ -14,13 +14,10 @@ const TRY_CONNECT_INTERVAL_MSEC = 100;
 
 type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 
-export type XaInfoTable = {dsn: Dsn, table: string};
-
 export interface MyPoolOptions
-{	dsn?: Dsn|string;
+{	dsn?: Dsn | string | (Dsn|string)[];
 	maxConns?: number;
 	onLoadFile?: OnLoadFile;
-	xaInfoTables?: {dsn: Dsn|string, table: string}[];
 }
 
 class MyPoolConns
@@ -57,10 +54,8 @@ export class MySession
 	(	private defaultDsn: Dsn|undefined,
 		private maxConns: number,
 		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId?: number) => void,
+		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string) => void,
 		private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>,
-		private beforeXaPrepareFunc?: (hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable | undefined>,
-		private afterXaCommitFunc?: (hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable) => Promise<void>,
 	)
 	{
 	}
@@ -81,7 +76,7 @@ export class MySession
 			this.conns.set(dsn.name, conns);
 		}
 		if (fresh || !conns.length)
-		{	const conn = new MyConn(this, dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
+		{	const conn = new MyConn(this, dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
 			conns[conns.length] = conn;
 			return conn;
 		}
@@ -95,7 +90,7 @@ export class MySession
 		// 1. Fail if there are XA started
 		for (const conns of this.conns.values())
 		{	for (const conn of conns)
-			{	if (conn.xaId != undefined)
+			{	if (conn.xaId1)
 				{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
 				}
 			}
@@ -141,7 +136,7 @@ export class MySession
 		const promises = [];
 		for (const conns of this.conns.values())
 		{	for (const conn of conns)
-			{	if (conn.xaId != undefined)
+			{	if (conn.xaId1)
 				{	promises[promises.length] = conn.prepareCommit();
 				}
 			}
@@ -205,54 +200,49 @@ export class MyPool
 	private onend: () => void = () => {};
 	private nSessionsOrConns = 0;
 
-	private dsn: Dsn|undefined;
+	private dsn: Dsn[] = [];
+	private defaultDsn: Dsn | undefined;
 	private maxConns = DEFAULT_MAX_CONNS;
 	private onLoadFile: OnLoadFile|undefined;
-	private xaInfoTables: XaInfoTable[] = [];
 
 	private getConnFunc = this.getConn.bind(this);
 	private returnConnFunc = this.returnConn.bind(this);
 	private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>;
-	private beforeXaPrepareFunc: ((hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable|undefined>) | undefined;
-	private afterXaCommitFunc: ((hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable) => Promise<void>) | undefined;
 
-	constructor(options?: MyPoolOptions|Dsn|string)
+	constructor(options?: Dsn | string | (Dsn|string)[] | MyPoolOptions)
 	{	this.options(options);
 	}
 
 	/**	Set and/or get configuration.
 	 **/
-	options(options?: MyPoolOptions|Dsn|string): MyPoolOptions
+	options(options?: Dsn | string | (Dsn|string)[] | MyPoolOptions): MyPoolOptions
 	{	if (options)
-		{	if (typeof(options) == 'string')
-			{	this.dsn = new Dsn(options);
+		{	if (typeof(options)=='string' || (options instanceof Dsn) || Array.isArray(options))
+			{	options = {dsn: options};
 			}
-			else if (options instanceof Dsn)
-			{	this.dsn = options;
+			const {dsn, maxConns, onLoadFile} = options;
+			if (typeof(dsn) == 'string')
+			{	this.dsn = dsn ? [new Dsn(dsn)] : [];
 			}
-			else
-			{	const {dsn, maxConns, onLoadFile, xaInfoTables} = options;
-				if (dsn)
-				{	this.dsn = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
-				}
-				if (typeof(maxConns)=='number' && maxConns>0)
-				{	this.maxConns = maxConns;
-				}
-				this.onLoadFile = onLoadFile;
-				if (xaInfoTables)
-				{	this.xaInfoTables.length = 0;
-					for (const {dsn, table} of xaInfoTables)
-					{	if (dsn && table)
-						{	this.xaInfoTables.push({dsn: typeof(dsn)=='string' ? new Dsn(dsn) : dsn, table: table});
-						}
+			else if (dsn instanceof Dsn)
+			{	this.dsn = [dsn];
+			}
+			else if (dsn)
+			{	this.dsn.length = 0;
+				for (const item of dsn)
+				{	if (item)
+					{	this.dsn.push(typeof(item)=='string' ? new Dsn(item) : item);
 					}
-					this.beforeXaPrepareFunc = this.xaInfoTables.length ? this.beforeXaPrepare.bind(this) : undefined;
-					this.afterXaCommitFunc = this.xaInfoTables.length ? this.afterXaCommit.bind(this) : undefined;
 				}
 			}
+			this.defaultDsn = this.dsn[0];
+			if (typeof(maxConns)=='number' && maxConns>0)
+			{	this.maxConns = maxConns;
+			}
+			this.onLoadFile = onLoadFile;
 		}
-		const {dsn, maxConns, onLoadFile, xaInfoTables} = this;
-		return {dsn, maxConns, onLoadFile, xaInfoTables};
+		const {dsn, maxConns, onLoadFile} = this;
+		return {dsn, maxConns, onLoadFile};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
@@ -308,7 +298,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this.dsn, this.maxConns, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
+	{	const session = new MySessionInternal(this.defaultDsn, this.maxConns, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -323,7 +313,7 @@ export class MyPool
 
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
 	{	if (dsn == undefined)
-		{	dsn = this.dsn;
+		{	dsn = this.defaultDsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -331,7 +321,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConn(undefined, dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc, this.beforeXaPrepareFunc, this.afterXaCommitFunc);
+		const conn = new MyConn(undefined, dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.beforeCommitFunc);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
@@ -418,8 +408,8 @@ export class MyPool
 		}
 	}
 
-	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId?: number)
-	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now()).then
+	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string)
+	{	conn.end(rollbackPreparedXaId1, --conn.useNTimes>0 && conn.useTill>Date.now()).then
 		(	protocolOrBuffer =>
 			{	const conns = this.connsPool.get(dsn.name);
 				if (!conns)
@@ -514,42 +504,6 @@ export class MyPool
 			this.nIdleAll--;
 			this.closeConn(conn);
 			debugAssert(this.nIdleAll >= 0);
-		}
-	}
-
-	private async beforeXaPrepare(hostname: string, port: number, connectionId: number, xaId: number)
-	{	const {xaInfoTables} = this;
-		if (xaInfoTables.length != 0)
-		{	const i = Math.floor(Math.random() * xaInfoTables.length) % xaInfoTables.length;
-			const xaInfoTable = xaInfoTables[i];
-			const {dsn, table} = xaInfoTable;
-			if (hostname.indexOf("'")!=-1 || hostname.indexOf("\\")!=-1)
-			{	console.error(`Invalid hostname in XA Info DSN: ${hostname}`);
-			}
-			else if (table.indexOf("`") != -1)
-			{	console.error(`Invalid table name in XA Info DSN: ${table}`);
-			}
-			else
-			{	// TODO: ensure autocommit
-				// TODO: no reset connection
-				const sql = `INSERT INTO \`${table}\` (\`host\`, \`port\`, \`connection_id\`, \`xa_id\`, prepare_time) VALUES ('${hostname}', ${Number(port)}, ${Number(connectionId)}, ${Number(xaId)}, Now())`;
-				await this.forConn(conn => conn.execute(sql), dsn);
-				return xaInfoTable;
-			}
-		}
-	}
-
-	private async afterXaCommit(hostname: string, port: number, connectionId: number, xaId: number, xaInfoTable: XaInfoTable)
-	{	const {dsn, table} = xaInfoTable;
-		if (hostname.indexOf("'")!=-1 || hostname.indexOf("\\")!=-1)
-		{	console.error(`Invalid hostname in XA Info DSN: ${hostname}`);
-		}
-		else if (table.indexOf("`") != -1)
-		{	console.error(`Invalid table name in XA Info DSN: ${table}`);
-		}
-		else
-		{	const sql = `DELETE FROM \`${table}\` WHERE (\`host\`, \`port\`, \`connection_id\`, \`xa_id\`) = ('${hostname}', ${Number(port)}, ${Number(connectionId)}, ${Number(xaId)})`;
-			await this.forConn(conn => conn.execute(sql), dsn);
 		}
 	}
 }

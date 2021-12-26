@@ -6,18 +6,39 @@ import {BusyError, CanceledError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsProtocol, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
-import {MySession, XaInfoTable} from "./my_pool.ts";
+import {MySession} from "./my_pool.ts";
 
 export const doSavepoint = Symbol('sessionSavepoint');
+
+class XaIdGen
+{	private lastTime = 0;
+	private lastEnum = 0;
+	private pid = Deno.pid;
+
+	next()
+	{	const curTime = Math.floor(Date.now()/1000);
+		let curEnum = 0;
+		if (curTime == this.lastTime)
+		{	curEnum = ++this.lastEnum;
+		}
+		else
+		{	this.lastTime = curTime;
+			this.lastEnum = 0;
+		}
+		return curTime.toString(36)+'.'+curEnum.toString(36)+'@'+this.pid.toString(36)+'-';
+	}
+}
+
+const xaIdGen = new XaIdGen;
 
 export class MyConn
 {	private protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
 	private savepointEnum = 0;
-	private curXaId: number | undefined;
-	private xaPreparedInfo: XaInfoTable | true | undefined;
-	private pendingTrxSql: string[] = [];
+	private curXaId = '';
+	private isXaPrepared = false;
+	private pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
@@ -27,10 +48,8 @@ export class MyConn
 		private maxConns: number,
 		trxOptions: {readonly: boolean, xa: boolean} | undefined,
 		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId?: number) => void,
+		private returnConnFunc: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void,
 		private beforeCommitFunc?: (conn: MyConn, session?: MySession) => Promise<void>,
-		private beforeXaPrepareFunc?: (hostname: string, port: number, connectionId: number, xaId: number) => Promise<XaInfoTable | undefined>,
-		private afterXaCommitFunc?: (hostname: string, port: number, connectionId: number, xaId: number, info: XaInfoTable) => Promise<void>,
 	)
 	{	this.dsnStr = dsn.name;
 		if (trxOptions)
@@ -66,8 +85,8 @@ export class MyConn
 	{	return this.protocol?.schema ?? '';
 	}
 
-	get xaId()
-	{	return this.inTrx ? this.curXaId : undefined;
+	get xaId1()
+	{	return this.inTrx ? this.curXaId : '';
 	}
 
 	/**	If end() called during connection process, the connection will not be established after this function returns.
@@ -81,14 +100,15 @@ export class MyConn
 			try
 			{	const protocol = await this.getConnFunc(this.dsn);
 				if (!this.isConnecting) // end() called
-				{	this.returnConnFunc(this.dsn, protocol);
+				{	this.returnConnFunc(this.dsn, protocol, '');
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				const {pendingTrxSql} = this;
 				for (let i=0; i<pendingTrxSql.length; i++)
-				{	await protocol.sendComQuery(pendingTrxSql[i]);
+				{	const sql = pendingTrxSql[i] || `XA START '${this.curXaId}${protocol.connectionId}'`;
+					await protocol.sendComQuery(sql);
 					if (!this.isConnecting) // end() called
-					{	this.returnConnFunc(this.dsn, protocol);
+					{	this.returnConnFunc(this.dsn, protocol, '');
 						throw new CanceledError(`Operation cancelled: end() called during connection process`);
 					}
 				}
@@ -102,15 +122,15 @@ export class MyConn
 	}
 
 	end()
-	{	const {protocol, curXaId, xaPreparedInfo} = this;
+	{	const {protocol, curXaId, isXaPrepared} = this;
 		this.isConnecting = false;
 		this.savepointEnum = 0;
-		this.curXaId = undefined;
-		this.xaPreparedInfo = undefined;
+		this.curXaId = '';
+		this.isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnFunc(this.dsn, protocol, xaPreparedInfo ? curXaId : undefined);
+		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '');
 		}
 	}
 
@@ -181,18 +201,20 @@ export class MyConn
 		let sql;
 		if (options?.xa)
 		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	if (this.curXaId != undefined)
+			{	if (this.curXaId)
 				{	throw new SqlError(`There's already an active Distributed Transaction`);
 				}
 				await this.commit();
 			}
-			const xaId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+			const xaId = xaIdGen.next();
 			this.curXaId = xaId;
-			this.xaPreparedInfo = undefined;
-			sql = `XA START '${xaId}'`;
+			this.isXaPrepared = false;
+			sql = !protocol ? '' : `XA START '${xaId}${protocol.connectionId}'`;
 		}
 		else
-		{	const readonly = options?.readonly;
+		{	this.curXaId = '';
+			this.isXaPrepared = false;
+			const readonly = options?.readonly;
 			sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
 		}
 		if (protocol)
@@ -212,9 +234,9 @@ export class MyConn
 	{	let sql;
 		const {readonly, xa} = options;
 		if (xa)
-		{	const xaId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+		{	const xaId = xaIdGen.next();
 			this.curXaId = xaId;
-			sql = `XA START '${xaId}'`;
+			sql = '';
 		}
 		else
 		{	sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
@@ -257,21 +279,17 @@ export class MyConn
 	 **/
 	async prepareCommit()
 	{	const {protocol, curXaId} = this;
-		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || typeof(curXaId)!='number')
+		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId)
 		{	throw new SqlError(`There's no active Distributed Transaction`);
 		}
-		if (!this.xaPreparedInfo)
+		if (!this.isXaPrepared)
 		{	// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
 			if (this.beforeCommitFunc)
 			{	await this.beforeCommitFunc(this, this.ownerSession);
 			}
-			await protocol.sendComQuery(`XA END '${curXaId}'`);
-			let xaPrepared;
-			if (this.beforeXaPrepareFunc)
-			{	xaPrepared = await this.beforeXaPrepareFunc(this.dsn.hostname, this.dsn.port, protocol.connectionId, curXaId);
-			}
-			await protocol.sendComQuery(`XA PREPARE '${curXaId}'`);
-			this.xaPreparedInfo = xaPrepared || true;
+			await protocol.sendComQuery(`XA END '${curXaId}${protocol.connectionId}'`);
+			await protocol.sendComQuery(`XA PREPARE '${curXaId}${protocol.connectionId}'`);
+			this.isXaPrepared = true;
 		}
 	}
 
@@ -287,28 +305,24 @@ export class MyConn
 			{	await protocol.sendComQuery(toPointId>0 ? `ROLLBACK TO p${toPointId}` : `ROLLBACK AND CHAIN`);
 			}
 			else
-			{	if (typeof(curXaId) == 'number')
-				{	const {xaPreparedInfo} = this;
-					if (!xaPreparedInfo)
+			{	if (curXaId)
+				{	if (!this.isXaPrepared)
 					{	try
-						{	await protocol.sendComQuery(`XA END '${curXaId}'`);
+						{	await protocol.sendComQuery(`XA END '${curXaId}${protocol.connectionId}'`);
 						}
 						catch (e)
 						{	console.error(e);
 						}
 					}
-					await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
-					if (this.afterXaCommitFunc && xaPreparedInfo && xaPreparedInfo!==true)
-					{	await this.afterXaCommitFunc(this.dsn.hostname, this.dsn.port, protocol.connectionId, curXaId, xaPreparedInfo);
-					}
+					await protocol.sendComQuery(`XA ROLLBACK '${curXaId}${protocol.connectionId}'`);
 				}
 				else
 				{	await protocol.sendComQuery(`ROLLBACK`);
 				}
 			}
 		}
-		this.curXaId = undefined;
-		this.xaPreparedInfo = undefined;
+		this.curXaId = '';
+		this.isXaPrepared = false;
 	}
 
 	/**	Commit.
@@ -317,15 +331,11 @@ export class MyConn
 	async commit()
 	{	const {protocol, curXaId} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-		{	if (typeof(curXaId) == 'number')
-			{	const {xaPreparedInfo} = this;
-				if (!xaPreparedInfo)
+		{	if (curXaId)
+			{	if (!this.isXaPrepared)
 				{	throw new SqlError(`Please, prepare commit first`);
 				}
-				await protocol.sendComQuery(`XA COMMIT '${curXaId}'`);
-				if (this.afterXaCommitFunc && xaPreparedInfo!==true)
-				{	await this.afterXaCommitFunc(this.dsn.hostname, this.dsn.port, protocol.connectionId, curXaId, xaPreparedInfo);
-				}
+				await protocol.sendComQuery(`XA COMMIT '${curXaId}${protocol.connectionId}'`);
 			}
 			else
 			{	if (this.beforeCommitFunc)
@@ -334,8 +344,8 @@ export class MyConn
 				await protocol.sendComQuery(`COMMIT`);
 			}
 		}
-		this.curXaId = undefined;
-		this.xaPreparedInfo = undefined;
+		this.curXaId = '';
+		this.isXaPrepared = false;
 	}
 
 	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsProtocol<Row>>
