@@ -1088,6 +1088,7 @@ async function testManyPlaceholders2(dsnStr: string)
 
 async function testTrx(dsnStr: string)
 {	const pool = new MyPool(dsnStr);
+	pool.options({managedXaDsns: dsnStr});
 	const MY_XA_ID = '6294554977320077-';
 
 	try
@@ -1368,6 +1369,7 @@ async function testTrx(dsnStr: string)
 		(	async conn =>
 			{	await conn.query("DROP DATABASE test58168");
 				await conn.query("DROP DATABASE test38743");
+				await conn.query("DROP DATABASE test2");
 			}
 		);
 	}

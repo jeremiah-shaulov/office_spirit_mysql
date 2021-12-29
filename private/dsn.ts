@@ -161,7 +161,10 @@ export class Dsn
 	}
 
 	constructor(dsn: string)
-	{	let pos = dsn.indexOf(':');
+	{	if (!dsn)
+		{	throw new Error(`No DSN string provided`);
+		}
+		let pos = dsn.indexOf(':');
 		if (pos!=5 || dsn.slice(0, pos).toLowerCase()!='mysql')
 		{	throw new Error(`Protocol not supported: ${dsn}`);
 		}

@@ -6,7 +6,6 @@ import {BusyError, CanceledError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsProtocol, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
-import {MySession} from "./my_pool.ts";
 
 export const doSavepoint = Symbol('sessionSavepoint');
 
@@ -184,7 +183,10 @@ export class MyConn
 				}
 				await this.commit();
 			}
-			const xaId1 = options.xaId1;
+			const {xaId1} = options;
+			if (xaId1.indexOf("'")!=-1 || xaId1.indexOf("\\")!=-1)
+			{	throw new Error(`Invalid XA ID: ${xaId1}`);
+			}
 			this.curXaId1 = xaId1;
 			sql = !protocol ? '' : `XA START '${xaId1}${protocol.connectionId}'`;
 		}
