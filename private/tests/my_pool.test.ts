@@ -1249,8 +1249,8 @@ async function testTrx(dsnStr: string)
 				await conn.query("DROP DATABASE IF EXISTS test2");
 				await conn.query("CREATE DATABASE `test2`");
 				await conn.query("USE test2");
-				await conn.query("CREATE TABLE t_xa_info (xa_id char(32) PRIMARY KEY)");
-				await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(32), op enum('insert', 'delete'))");
+				await conn.query("CREATE TABLE t_xa_info (xa_id char(40) PRIMARY KEY)");
+				await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(40), op enum('insert', 'delete'))");
 				await conn.query("CREATE TRIGGER t1 AFTER INSERT ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (NEW.xa_id, 'insert')");
 				await conn.query("CREATE TRIGGER t2 AFTER DELETE ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (OLD.xa_id, 'delete')");
 			}

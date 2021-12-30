@@ -18,7 +18,7 @@ Basic example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
 // deno run --allow-env --allow-net /tmp/example1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -126,7 +126,7 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
 
@@ -190,7 +190,7 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
 // deno run --allow-env --allow-net /tmp/example3.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -222,7 +222,7 @@ And it skips all further rows, if they exist.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
 // deno run --allow-env --allow-net /tmp/example4.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -256,7 +256,7 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
 // deno run --allow-env --allow-net /tmp/example5.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -296,7 +296,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
 // deno run --allow-env --allow-net /tmp/example6.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -338,7 +338,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
 // deno run --allow-env --allow-net /tmp/example7.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -372,7 +372,7 @@ If you're sure about column types, you can override the column type with `any` (
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -438,7 +438,7 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
 // deno run --allow-env --allow-net /tmp/example9.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -468,7 +468,7 @@ Parameter names will override session variables with the same names.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
 // deno run --allow-env --allow-net /tmp/example10.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -526,7 +526,7 @@ Example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
 // deno run --allow-env --allow-net /tmp/example11.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 // 1. Define the generator
 
@@ -601,7 +601,7 @@ This library tries to have everything needed in real life usage. It's possible t
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
 // deno run --allow-env --allow-net /tmp/example12.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -630,7 +630,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
 // deno run --allow-env --allow-net /tmp/example13.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -674,7 +674,7 @@ This allows to read SQL from files.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
 // DSN='mysql://root:hello@localhost/tests?multiStatements' deno run --allow-env --allow-net /tmp/example14.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 // Don't forget `?multiStatements`
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
@@ -725,7 +725,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
 // deno run --allow-env --allow-net /tmp/example15.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -763,7 +763,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
 // deno run --allow-env --allow-net /tmp/example16.ts
 
-import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 import {dirname} from "https://deno.land/std@0.117.0/path/mod.ts";
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -857,7 +857,7 @@ And you must read or discard all the resultsets before being able to issue next 
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
 // deno run --allow-env --allow-net /tmp/example17.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
@@ -959,7 +959,7 @@ To start a regular transaction call `startTrx()` without parameters. Then you ca
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.6/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -1038,8 +1038,110 @@ This library provides transactions manager that you can use, or you can use your
 
 When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
 
-- create session (`pool.session()`), and call `MySession.startTrx()` on session object
+- create session (`pool.session()`), and call `MySession.startTrx({xa: true})` on session object
 - specify `managedXaDsns` in pool options
 - optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
 
-To be continued...
+Let's consider the following situation.
+We have 2 databases on 2 servers. But in dev environment and in this example they both will reside on the same server.
+In both databases we have table called `t_log`, and we want to replicate inserts to this table.
+We will also have 4 tables dedicated to the transactions manager: `test1.t_xa_info_1`, `test1.t_xa_info_2`, `test2.t_xa_info_1`, `test2.t_xa_info_2`.
+
+MySQL user for the application will be called `app`, and the manager user will be `manager`, and it will have permission to execute `XA RECOVER` as well as permission to work with info tables.
+
+```sql
+CREATE DATABASE test1;
+CREATE DATABASE test2;
+
+CREATE TABLE test1.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
+CREATE TABLE test2.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
+
+-- XA Info tables
+CREATE TABLE test1.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test1.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test2.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test2.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
+
+-- CREATE USER app
+CREATE USER app@localhost IDENTIFIED BY 'app';
+GRANT ALL ON test1.* TO app@localhost;
+GRANT ALL ON test2.* TO app@localhost;
+
+-- CREATE USER manager
+CREATE USER manager@localhost IDENTIFIED BY 'manager';
+GRANT ALL ON test1.* TO manager@localhost;
+GRANT ALL ON test2.* TO manager@localhost;
+GRANT XA_RECOVER_ADMIN ON *.* TO manager@localhost;
+```
+
+Transactions manager tables are not required, but they will improve the management quality.
+There can be any number of such tables, and they can reside on one of the hosts where you issue queries (`test1`), or on several or all of them (`test1`, `test2`), or even on different host(s).
+For each transaction the manager will pick one random info table.
+Having multiple info tables distributes (balances) load between them.
+Single table under heavy load can be bottleneck.
+
+Transactions manager tables must have one column called `xa_id`, as defined above.
+If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
+// deno run --allow-env --allow-net /tmp/example19.ts
+
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.2.7/mod.ts';
+
+const dsn1 = new Dsn('mysql://app:app@localhost/test1');
+const dsn2 = new Dsn('mysql://app:app@localhost/test2');
+
+const pool = new MyPool
+(	{	managedXaDsns:
+		[	'mysql://manager:manager@localhost/test1',
+			'mysql://manager:manager@localhost/test2',
+		],
+		xaInfoTables:
+		[	{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_1'},
+			{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_2'},
+			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_1'},
+			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_2'},
+		]
+	}
+);
+
+try
+{	await pool.session
+	(	async session =>
+		{	// Start distributed transaction
+			await session.startTrx({xa: true});
+
+			// Get connection objects (actual connection will be established on first query)
+			const conn1 = session.conn(dsn1);
+			const conn2 = session.conn(dsn2);
+
+			// Query
+			await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
+			await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
+
+			// 2-phase commit
+			await session.commit();
+		}
+	);
+}
+finally
+{	await pool.onEnd();
+	await pool.closeIdle();
+}
+```
+
+When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
+This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, ID of chosen info table, and MySQL connection ID.
+
+When you call `session.commit()`, the 2-phase commit takes place on all the connections in this session.
+After the 1st phase succeeded, current XA ID is inserted to the chosen info table (in parallel connection in autocommit mode).
+And after successful 2nd phase, this record is deleted from the info table.
+
+Transactions manager periodically monitors `managedXaDsns` for dangling transactions - those whose MySQL connection is dead.
+If a dangling transaction found, it's either committed or rolled back.
+If a corresponding record is found in the corresponding info table, the transaction will be committed.
+If no record found, or there were no info tables, the transaction will be rolled back.
+If you want the transactions manager to always roll back transactions in such situation, don't proved info tables to the pool options.
