@@ -131,6 +131,8 @@ async function testBasic(dsnStr: string)
 				assertEquals(conn.inTrxReadonly, false);
 				assertEquals(conn.noBackslashEscapes, false);
 				assertEquals(conn.schema, '');
+				assertEquals(conn.inXa, false);
+				assertEquals(conn.xaId, '');
 
 				await conn.connect();
 
@@ -140,6 +142,8 @@ async function testBasic(dsnStr: string)
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
 				assert(!conn.schema || conn.schema==dsn.schema);
+				assertEquals(conn.inXa, false);
+				assertEquals(conn.xaId, '');
 
 				const connId = await conn.queryCol("SELECT Connection_id()").first();
 				assertEquals(conn.connectionId, connId);
@@ -1308,16 +1312,29 @@ async function testTrx(dsnStr: string)
 				assertEquals(conn2.connectionId>0, true);
 				assertEquals(conn1.inTrx, true); // startTrx() pends the transaction start till actual connection
 				assertEquals(conn2.inTrx, true);
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assertEquals(conn1.xaId, '');
+				assert(conn2.xaId != '');
 
 				assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test58168');
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				await conn1.query("INSERT INTO t_log SET a = 123");
 				await conn2.query("INSERT INTO t_log SET a = 123");
 
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assert(conn1.xaId != '');
+				assert(conn2.xaId != '');
+
 				await session.commit();
 
 				assertEquals(conn1.inTrx, false);
 				assertEquals(conn2.inTrx, false);
+				assertEquals(conn1.inXa, false);
+				assertEquals(conn2.inXa, false);
+				assertEquals(conn1.xaId, '');
+				assertEquals(conn2.xaId, '');
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 

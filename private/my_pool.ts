@@ -1,8 +1,10 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
-import {ServerDisconnectedError, SqlError} from "./errors.ts";
-import {MyConn, doSavepoint} from './my_conn.ts';
-import {MyProtocol} from './my_protocol.ts';
+import {ServerDisconnectedError} from "./errors.ts";
+import {MyConn, OnBeforeCommit} from './my_conn.ts';
+import {MyProtocol, OnLoadFile} from './my_protocol.ts';
+import {MySession, MySessionInternal} from "./my_session.ts";
+import {XaIdGen} from "./xa_id_gen.ts";
 import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
@@ -11,13 +13,8 @@ const DEFAULT_CONNECTION_TIMEOUT = 0;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
-const DEFAULT_DANGLING_XA_CHECK_EACH = 6000; // TODO: config
+const DEFAULT_DANGLING_XA_CHECK_EACH = 6000;
 const TRY_CONNECT_INTERVAL_MSEC = 100;
-
-const RE_XA_ID = /^([0-9a-z]{6})\.\d+@([0-9a-z]+)(?:>([0-9a-z]*))?-(\d+)$/;
-
-type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
 export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
@@ -27,239 +24,14 @@ export interface MyPoolOptions
 	onLoadFile?: OnLoadFile;
 	onBeforeCommit?: OnBeforeCommit;
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
+	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
 }
-
-class XaIdGen
-{	private lastTime = 0;
-	private lastEnum = 0;
-	private pid = Deno.pid;
-
-	next(xaInfoTableHash?: number)
-	{	const curTime = Math.floor(Date.now()/1000);
-		let curEnum = 0;
-		if (curTime == this.lastTime)
-		{	curEnum = ++this.lastEnum;
-		}
-		else
-		{	this.lastTime = curTime;
-			this.lastEnum = 0;
-		}
-		let v = curTime.toString(36)+'.'+curEnum.toString(36)+'@'+this.pid.toString(36);
-		if (xaInfoTableHash != undefined)
-		{	v += '>'+xaInfoTableHash.toString(36);
-		}
-		return v+'-';
-	}
-}
-
-const xaIdGen = new XaIdGen;
 
 class MyPoolConns
 {	idle: MyProtocol[] = [];
 	busy: MyProtocol[] = [];
 	nCreating = 0;
-}
-
-export class MySession
-{	protected connsArr: MyConn[] = [];
-	private savepointEnum = 0;
-	private trxOptions: {readonly: boolean, xaId1: string} | undefined;
-	private curXaInfoTable: XaInfoTable | undefined;
-
-	constructor
-	(	private pool: MyPool,
-		private dsn: Dsn|undefined,
-		private maxConns: number,
-		private xaInfoTables: XaInfoTable[] = [],
-		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string) => void,
-		private onBeforeCommit?: OnBeforeCommit,
-	)
-	{
-	}
-
-	get conns(): Iterable<MyConn> // Iterable<MyConn>, not MyConn[], to ensure that the array will not be modified from outside
-	{	return this.connsArr;
-	}
-
-	conn(dsn?: Dsn|string, fresh=false)
-	{	if (dsn == undefined)
-		{	dsn = this.dsn;
-			if (dsn == undefined)
-			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
-			}
-		}
-		if (!fresh)
-		{	const dsnStr = typeof(dsn)=='string' ? dsn : dsn.name;
-			for (const conn of this.connsArr)
-			{	if (conn.dsnStr == dsnStr)
-				{	return conn;
-				}
-			}
-		}
-		const conn = new MyConn(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, undefined);
-		this.connsArr[this.connsArr.length] = conn;
-		return conn;
-	}
-
-	async startTrx(options?: {readonly?: boolean, xa?: boolean})
-	{	// 1. Fail if there are XA started
-		for (const conn of this.connsArr)
-		{	if (conn.inXa)
-			{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
-			}
-		}
-		// 2. Commit current transactions
-		await this.commit();
-		// 3. trxOptions
-		const readonly = !!options?.readonly;
-		let xaId1 = '';
-		let curXaInfoTable: XaInfoTable | undefined;
-		if (options?.xa)
-		{	const {xaInfoTables} = this;
-			const {length} = xaInfoTables;
-			const i = length<=1 ? 0 : Math.floor(Math.random() * length) % length;
-			curXaInfoTable = xaInfoTables[i];
-			xaId1 = xaIdGen.next(curXaInfoTable?.hash);
-		}
-		const trxOptions = {readonly, xaId1};
-		this.trxOptions = trxOptions;
-		this.curXaInfoTable = curXaInfoTable;
-		// 4. Start transaction
-		const promises = [];
-		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn.startTrx(trxOptions);
-		}
-		await this.doAll(promises, true);
-	}
-
-	savepoint()
-	{	const pointId = ++this.savepointEnum;
-		const promises = [];
-		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn[doSavepoint](pointId, `SAVEPOINT s${pointId}`);
-		}
-		return this.doAll(promises);
-	}
-
-	rollback(toPointId?: number)
-	{	this.trxOptions = undefined;
-		this.curXaInfoTable = undefined;
-		const promises = [];
-		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn.rollback(toPointId);
-		}
-		return this.doAll(promises);
-	}
-
-	async commit()
-	{	const {trxOptions, curXaInfoTable} = this;
-		this.trxOptions = undefined;
-		this.curXaInfoTable = undefined;
-		if (trxOptions && curXaInfoTable)
-		{	await this.pool.forConn
-			(	async conn =>
-				{	// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
-					await conn.connect();
-					if (!conn.autocommit)
-					{	await conn.execute("SET autocommit=1");
-					}
-					// 2. Call onBeforeCommit
-					if (this.onBeforeCommit)
-					{	await this.onBeforeCommit(this.conns);
-					}
-					// 3. Prepare commit
-					const promises = [];
-					for (const conn of this.connsArr)
-					{	if (conn.inXa)
-						{	promises[promises.length] = conn.prepareCommit();
-						}
-					}
-					await this.doAll(promises, true);
-					// 4. Log to XA info table
-					let recordAdded = false;
-					try
-					{	await conn.execute(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
-						recordAdded = true;
-					}
-					catch (e)
-					{	console.error(`Couldn't add record to info table ${curXaInfoTable.table} on ${conn.dsnStr}`, e);
-					}
-					// 5. Commit
-					promises.length = 0;
-					for (const conn of this.connsArr)
-					{	promises[promises.length] = conn.commit();
-					}
-					await this.doAll(promises);
-					// 6. Remove record from XA info table
-					if (recordAdded)
-					{	try
-						{	await conn.execute(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
-						}
-						catch (e)
-						{	console.error(e);
-						}
-					}
-				},
-				curXaInfoTable.dsn
-			);
-		}
-		else
-		{	// 1. Call onBeforeCommit
-			if (this.onBeforeCommit)
-			{	await this.onBeforeCommit(this.conns);
-			}
-			// 2. Prepare commit
-			const promises = [];
-			for (const conn of this.connsArr)
-			{	if (conn.inXa)
-				{	promises[promises.length] = conn.prepareCommit();
-				}
-			}
-			await this.doAll(promises, true);
-			// 3. Commit
-			promises.length = 0;
-			for (const conn of this.connsArr)
-			{	promises[promises.length] = conn.commit();
-			}
-			await this.doAll(promises);
-		}
-	}
-
-	private async doAll(promises: Promise<unknown>[], rollbackOnError=false)
-	{	const result = await Promise.allSettled(promises);
-		let error;
-		for (const r of result)
-		{	if (r.status == 'rejected')
-			{	if (!error)
-				{	error = r.reason;
-				}
-				else
-				{	console.error(r.reason);
-				}
-			}
-		}
-		if (error)
-		{	if (rollbackOnError)
-			{	try
-				{	await this.rollback();
-				}
-				catch (e2)
-				{	console.error(e2);
-				}
-			}
-			throw error;
-		}
-	}
-}
-
-class MySessionInternal extends MySession
-{	endSession()
-	{	for (const conn of this.connsArr)
-		{	conn.end();
-		}
-	}
 }
 
 export class MyPool
@@ -278,14 +50,12 @@ export class MyPool
 	private maxConns = DEFAULT_MAX_CONNS;
 	private onLoadFile: OnLoadFile|undefined;
 	private onBeforeCommit: OnBeforeCommit|undefined;
-	private managedXaDsns: Dsn[] = [];
-	private xaInfoTables: XaInfoTable[] = [];
 
 	private getConnFunc = this.getConn.bind(this);
 	private returnConnFunc = this.returnConn.bind(this);
 
 	constructor(options?: Dsn | string | MyPoolOptions)
-	{	this.xaTask = new XaTask(this, this.managedXaDsns, this.xaInfoTables);
+	{	this.xaTask = new XaTask(this);
 		this.options(options);
 	}
 
@@ -296,7 +66,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaInfoTables} = options;
+			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -305,8 +75,8 @@ export class MyPool
 			{	this.dsn = dsn;
 			}
 			// maxConns
-			if (typeof(maxConns)=='number' && maxConns>0)
-			{	this.maxConns = maxConns;
+			if (typeof(maxConns) == 'number')
+			{	this.maxConns = maxConns>0 ? maxConns : DEFAULT_MAX_CONNS;
 			}
 			// onLoadFile
 			this.onLoadFile = onLoadFile;
@@ -314,42 +84,46 @@ export class MyPool
 			this.onBeforeCommit = onBeforeCommit;
 			// managedXaDsns
 			if (typeof(managedXaDsns) == 'string')
-			{	this.managedXaDsns.length = 0;
+			{	this.xaTask.managedXaDsns.length = 0;
 				if (managedXaDsns)
-				{	this.managedXaDsns[0] = new Dsn(managedXaDsns);
+				{	this.xaTask.managedXaDsns[0] = new Dsn(managedXaDsns);
 				}
 			}
 			else if (managedXaDsns instanceof Dsn)
-			{	this.managedXaDsns.length = 0;
+			{	this.xaTask.managedXaDsns.length = 0;
 				if (managedXaDsns)
-				{	this.managedXaDsns[0] = managedXaDsns;
+				{	this.xaTask.managedXaDsns[0] = managedXaDsns;
 				}
 			}
 			else if (managedXaDsns)
-			{	this.managedXaDsns.length = 0;
+			{	this.xaTask.managedXaDsns.length = 0;
 				for (const item of managedXaDsns)
 				{	if (item)
-					{	this.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
+					{	this.xaTask.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
 					}
 				}
 			}
+			// xaCheckEach
+			if (typeof(xaCheckEach)=='number')
+			{	this.xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH;
+			}
 			// xaInfoTables
 			if (xaInfoTables)
-			{	this.xaInfoTables.length = 0;
+			{	this.xaTask.xaInfoTables.length = 0;
 				for (const {dsn, table} of xaInfoTables)
 				{	if (dsn && table)
 					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
 						const hash = (crc32(dsnObj.name) ^ crc32(table)) >>> 0;
-						if (this.xaInfoTables.findIndex(v => v.hash == hash) == -1)
-						{	this.xaInfoTables.push({dsn: dsnObj, table, hash});
+						if (this.xaTask.xaInfoTables.findIndex(v => v.hash == hash) == -1)
+						{	this.xaTask.xaInfoTables.push({dsn: dsnObj, table, hash});
 						}
 					}
 				}
 			}
 			this.xaTask.start();
 		}
-		const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaInfoTables} = this;
-		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaInfoTables};
+		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables}} = this;
+		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
@@ -405,7 +179,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaInfoTables, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaTask.xaInfoTables, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -639,11 +413,15 @@ export class MyPool
 }
 
 class XaTask
-{	private xaTaskTimer: number | undefined;
+{	managedXaDsns: Dsn[] = [];
+	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH;
+	xaInfoTables: XaInfoTable[] = [];
+
+	private xaTaskTimer: number | undefined;
 	private xaTaskBusy = false;
 	private xaTaskOnDone: (() => void) | undefined;
 
-	constructor(private pool: MyPool, private managedXaDsns: Dsn[], private xaInfoTables: XaInfoTable[])
+	constructor(private pool: MyPool)
 	{
 	}
 
@@ -674,14 +452,9 @@ class XaTask
 								const xas: {xaId: string, xaId1: string, time: number, pid: number, hash: number, connectionId: number}[] = [];
 								const cids: number[] = [];
 								for await (const {data: xaId} of await conn.query<string>("XA RECOVER"))
-								{	const m = xaId.match(RE_XA_ID);
+								{	const m = XaIdGen.decode(xaId);
 									if (m)
-									{	const [_, time36, pid36, hash36, connectionId10] = m;
-										const time = parseInt(time36, 36);
-										const pid = parseInt(pid36, 36);
-										const hash = parseInt(hash36, 36);
-										const connectionId = parseInt(connectionId10, 10);
-										const xaId1 = xaId.slice(0, -connectionId10.length);
+									{	const {time, pid, hash, connectionId, xaId1} = m;
 										xas[xas.length] = {xaId, xaId1, time, pid, hash, connectionId};
 										if (cids.indexOf(connectionId) == -1)
 										{	cids[cids.length] = connectionId;
@@ -813,7 +586,7 @@ class XaTask
 		{	this.xaTaskTimer = undefined;
 		}
 		else
-		{	this.xaTaskTimer = setTimeout(() => this.start(), DEFAULT_DANGLING_XA_CHECK_EACH);
+		{	this.xaTaskTimer = setTimeout(() => this.start(), this.xaCheckEach);
 		}
 	}
 

@@ -15,6 +15,8 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(4096);
 
+export type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+
 export const enum ReadPacketMode
 {	REGULAR,
 	PREPARED_STMT,
@@ -62,7 +64,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private initSchema = '';
 	private initSql = '';
 	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
-	private onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+	private onloadfile?: OnLoadFile;
 
 	private curResultsets: ResultsetsProtocol<unknown> | undefined;
 	private pendingCloseStmts: number[] = [];
@@ -72,7 +74,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	static async inst
 	(	dsn: Dsn,
 		useBuffer?: Uint8Array,
-		onloadfile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>,
+		onloadfile?: OnLoadFile,
 	): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements} = dsn;
 		if (username.length > 256) // must fit packet

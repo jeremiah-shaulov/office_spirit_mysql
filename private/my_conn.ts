@@ -7,6 +7,10 @@ import {Resultsets, ResultsetsProtocol, ResultsetsPromise} from './resultsets.ts
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 
+export type GetConnFunc = (dsn: Dsn) => Promise<MyProtocol>;
+export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void;
+export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
+
 export const doSavepoint = Symbol('sessionSavepoint');
 
 export class MyConn
@@ -25,9 +29,9 @@ export class MyConn
 	(	private dsn: Dsn,
 		private maxConns: number,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
-		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void,
-		private onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>,
+		private getConnFunc: GetConnFunc,
+		private returnConnFunc: ReturnConnFunc,
+		private onBeforeCommit?: OnBeforeCommit,
 	)
 	{	this.dsnStr = dsn.name;
 		if (trxOptions)
