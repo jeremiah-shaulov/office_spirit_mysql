@@ -7,7 +7,7 @@ Features:
 - Pool for connections to multiple servers.
 - Streaming BLOBs and `Deno.Reader`s.
 - Custom handler for LOCAL INFILE.
-- Advanced transactions manager: regular, readonly, distributed (2-phase commit), savepoints.
+- Advanced transactions manager: regular transactions, readonly, distributed (2-phase commit), savepoints.
 - Made with CPU and RAM efficiency in mind.
 
 Basic example:
@@ -40,12 +40,17 @@ await pool.closeIdle();
 ## Connections pool
 
 Connections to database servers are managed by `MyPool` object.
+You need to create one such object, and ask it to give you a free connection.
+Most applications don't need more than one pool, but you can also have several pools, each one with different configuration.
 
 ```ts
-MyPool.constructor(options?: Dsn | string | (Dsn|string)[] | MyPoolOptions)
+MyPool.constructor(options?: Dsn | string | MyPoolOptions)
 ```
 
-Options are:
+When you create a `MyPool` instance, you can give it a default DSN (Data Source Name), that will be used if the DSN is not specified when requesting a new connection.
+You can provide the DSN as a string or as `Dsn` object, that contains parsed string.
+
+Or you can specify more options:
 
 ```ts
 interface MyPoolOptions
@@ -57,14 +62,12 @@ interface MyPoolOptions
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
 }
 ```
-- `dsn` - Default Data Source Name for this pool, that will be used if the DSN is not specified when requesting a new connection.
-- `maxConns` - Limit to number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
+- `dsn` - Default Data Source Name for this pool.
+- `maxConns` - Limit the number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait. Default value: `250`.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
 - `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
 - `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
 - `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
-
-Options can be given just as DSN string, or a `Dsn` object, that contains parsed DSN string.
 
 Data Source Name is specified in URL format, with "mysql://" protocol.
 
@@ -74,7 +77,8 @@ Or: `mysql://user:password@localhost/path/to/named.pipe/schema`
 Example: `mysql://root@localhost/`
 Or: `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`
 
-Possible parameters:
+The DSN can contain question mark followed by parameters. Possible parameters are:
+
 - `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
 - `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
@@ -91,9 +95,9 @@ MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Pro
 ```
 If `dsn` is not provided, the default DSN of the pool will be used. You can ask connections to different servers.
 
-The requested connection will be available in the provided `callback`, and when it completes, this connection will return back to the pool.
+The requested connection will be available in the provided `callback` function, and when the function returns, this connection will come back to the pool.
 
-Connection state is reset before returning to the pool. This means that incomplete transaction will be rolled back, and all kind of locks will be cleared.
+Connection state is reset before returning to the pool. This means that incomplete transaction are rolled back, and all kind of locks are cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
@@ -914,29 +918,30 @@ await pool.closeIdle();
 /**	Start transaction.
 	To start regular transaction, call `startTrx()` without parameters.
 	To start READONLY transaction, pass `{readonly: true}`.
-	To start distributed transaction, pass `{xaId1: '...'}`.
-	The XA transaction Id consists of 2 parts: `xaId1` - string that you provide, and `conn.connectionId` that will be appended automatically.
+	To start distributed transaction, pass `{xaId: '...'}`.
+	If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
+	If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
  **/
-function MyConn.startTrx(options?: {readonly?: boolean, xaId1?: string}): Promise<void>;
+function MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
 
 /**	Creates transaction savepoint, and returns Id number of this new savepoint.
 	Then you can call `conn.rollback(pointId)`.
  **/
 function MyConn.savepoint(): Promise<number>;
 
-/**	If the current transaction started with `{xaId1: '...'}`, this function prepares the 2-phase commit.
+/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
 	If this function succeeded, the transaction will be saved on the server till you call `commit()`.
 	The saved transaction can survive server restart and unexpected halt.
-	You need to commit it as soon as possible, all the locks that it holds will be released.
-	Usually, you want to prepare transactions on all servers, and immediately commit them, it `prepareCommit()` succeeded, or rollback them, if it failed.
+	You need to commit it as soon as possible, to release all the locks that it holds.
+	Usually, you want to prepare transactions on all servers, and immediately commit them, if `prepareCommit()` succeeded, or rollback them, if it failed.
 	If you create cross-server session with `pool.session()`, you can start and commit transaction on session level, and in this case no need to explicitly prepare the commit (`session.commit()` will do it implicitly).
  **/
 function MyConn.prepareCommit(): Promise<void>;
 
 /**	Rollback to a savepoint, or all.
 	If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
-	If `toPointId` is number returned from `savepoint()` call, rolls back to that point (also works with XAs).
-	If `toPointId` is `0`, rolls back to the beginning of transaction (doesn't work with XAs).
+	If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
+	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
  **/
 function MyConn.rollback(toPointId?: number): Promise<void>;
 
@@ -946,7 +951,7 @@ function MyConn.rollback(toPointId?: number): Promise<void>;
 function MyConn.commit(): Promise<void>;
 ```
 
-To start regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or the whole transaction, and commit.
+To start a regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or rollback the whole transaction, or commit.
 
 ```ts
 // To download and run this example:
@@ -982,7 +987,7 @@ await pool.forConn
 		// Rollback
 		await conn.rollback();
 
-		// The inserted row is not persisted
+		// The inserted row not persisted
 		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
 
 		// Drop database that i created
@@ -1003,9 +1008,38 @@ await conn.startTrx({readonly: true});
 Or a distributed transaction:
 
 ```ts
+await conn.startTrx({xaId: Math.random()+''});
+// OR
 await conn.startTrx({xaId1: Math.random()+'-'});
 ```
 
+If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and `conn.connectionId`.
+
 ## Distributed (aka global) transactions
+
+Distributed transactions feature offers atomic operations across several servers.
+
+We can start transactions on multiple servers.
+Then we'll want to avoid the situation when some of them succeeded to commit, and some failed.
+Distributed transactions have special PREPARE COMMIT operation. If this operation succeeds, it's likely that COMMIT will then succeed as well.
+So the strategy is to PREPARE COMMIT on all servers, and then to COMMIT in case of success, or to ROLLBACK if PREPARE COMMIT failed on one of the servers.
+
+PREPARE COMMIT saves the transaction on the server permanently till COMMIT or ROLLBACK.
+Such saved transaction can survive server restart or unexpected halt.
+Transactions lock all table rows that they touched, so it's important to COMMIT or ROLLBACK them as soon as possible.
+If your application prepared some commit, and stumbled on an exception, or somebody terminated the application, or restarted the server on which it ran,
+such transaction becomes dangling. Dangling transactions can block database server and cause application failure.
+
+[Read more about distributed transactions](https://dev.mysql.com/doc/refman/8.0/en/xa.html).
+
+Some kind of transactions manager is needed when working with distributed transactions.
+
+This library provides transactions manager that you can use, or you can use your own one.
+
+When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
+
+- create session (`pool.session()`), and call `MySession.startTrx()` on session object
+- specify `managedXaDsns` in pool options
+- optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
 
 To be continued...

@@ -14,7 +14,8 @@ export class MyConn
 
 	private isConnecting = false;
 	private savepointEnum = 0;
-	private curXaId1 = '';
+	private curXaId = '';
+	private curXaIdAppendConn = false;
 	private isXaPrepared = false;
 	private pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 
@@ -62,8 +63,12 @@ export class MyConn
 	{	return this.protocol?.schema ?? '';
 	}
 
-	get xaId1()
-	{	return this.inTrx ? this.curXaId1 : '';
+	get inXa()
+	{	return this.curXaId != '';
+	}
+
+	get xaId()
+	{	return this.curXaIdAppendConn ? '' : this.curXaId;
 	}
 
 	/**	If end() called during connection process, the connection will not be established after this function returns.
@@ -82,7 +87,14 @@ export class MyConn
 				}
 				const {pendingTrxSql} = this;
 				for (let i=0; i<pendingTrxSql.length; i++)
-				{	const sql = pendingTrxSql[i] || `XA START '${this.curXaId1}${protocol.connectionId}'`;
+				{	let sql = pendingTrxSql[i];
+					if (!sql)
+					{	if (this.curXaIdAppendConn)
+						{	this.curXaId += protocol.connectionId;
+							this.curXaIdAppendConn = false;
+						}
+						sql = `XA START '${this.curXaId}'`;
+					}
 					await protocol.sendComQuery(sql);
 					if (!this.isConnecting) // end() called
 					{	this.returnConnFunc(this.dsn, protocol, '');
@@ -99,15 +111,16 @@ export class MyConn
 	}
 
 	end()
-	{	const {protocol, curXaId1, isXaPrepared} = this;
+	{	const {protocol, curXaId, isXaPrepared} = this;
 		this.isConnecting = false;
 		this.savepointEnum = 0;
-		this.curXaId1 = '';
+		this.curXaId = '';
+		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId1 : '');
+		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '');
 		}
 	}
 
@@ -170,28 +183,39 @@ export class MyConn
 	/**	Start transaction.
 		To start regular transaction, call `startTrx()` without parameters.
 		To start READONLY transaction, pass `{readonly: true}`.
-		To start distributed transaction, pass `{xaId1: '...'}`.
-		The XA transaction Id consists of 2 parts: `xaId1` - string that you provide, and `conn.connectionId` that will be appended automatically.
+		To start distributed transaction, pass `{xaId: '...'}`.
+		If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
+		If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
 	 **/
-	async startTrx(options?: {readonly?: boolean, xaId1?: string})
+	async startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string})
 	{	const {protocol} = this;
 		let sql;
-		if (options?.xaId1)
+		const xaId = options?.xaId;
+		const someXaId = xaId || options?.xaId1;
+		if (someXaId)
 		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	if (this.curXaId1)
+			{	if (this.curXaId)
 				{	throw new SqlError(`There's already an active Distributed Transaction`);
 				}
 				await this.commit();
 			}
-			const {xaId1} = options;
-			if (xaId1.indexOf("'")!=-1 || xaId1.indexOf("\\")!=-1)
-			{	throw new Error(`Invalid XA ID: ${xaId1}`);
+			if (someXaId.indexOf("'")!=-1 || someXaId.indexOf("\\")!=-1)
+			{	throw new Error(`Invalid XA ID: ${someXaId}`);
 			}
-			this.curXaId1 = xaId1;
-			sql = !protocol ? '' : `XA START '${xaId1}${protocol.connectionId}'`;
+			if (xaId)
+			{	this.curXaId = xaId;
+				this.curXaIdAppendConn = false;
+				sql = !protocol ? '' : `XA START '${xaId}'`;
+			}
+			else
+			{	this.curXaId = !protocol ? someXaId : someXaId + protocol.connectionId;
+				this.curXaIdAppendConn = !protocol;
+				sql = !protocol ? '' : `XA START '${this.curXaId}'`;
+			}
 		}
 		else
-		{	this.curXaId1 = '';
+		{	this.curXaId = '';
+			this.curXaIdAppendConn = false;
 			const readonly = options?.readonly;
 			sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
 		}
@@ -213,7 +237,8 @@ export class MyConn
 	{	let sql;
 		const {readonly, xaId1} = options;
 		if (xaId1)
-		{	this.curXaId1 = xaId1;
+		{	this.curXaId = xaId1;
+			this.curXaIdAppendConn = true;
 			sql = '';
 		}
 		else
@@ -248,16 +273,16 @@ export class MyConn
 		return pointId;
 	}
 
-	/**	If the current transaction started with `{xa: true}`, this function prepares the 2-phase commit.
+	/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
 		If this function succeeded, the transaction will be saved on the server till you call `commit()`.
 		The saved transaction can survive server restart and unexpected halt.
-		You need to commit it as soon as possible, all the locks that it holds will be released.
-		Usually, you want to prepare transactions on all servers, and immediately commit them, it `prepareCommit()` succeeded, or rollback them, if it failed.
+		You need to commit it as soon as possible, to release all the locks that it holds.
+		Usually, you want to prepare transactions on all servers, and immediately commit them, if `prepareCommit()` succeeded, or rollback them, if it failed.
 		If you create cross-server session with `pool.session()`, you can start and commit transaction on session level, and in this case no need to explicitly prepare the commit (`session.commit()` will do it implicitly).
 	 **/
 	async prepareCommit()
-	{	const {protocol, curXaId1} = this;
-		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId1)
+	{	const {protocol, curXaId} = this;
+		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId)
 		{	throw new SqlError(`There's no active Distributed Transaction`);
 		}
 		if (!this.isXaPrepared)
@@ -265,41 +290,42 @@ export class MyConn
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendComQuery(`XA END '${curXaId1}${protocol.connectionId}'`);
-			await protocol.sendComQuery(`XA PREPARE '${curXaId1}${protocol.connectionId}'`);
+			await protocol.sendComQuery(`XA END '${curXaId}'`);
+			await protocol.sendComQuery(`XA PREPARE '${curXaId}'`);
 			this.isXaPrepared = true;
 		}
 	}
 
 	/**	Rollback to a savepoint, or all.
 		If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
-		If `toPointId` is number returned from `savepoint()` call, rolls back to that point (also works with XAs).
-		If `toPointId` is `0`, rolls back to the beginning of transaction (doesn't work with XAs).
+		If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
+		If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
 	 **/
 	async rollback(toPointId?: number)
-	{	const {protocol, curXaId1} = this;
+	{	const {protocol, curXaId} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
 		{	if (typeof(toPointId) == 'number')
 			{	await protocol.sendComQuery(toPointId>0 ? `ROLLBACK TO p${toPointId}` : `ROLLBACK AND CHAIN`);
 			}
 			else
-			{	if (curXaId1)
+			{	if (curXaId)
 				{	if (!this.isXaPrepared)
 					{	try
-						{	await protocol.sendComQuery(`XA END '${curXaId1}${protocol.connectionId}'`);
+						{	await protocol.sendComQuery(`XA END '${curXaId}'`);
 						}
 						catch (e)
 						{	console.error(e);
 						}
 					}
-					await protocol.sendComQuery(`XA ROLLBACK '${curXaId1}${protocol.connectionId}'`);
+					await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
 				}
 				else
 				{	await protocol.sendComQuery(`ROLLBACK`);
 				}
 			}
 		}
-		this.curXaId1 = '';
+		this.curXaId = '';
+		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
 	}
 
@@ -307,13 +333,13 @@ export class MyConn
 		If the current transaction started with `{xa: true}`, you need to call `prepareCommit()` first.
 	 **/
 	async commit()
-	{	const {protocol, curXaId1} = this;
+	{	const {protocol, curXaId} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-		{	if (curXaId1)
+		{	if (curXaId)
 			{	if (!this.isXaPrepared)
 				{	throw new SqlError(`Please, prepare commit first`);
 				}
-				await protocol.sendComQuery(`XA COMMIT '${curXaId1}${protocol.connectionId}'`);
+				await protocol.sendComQuery(`XA COMMIT '${curXaId}'`);
 			}
 			else
 			{	if (this.onBeforeCommit)
@@ -322,7 +348,8 @@ export class MyConn
 				await protocol.sendComQuery(`COMMIT`);
 			}
 		}
-		this.curXaId1 = '';
+		this.curXaId = '';
+		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
 	}
 

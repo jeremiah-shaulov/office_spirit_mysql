@@ -1531,7 +1531,7 @@ L:		while (true)
 		If the connection was dead, returns Uint8Array buffer to be recycled.
 		This function doesn't throw errors (errors can be considered fatal).
 	 **/
-	async end(rollbackPreparedXaId1='', recycleConnection=false)
+	async end(rollbackPreparedXaId='', recycleConnection=false)
 	{	let {state} = this;
 		if (state != ProtocolState.TERMINATED)
 		{	this.state = ProtocolState.TERMINATED;
@@ -1565,15 +1565,15 @@ L:		while (true)
 				}
 				debugAssert(!this.curResultsets);
 			}
-			if (rollbackPreparedXaId1)
+			if (rollbackPreparedXaId)
 			{	try
-				{	await this.sendComQuery(`XA END '${rollbackPreparedXaId1}${this.connectionId}'`);
+				{	await this.sendComQuery(`XA END '${rollbackPreparedXaId}'`);
 				}
-				catch (e)
+				catch
 				{	// ok
 				}
 				try
-				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId1}${this.connectionId}'`);
+				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
 				}
 				catch (e)
 				{	console.error(e);

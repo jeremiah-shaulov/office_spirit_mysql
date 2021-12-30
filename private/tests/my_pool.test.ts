@@ -1347,7 +1347,7 @@ async function testTrx(dsnStr: string)
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
-				await conn1.query(`XA END '${conn1.xaId1}${conn1.connectionId}'`); // break state - after this commit will fail on conn1
+				await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
 				console.log('%cThe following exceptions must be ignored', 'color:blue');
 
 				let error;

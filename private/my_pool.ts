@@ -73,7 +73,7 @@ export class MySession
 		private maxConns: number,
 		private xaInfoTables: XaInfoTable[] = [],
 		private getConnFunc: (dsn: Dsn) => Promise<MyProtocol>,
-		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string) => void,
+		private returnConnFunc: (dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string) => void,
 		private onBeforeCommit?: OnBeforeCommit,
 	)
 	{
@@ -106,7 +106,7 @@ export class MySession
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
 	{	// 1. Fail if there are XA started
 		for (const conn of this.connsArr)
-		{	if (conn.xaId1)
+		{	if (conn.inXa)
 			{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
 			}
 		}
@@ -172,7 +172,7 @@ export class MySession
 					// 3. Prepare commit
 					const promises = [];
 					for (const conn of this.connsArr)
-					{	if (conn.xaId1)
+					{	if (conn.inXa)
 						{	promises[promises.length] = conn.prepareCommit();
 						}
 					}
@@ -213,7 +213,7 @@ export class MySession
 			// 2. Prepare commit
 			const promises = [];
 			for (const conn of this.connsArr)
-			{	if (conn.xaId1)
+			{	if (conn.inXa)
 				{	promises[promises.length] = conn.prepareCommit();
 				}
 			}
@@ -535,8 +535,8 @@ export class MyPool
 		}
 	}
 
-	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId1: string)
-	{	conn.end(rollbackPreparedXaId1, --conn.useNTimes>0 && conn.useTill>Date.now()).then
+	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string)
+	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now()).then
 		(	protocolOrBuffer =>
 			{	const conns = this.connsPool.get(dsn.name);
 				if (!conns)
