@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
 import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, FieldType, ColumnFlags} from './constants.ts';
-import {BusyError, CanceledError, SqlError} from './errors.ts';
+import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
@@ -135,6 +135,13 @@ export class MyProtocol extends MyProtocolReaderWriter
 		this.readPacketHeader() || await this.readPacketHeaderAsync();
 		// payload
 		const protocolVersion = this.readUint8() ?? await this.readUint8Async();
+		if (protocolVersion == 255)
+		{	// ERR
+			const _errorCode = this.readUint16() ?? await this.readUint16Async();
+			const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
+			debugAssert(this.isAtEndOfPacket());
+			throw new ServerDisconnectedError(errorMessage);
+		}
 		if (protocolVersion < 9)
 		{	throw new Error(`Protocol version ${protocolVersion} is not supported`);
 		}
@@ -273,7 +280,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	case PacketType.EOF: // AuthSwitchRequest
 			{	const authPluginName = this.readShortNulString() ?? await this.readShortNulStringAsync();
 				const authPluginData = (this.readShortEofBytes() ?? await this.readShortEofBytesAsync()).slice();
-				this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+				debugAssert(this.isAtEndOfPacket());
 				return AuthPlugin.inst(authPluginName, authPluginData);
 			}
 			case PacketType.OK:
@@ -398,7 +405,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				{	sqlState = this.readShortString(6) ?? await this.readShortStringAsync(6);
 				}
 				const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
-				this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+				debugAssert(this.isAtEndOfPacket());
 				throw new SqlError(errorMessage, errorCode, sqlState);
 			}
 			default:
@@ -506,7 +513,7 @@ L:		while (true)
 				}
 				case PacketType.NULL_OR_LOCAL_INFILE:
 				{	const filename = this.readShortEofString() ?? await this.readShortEofStringAsync();
-					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+					debugAssert(this.isAtEndOfPacket());
 					if (!this.onLoadFile)
 					{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
 					}

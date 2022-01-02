@@ -9,7 +9,7 @@ import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
-const DEFAULT_CONNECTION_TIMEOUT = 0;
+const DEFAULT_CONNECTION_TIMEOUT = 500;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
@@ -224,8 +224,10 @@ export class MyPool
 				if (now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
 				{	throw e;
 				}
+				const wait = Math.min(TRY_CONNECT_INTERVAL_MSEC, connectTill-now);
+				this.xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
+				await new Promise(y => setTimeout(y, wait));
 			}
-			await new Promise(y => setTimeout(y, Math.min(TRY_CONNECT_INTERVAL_MSEC, connectTill-now)));
 		}
 	}
 
