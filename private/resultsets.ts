@@ -1,4 +1,4 @@
-import {FieldType, Charset} from './constants.ts';
+import {FieldType, Charset, ColumnFlags} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 import {MyProtocol, RowType} from "./my_protocol.ts";
 
@@ -222,5 +222,38 @@ export class Column
 		public decimals: number
 	)
 	{
+	}
+
+	get typeName()
+	{	switch (this.type)
+		{	case FieldType.MYSQL_TYPE_DECIMAL: return 'decimal';
+			case FieldType.MYSQL_TYPE_TINY: return this.flags & ColumnFlags.UNSIGNED ? 'tinyint unsigned' : 'tinyint';
+			case FieldType.MYSQL_TYPE_SHORT: return this.flags & ColumnFlags.UNSIGNED ? 'smallint unsigned' : 'smallint';
+			case FieldType.MYSQL_TYPE_LONG: return this.flags & ColumnFlags.UNSIGNED ? 'integer unsigned' : 'integer';
+			case FieldType.MYSQL_TYPE_FLOAT: return 'float';
+			case FieldType.MYSQL_TYPE_DOUBLE: return 'double';
+			case FieldType.MYSQL_TYPE_NULL: return 'NULL';
+			case FieldType.MYSQL_TYPE_TIMESTAMP: return 'timestamp';
+			case FieldType.MYSQL_TYPE_LONGLONG: return this.flags & ColumnFlags.UNSIGNED ? 'bigint unsigned' : 'bigint';
+			case FieldType.MYSQL_TYPE_INT24: return this.flags & ColumnFlags.UNSIGNED ? 'mediumint unsigned' : 'mediumint';
+			case FieldType.MYSQL_TYPE_DATE: return 'date';
+			case FieldType.MYSQL_TYPE_TIME: return 'time';
+			case FieldType.MYSQL_TYPE_DATETIME: return 'datetime';
+			case FieldType.MYSQL_TYPE_YEAR: return 'year';
+			case FieldType.MYSQL_TYPE_VARCHAR: return 'varchar';
+			case FieldType.MYSQL_TYPE_BIT: return 'bit';
+			case FieldType.MYSQL_TYPE_JSON: return 'json';
+			case FieldType.MYSQL_TYPE_NEWDECIMAL: return 'decimal';
+			case FieldType.MYSQL_TYPE_ENUM: return 'enum';
+			case FieldType.MYSQL_TYPE_SET: return 'set';
+			case FieldType.MYSQL_TYPE_TINY_BLOB: return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
+			case FieldType.MYSQL_TYPE_MEDIUM_BLOB: return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
+			case FieldType.MYSQL_TYPE_LONG_BLOB: return this.flags & ColumnFlags.BINARY ? 'longblob' : 'longtext';
+			case FieldType.MYSQL_TYPE_BLOB: return this.flags & ColumnFlags.BINARY ? 'blob' : 'text';
+			case FieldType.MYSQL_TYPE_VAR_STRING: return this.flags & ColumnFlags.BINARY ? 'varbinary' : 'varchar';
+			case FieldType.MYSQL_TYPE_STRING: return this.flags & ColumnFlags.BINARY ? 'binary' : 'char';
+			case FieldType.MYSQL_TYPE_GEOMETRY: return 'geometry';
+		}
+		return '';
 	}
 }
