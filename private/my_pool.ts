@@ -2,7 +2,7 @@ import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {ServerDisconnectedError} from "./errors.ts";
 import {MyConn, OnBeforeCommit} from './my_conn.ts';
-import {MyProtocol, OnLoadFile} from './my_protocol.ts';
+import {MyProtocol, OnLoadFile, Logger} from './my_protocol.ts';
 import {MySession, MySessionInternal} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 import {crc32} from "./deps.ts";
@@ -26,6 +26,7 @@ export interface MyPoolOptions
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
 	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
+	logger?: Logger;
 }
 
 class MyPoolConns
@@ -42,7 +43,6 @@ export class MyPool
 	private hTimer: number | undefined;
 	private xaTask: XaTask;
 	private haveSlotsCallbacks: (() => void)[] = [];
-	private onerror: (error: Error) => void = () => {}; // TODO: use
 	private onend: () => void = () => {};
 	private nSessionsOrConns = 0;
 
@@ -66,7 +66,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables} = options;
+			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -121,23 +121,11 @@ export class MyPool
 				}
 			}
 			this.xaTask.start();
+			// logger
+			this.xaTask.logger = logger ?? console;
 		}
-		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables}} = this;
-		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables};
-	}
-
-	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError()` overrides the previous handler.
-		`onError(undefined)` - removes the event handler.
-	 **/
-	onError(callback?: (error: Error) => void)
-	{	this.onerror = !callback ? () => {} : error =>
-		{	try
-			{	callback(error);
-			}
-			catch (e)
-			{	console.error(e);
-			}
-		};
+		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, logger}} = this;
+		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
 	/**	`onEnd(callback)` - Register callback to be called each time when number of ongoing requests reach 0.
@@ -156,7 +144,7 @@ export class MyPool
 			{	callback?.();
 			}
 			catch (e)
-			{	console.error(e);
+			{	this.xaTask.logger.error(e);
 			}
 			trigger();
 			trigger = () => {};
@@ -179,7 +167,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaTask.xaInfoTables, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaTask.xaInfoTables, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -221,13 +209,14 @@ export class MyPool
 		}
 	}
 
-	private async newConn(dsn: Dsn, unusedBuffer?: Uint8Array, onLoadFile?: OnLoadFile)
-	{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
+	private async newConn(dsn: Dsn)
+	{	const unusedBuffer = this.unusedBuffers.pop();
+		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
 		let now = Date.now();
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, onLoadFile);
+			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, this.xaTask.logger);
 			}
 			catch (e)
 			{	// with connectTill==0 must not retry
@@ -250,7 +239,7 @@ export class MyPool
 		}
 		catch (e)
 		{	// must not happen
-			console.error(e);
+			this.xaTask.logger.error(e);
 		}
 		this.nBusyAll--;
 		if (this.nBusyAll+this.nIdleAll == 0)
@@ -282,7 +271,7 @@ export class MyPool
 			if (!conn)
 			{	conns.nCreating++;
 				try
-				{	conn = await this.newConn(dsn, this.unusedBuffers.pop(), this.onLoadFile);
+				{	conn = await this.newConn(dsn);
 				}
 				finally
 				{	conns.nCreating--;
@@ -416,6 +405,7 @@ class XaTask
 {	managedXaDsns: Dsn[] = [];
 	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH;
 	xaInfoTables: XaInfoTable[] = [];
+	logger: Logger = console;
 
 	private xaTaskTimer: number | undefined;
 	private xaTaskBusy = false;
@@ -446,9 +436,10 @@ class XaTask
 					const byInfoDsn = new Map<string, Item[]>();
 					const byConn = new Map<MyConn, Item[]>();
 					const results = await Promise.allSettled
-					(	this.managedXaDsns.map(dsn => session.conn(dsn)).map
-						(	async conn =>
-							{	// 1. Read XA RECOVER
+					(	this.managedXaDsns.map
+						(	async dsn =>
+							{	const conn = session.conn(dsn);
+								// 1. Read XA RECOVER
 								const xas: {xaId: string, xaId1: string, time: number, pid: number, hash: number, connectionId: number}[] = [];
 								const cids: number[] = [];
 								for await (const {data: xaId} of await conn.query<string>("XA RECOVER"))
@@ -506,7 +497,7 @@ class XaTask
 					);
 					for (const res of results)
 					{	if (res.status == 'rejected')
-						{	console.error(res.reason);
+						{	this.logger.error(res.reason);
 						}
 					}
 					// 2. Find out should i rollback or commit, according to xaInfoTables
@@ -542,7 +533,7 @@ class XaTask
 					const results2 = await Promise.allSettled(promises2);
 					for (const res of results2)
 					{	if (res.status == 'rejected')
-						{	console.error(res.reason);
+						{	this.logger.error(res.reason);
 						}
 					}
 					// 3. Rollback or commit
@@ -556,7 +547,7 @@ class XaTask
 								}
 							).then
 							(	() =>
-								{	console.error(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL process ID ${connectionId} was dead. Transaction started before ${Math.floor(Date.now()/1000) - time} sec by OS process ${pid}.`);
+								{	this.logger.warn(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL process ID ${connectionId} was dead. Transaction started before ${Math.floor(Date.now()/1000) - time} sec by OS process ${pid}.`);
 								}
 							);
 						}
@@ -565,14 +556,14 @@ class XaTask
 					const results3 = await Promise.allSettled(promises3);
 					for (const res of results3)
 					{	if (res.status == 'rejected')
-						{	console.error(res.reason);
+						{	this.logger.error(res.reason);
 						}
 					}
 				}
 			);
 		}
 		catch (e)
-		{	console.error(e);
+		{	this.logger.error(e);
 		}
 
 		this.xaTaskBusy = false;

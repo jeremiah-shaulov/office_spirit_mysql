@@ -2,6 +2,7 @@ import {Dsn} from './dsn.ts';
 import {SqlError} from "./errors.ts";
 import {MyConn, OnBeforeCommit, GetConnFunc, ReturnConnFunc, doSavepoint} from './my_conn.ts';
 import {MyPool, XaInfoTable} from "./my_pool.ts";
+import {Logger} from "./my_protocol.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 
 const xaIdGen = new XaIdGen;
@@ -17,6 +18,7 @@ export class MySession
 		private dsn: Dsn|undefined,
 		private maxConns: number,
 		private xaInfoTables: XaInfoTable[] = [],
+		private logger: Logger,
 		private getConnFunc: GetConnFunc,
 		private returnConnFunc: ReturnConnFunc,
 		private onBeforeCommit?: OnBeforeCommit,
@@ -129,7 +131,7 @@ export class MySession
 						recordAdded = true;
 					}
 					catch (e)
-					{	console.error(`Couldn't add record to info table ${curXaInfoTable.table} on ${conn.dsnStr}`, e);
+					{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${conn.dsnStr}`, e);
 					}
 					// 5. Commit
 					promises.length = 0;
@@ -143,7 +145,7 @@ export class MySession
 						{	await conn.execute(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 						}
 						catch (e)
-						{	console.error(e);
+						{	this.logger.error(e);
 						}
 					}
 				},
@@ -181,7 +183,7 @@ export class MySession
 				{	error = r.reason;
 				}
 				else
-				{	console.error(r.reason);
+				{	this.logger.error(r.reason);
 				}
 			}
 		}
@@ -191,7 +193,7 @@ export class MySession
 				{	await this.rollback();
 				}
 				catch (e2)
-				{	console.error(e2);
+				{	this.logger.debug(e2);
 				}
 			}
 			throw error;

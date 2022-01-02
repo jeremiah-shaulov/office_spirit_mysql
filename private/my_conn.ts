@@ -318,7 +318,7 @@ export class MyConn
 						{	await protocol.sendComQuery(`XA END '${curXaId}'`);
 						}
 						catch (e)
-						{	console.error(e);
+						{	protocol.logger.error(e);
 						}
 					}
 					await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);

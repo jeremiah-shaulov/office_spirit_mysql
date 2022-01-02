@@ -17,6 +17,17 @@ const BUFFER_FOR_END_SESSION = new Uint8Array(4096);
 
 export type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
+export interface Logger
+{	debug(...args: Any[]): unknown;
+	info(...args: Any[]): unknown;
+	log(...args: Any[]): unknown;
+	warn(...args: Any[]): unknown;
+	error(...args: Any[]): unknown;
+}
+
 export const enum ReadPacketMode
 {	REGULAR,
 	PREPARED_STMT,
@@ -41,9 +52,6 @@ const enum ProtocolState
 	TERMINATED,
 }
 
-// deno-lint-ignore no-explicit-any
-type Any = any;
-
 export class MyProtocol extends MyProtocolReaderWriter
 {	serverVersion = '';
 	connectionId = 0;
@@ -55,6 +63,8 @@ export class MyProtocol extends MyProtocolReaderWriter
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
 	useNTimes = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
 
+	logger: Logger = console;
+
 	private warnings = 0;
 	private affectedRows: number|bigint = 0;
 	private lastInsertId: number|bigint = 0;
@@ -64,18 +74,14 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private initSchema = '';
 	private initSql = '';
 	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
-	private onloadfile?: OnLoadFile;
+	private onLoadFile?: OnLoadFile;
 
 	private curResultsets: ResultsetsProtocol<unknown> | undefined;
 	private pendingCloseStmts: number[] = [];
 	private curLastColumnReader: Deno.Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	static async inst
-	(	dsn: Dsn,
-		useBuffer?: Uint8Array,
-		onloadfile?: OnLoadFile,
-	): Promise<MyProtocol>
+	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, logger?: Logger): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
@@ -88,12 +94,15 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
 		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer);
+		if (logger)
+		{	protocol.logger = logger;
+		}
 		protocol.initSchema = schema;
 		protocol.initSql = initSql;
 		if (maxColumnLen > 0)
 		{	protocol.maxColumnLen = maxColumnLen;
 		}
-		protocol.onloadfile = onloadfile;
+		protocol.onLoadFile = onLoadFile;
 		try
 		{	const authPlugin = await protocol.readHandshake();
 			await protocol.writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
@@ -113,7 +122,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			{	conn.close();
 			}
 			catch (e2)
-			{	console.error(e2);
+			{	protocol.logger.debug(e2);
 			}
 			throw e;
 		}
@@ -498,10 +507,10 @@ L:		while (true)
 				case PacketType.NULL_OR_LOCAL_INFILE:
 				{	const filename = this.readShortEofString() ?? await this.readShortEofStringAsync();
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
-					if (!this.onloadfile)
+					if (!this.onLoadFile)
 					{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
 					}
-					const reader = await this.onloadfile(filename);
+					const reader = await this.onLoadFile(filename);
 					if (!reader)
 					{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
 					}
@@ -520,7 +529,7 @@ L:		while (true)
 						{	reader.close();
 						}
 						catch (e)
-						{	console.error(e);
+						{	this.logger.error(e);
 						}
 					}
 					continue L;
@@ -675,7 +684,7 @@ L:		while (true)
 			{	this.conn.close();
 			}
 			catch (e)
-			{	console.error(e);
+			{	this.logger.error(e);
 			}
 			state = ProtocolState.ERROR;
 		}
@@ -690,7 +699,7 @@ L:		while (true)
 			{	this.conn.close();
 			}
 			catch (e)
-			{	console.error(e);
+			{	this.logger.error(e);
 			}
 			if (isFromPool)
 			{	return;
@@ -738,7 +747,7 @@ L:		while (true)
 		}
 		catch (e)
 		{	if ((e instanceof SqlError) && e.message=='Unknown command')
-			{	console.error(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e); // TODO: report about this error in better way
+			{	this.logger.warn(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
 			}
 			else
 			{	throw e;
@@ -825,7 +834,7 @@ L:		while (true)
 				{	this.rethrowError(error);
 				}
 				catch (e)
-				{	console.error(e);
+				{	this.logger.error(e);
 				}
 			}
 		}
@@ -835,14 +844,14 @@ L:		while (true)
 	}
 
 	async sendComStmtExecute(resultsets: ResultsetsProtocol<unknown>, params: Param[])
-	{	this.setQueryingState();
-		const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
+	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
 		if (stmtId < 0)
 		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
 		}
-		debugAssert(!resultsets.hasMoreProtocol); // because setQueryingState() ensures that current resultset is read to the end
+		this.setQueryingState();
 		try
-		{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
+		{	debugAssert(!resultsets.hasMoreProtocol); // because setQueryingState() ensures that current resultset is read to the end
+			const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 			let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
 			let packetStart = 0;
 			const placeholdersSent = new Set<number>();
@@ -1544,7 +1553,7 @@ L:		while (true)
 				}
 				catch (e)
 				{	if (!(e instanceof CanceledError))
-					{	console.error(e);
+					{	this.logger.error(e);
 					}
 				}
 				state = await promise;
@@ -1561,7 +1570,7 @@ L:		while (true)
 					curResultsets.hasMoreProtocol = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
 				}
 				catch (e)
-				{	console.error(e);
+				{	this.logger.error(e);
 					recycleConnection = false;
 					this.curResultsets = undefined;
 				}
@@ -1578,7 +1587,7 @@ L:		while (true)
 				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
 				}
 				catch (e)
-				{	console.error(e);
+				{	this.logger.error(e);
 				}
 			}
 			this.curLastColumnReader = undefined;
@@ -1591,7 +1600,7 @@ L:		while (true)
 					{	this.conn.close();
 					}
 					catch (e)
-					{	console.error(e);
+					{	this.logger.error(e);
 					}
 				}
 				return buffer;
@@ -1605,7 +1614,7 @@ L:		while (true)
 				protocol.initSchema = this.initSchema;
 				protocol.initSql = this.initSql;
 				protocol.maxColumnLen = this.maxColumnLen;
-				protocol.onloadfile = this.onloadfile;
+				protocol.onLoadFile = this.onLoadFile;
 				const {initSchema, initSql} = this;
 				await protocol.sendComResetConnectionAndInitDb(initSchema);
 				if (initSql)
