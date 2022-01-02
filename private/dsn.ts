@@ -10,7 +10,8 @@ type Any = any;
 	Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
 	Example: `mysql://root@localhost/` or `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`.
 	Possible parameters:
-	`connectionTimeout` (number) milliseconds - will try to reconnect this amount of time;
+	`connectionTimeout` (number) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds;
+	`reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
 	`keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
 	`keepAliveMax` (number) - how many times at most to recycle each connection;
 	`maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
@@ -26,6 +27,7 @@ export class Dsn
 	#schema: string;
 	#pipe: string;
 	#connectionTimeout: number;
+	#reconnectInterval: number;
 	#keepAliveTimeout: number;
 	#keepAliveMax: number;
 	#maxColumnLen: number;
@@ -97,6 +99,14 @@ export class Dsn
 	}
 	set connectionTimeout(value: number)
 	{	this.#connectionTimeout = Math.max(0, value);
+		this.updateName();
+	}
+
+	get reconnectInterval()
+	{	return this.#reconnectInterval;
+	}
+	set reconnectInterval(value: number)
+	{	this.#reconnectInterval = Math.max(0, value) || NaN;
 		this.updateName();
 	}
 
@@ -183,13 +193,15 @@ export class Dsn
 		this.#schema = pathname.slice(pos + 1);
 		// params
 		const connectionTimeout = url.searchParams.get('connectionTimeout');
+		const reconnectInterval = url.searchParams.get('reconnectInterval');
 		const keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
 		const keepAliveMax = url.searchParams.get('keepAliveMax');
 		const maxColumnLen = url.searchParams.get('maxColumnLen');
 		const foundRows = url.searchParams.get('foundRows');
 		const ignoreSpace = url.searchParams.get('ignoreSpace');
 		const multiStatements = url.searchParams.get('multiStatements');
-		this.#connectionTimeout = connectionTimeout ? Math.max(0, Number(connectionTimeout)) : NaN;
+		this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
+		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) || NaN : NaN;
 		this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
 		this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
 		this.#maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
@@ -207,6 +219,7 @@ export class Dsn
 	private updateName()
 	{	const params =
 		(	(!isNaN(this.#connectionTimeout) ? '&connectionTimeout='+this.#connectionTimeout : '') +
+			(!isNaN(this.#reconnectInterval) ? '&reconnectInterval='+this.#reconnectInterval : '') +
 			(!isNaN(this.#keepAliveTimeout) ? '&keepAliveTimeout='+this.#keepAliveTimeout : '') +
 			(!isNaN(this.#keepAliveMax) ? '&keepAliveMax='+this.#keepAliveMax : '') +
 			(!isNaN(this.#maxColumnLen) ? '&maxColumnLen='+this.#maxColumnLen : '') +

@@ -438,8 +438,7 @@ async function testBasic(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -527,8 +526,7 @@ async function testPrepared(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -739,8 +737,7 @@ async function testVariousColumnTypes(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -788,8 +785,7 @@ async function testSqlError(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -810,8 +806,7 @@ async function testNoBackslashEscapes(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -877,8 +872,7 @@ async function testInitSql(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 
 	dsn.initSql = "SELECT @myvar3:='my value'";
@@ -896,8 +890,7 @@ async function testInitSql(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -959,8 +952,7 @@ async function testBusyState(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -992,8 +984,7 @@ async function testSessions(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -1016,8 +1007,7 @@ async function testPoolDsn(_dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -1056,8 +1046,7 @@ async function testManyPlaceholders(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -1085,8 +1074,7 @@ async function testManyPlaceholders2(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -1391,8 +1379,7 @@ async function testTrx(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }
 
@@ -1540,7 +1527,6 @@ async function testLoadBigDump(dsnStr: string)
 		);
 	}
 	finally
-	{	await pool.onEnd();
-		await pool.closeIdle();
+	{	await pool.shutdown();
 	}
 }

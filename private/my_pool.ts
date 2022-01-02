@@ -32,7 +32,7 @@ export interface MyPoolOptions
 class MyPoolConns
 {	idle: MyProtocol[] = [];
 	busy: MyProtocol[] = [];
-	nCreating = 0;
+	nConnecting = 0;
 }
 
 export class MyPool
@@ -40,11 +40,12 @@ export class MyPool
 	private unusedBuffers: Uint8Array[] = [];
 	private nIdleAll = 0;
 	private nBusyAll = 0;
+	private nSessionsOrConns = 0;
 	private hTimer: number | undefined;
 	private xaTask: XaTask;
 	private haveSlotsCallbacks: (() => void)[] = [];
-	private onend: () => void = () => {};
-	private nSessionsOrConns = 0;
+	private isShutDown = false;
+	private onend: (() => void) | undefined;
 
 	private dsn: Dsn | undefined;
 	private maxConns = DEFAULT_MAX_CONNS;
@@ -128,32 +129,16 @@ export class MyPool
 		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
-	/**	`onEnd(callback)` - Register callback to be called each time when number of ongoing requests reach 0.
-		Only one callback is active. Second `onEnd()` overrides the previous callback.
-		`onEnd(undefined)` - removes the event handler.
-		Can be used as `await onEnd()`.
+	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
+		Then new connections will be rejected, and this object will be unusable.
 	 **/
-	onEnd(callback?: () => void)
-	{	if (this.nSessionsOrConns==0 && this.nBusyAll==0)
-		{	return Promise.resolve();
+	async shutdown()
+	{	this.isShutDown = true;
+		if (this.nSessionsOrConns!=0 || this.nBusyAll!=0)
+		{	await new Promise<void>(y => this.onend = y);
 		}
-		let trigger: () => void;
-		const promise = new Promise<void>(y => trigger = y);
-		this.onend = () =>
-		{	try
-			{	callback?.();
-			}
-			catch (e)
-			{	this.xaTask.logger.error(e);
-			}
-			trigger();
-			trigger = () => {};
-		};
-		return promise;
-	}
-
-	closeIdle()
-	{	return this.closeKeptAliveTimedOut(true);
+		// close idle connections
+		await this.closeKeptAliveTimedOut(true);
 	}
 
 	haveSlots(): boolean
@@ -167,7 +152,10 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaTask.xaInfoTables, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+	{	if (this.isShutDown)
+		{	throw new Error(`Connections pool is shut down`);
+		}
+		const session = new MySessionInternal(this, this.dsn, this.maxConns, this.xaTask.xaInfoTables, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(session);
@@ -175,13 +163,16 @@ export class MyPool
 		finally
 		{	session.endSession();
 			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
-			{	this.onend();
+			{	this.onend?.();
 			}
 		}
 	}
 
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
-	{	if (dsn == undefined)
+	{	if (this.isShutDown && this.nSessionsOrConns==0)
+		{	throw new Error(`Connections pool is shut down`);
+		}
+		if (dsn == undefined)
 		{	dsn = this.dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
@@ -198,7 +189,7 @@ export class MyPool
 		finally
 		{	conn.end();
 			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
-			{	this.onend();
+			{	this.onend?.();
 			}
 		}
 	}
@@ -212,6 +203,7 @@ export class MyPool
 	private async newConn(dsn: Dsn)
 	{	const unusedBuffer = this.unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
+		const reconnectInterval = dsn.reconnectInterval>0 ? dsn.reconnectInterval : TRY_CONNECT_INTERVAL_MSEC;
 		let now = Date.now();
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
@@ -224,7 +216,7 @@ export class MyPool
 				if (now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
 				{	throw e;
 				}
-				const wait = Math.min(TRY_CONNECT_INTERVAL_MSEC, connectTill-now);
+				const wait = Math.min(reconnectInterval, connectTill-now);
 				this.xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
 				await new Promise(y => setTimeout(y, wait));
 			}
@@ -243,13 +235,28 @@ export class MyPool
 		{	// must not happen
 			this.xaTask.logger.error(e);
 		}
-		this.nBusyAll--;
-		if (this.nBusyAll+this.nIdleAll == 0)
-		{	clearInterval(this.hTimer);
-			this.hTimer = undefined;
+		this.decNBusyAll();
+	}
+
+	private decNBusyAll()
+	{	const nBusyAll = --this.nBusyAll;
+		let n = this.haveSlotsCallbacks.length;
+		if (n == 0)
+		{	if (nBusyAll == 0)
+			{	if (this.nIdleAll == 0)
+				{	clearInterval(this.hTimer);
+					this.hTimer = undefined;
+				}
+				if (this.nSessionsOrConns == 0)
+				{	this.onend?.();
+				}
+			}
 		}
-		if (this.nSessionsOrConns==0 && this.nBusyAll==0)
-		{	this.onend();
+		else if (nBusyAll < this.maxConns)
+		{	while (n-- > 0)
+			{	this.haveSlotsCallbacks[n]();
+			}
+			this.haveSlotsCallbacks.length = 0;
 		}
 	}
 
@@ -271,12 +278,17 @@ export class MyPool
 		{	let conn: MyProtocol|undefined;
 			conn = idle.pop();
 			if (!conn)
-			{	conns.nCreating++;
+			{	conns.nConnecting++;
+				this.nBusyAll++;
 				try
 				{	conn = await this.newConn(dsn);
+					conns.nConnecting--;
+					this.nBusyAll--;
 				}
-				finally
-				{	conns.nCreating--;
+				catch (e)
+				{	conns.nConnecting--;
+					this.decNBusyAll();
+					throw e;
 				}
 			}
 			else if (conn.useTill <= now)
@@ -313,8 +325,7 @@ export class MyPool
 				{	// assume: returnConn() already called for this connection
 					return;
 				}
-				this.nBusyAll--;
-				debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
+				debugAssert(this.nIdleAll>=0 && this.nBusyAll>=1);
 				conns.busy[i] = conns.busy[conns.busy.length - 1];
 				conns.busy.length--;
 				if (protocolOrBuffer instanceof Uint8Array)
@@ -324,21 +335,7 @@ export class MyPool
 				{	conns.idle.push(protocolOrBuffer);
 					this.nIdleAll++;
 				}
-				if (this.nBusyAll < this.maxConns)
-				{	let n = this.haveSlotsCallbacks.length;
-					if (n > 0)
-					{	while (n-- > 0)
-						{	this.haveSlotsCallbacks[n]();
-						}
-						this.haveSlotsCallbacks.length = 0;
-					}
-					else if (this.nBusyAll == 0)
-					{	this.closeKeptAliveTimedOut();
-					}
-				}
-				if (this.nSessionsOrConns==0 && this.nBusyAll==0)
-				{	this.onend();
-				}
+				this.decNBusyAll();
 			}
 		);
 	}
@@ -347,7 +344,7 @@ export class MyPool
 	{	const {connsPool} = this;
 		const now = Date.now();
 		const promises = [];
-		for (const [dsn, {idle, busy, nCreating}] of connsPool)
+		for (const [dsn, {idle, busy, nConnecting}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
@@ -357,7 +354,7 @@ export class MyPool
 				}
 			}
 			//
-			if (busy.length+idle.length+nCreating == 0)
+			if (busy.length+idle.length+nConnecting == 0)
 			{	connsPool.delete(dsn);
 			}
 		}

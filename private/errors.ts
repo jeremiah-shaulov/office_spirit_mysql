@@ -7,7 +7,9 @@ export class SqlError extends Error
 }
 
 export class ServerDisconnectedError extends Error
-{
+{	constructor(message: string, public errorCode=0)
+	{	super(message);
+	}
 }
 
 /**	Making a query while previous resultset was not read to the end.

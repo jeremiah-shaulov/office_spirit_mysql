@@ -137,10 +137,10 @@ export class MyProtocol extends MyProtocolReaderWriter
 		const protocolVersion = this.readUint8() ?? await this.readUint8Async();
 		if (protocolVersion == 255)
 		{	// ERR
-			const _errorCode = this.readUint16() ?? await this.readUint16Async();
+			const errorCode = this.readUint16() ?? await this.readUint16Async();
 			const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
 			debugAssert(this.isAtEndOfPacket());
-			throw new ServerDisconnectedError(errorMessage);
+			throw new ServerDisconnectedError(errorMessage, errorCode);
 		}
 		if (protocolVersion < 9)
 		{	throw new Error(`Protocol version ${protocolVersion} is not supported`);

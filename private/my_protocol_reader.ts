@@ -92,7 +92,7 @@ export class MyProtocolReader
 			{	if (canEof && this.bufferEnd-this.bufferStart==0)
 				{	return false;
 				}
-				throw new ServerDisconnectedError('Server disconnected');
+				throw new ServerDisconnectedError('Lost connection to server');
 			}
 			this.bufferEnd += nRead;
 		}
@@ -120,7 +120,7 @@ export class MyProtocolReader
 			debugAssert(this.bufferEnd < this.buffer.length);
 			const nRead = await this.conn.read(this.buffer.subarray(this.bufferEnd));
 			if (nRead == null)
-			{	throw new ServerDisconnectedError('Server disconnected');
+			{	throw new ServerDisconnectedError('Lost connection to server');
 			}
 			this.bufferEnd += nRead;
 			const i = this.buffer.subarray(0, this.bufferEnd).indexOf(0, this.bufferEnd-nRead);
@@ -173,7 +173,7 @@ export class MyProtocolReader
 				this.bufferStart = 0;
 				const nRead = await this.conn.read(this.buffer.subarray(this.bufferEnd));
 				if (nRead == null)
-				{	throw new ServerDisconnectedError('Server disconnected');
+				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				this.bufferEnd += nRead;
 			}
@@ -805,7 +805,7 @@ export class MyProtocolReader
 			while (lenInCurPacket>0 && pos<dest.length)
 			{	const n = await this.conn.read(dest.subarray(pos, Math.min(dest.length, pos+lenInCurPacket)));
 				if (n == null)
-				{	throw new ServerDisconnectedError('Server disconnected');
+				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				pos += n;
 				this.packetOffset += n;
@@ -847,7 +847,7 @@ export class MyProtocolReader
 			while (lenInCurPacket > 0)
 			{	const nRead = await this.conn.read(this.buffer);
 				if (nRead == null)
-				{	throw new ServerDisconnectedError('Server disconnected');
+				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				lenInCurPacket -= nRead;
 				this.bufferEnd = nRead;

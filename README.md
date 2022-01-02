@@ -5,6 +5,7 @@ Features:
 - Binary protocol. Query parameters are sent separately from text query.
 - Sane connections pooling. Connections are reset after usage (locks are freed).
 - Pool for connections to multiple servers.
+- Auto-retry connection if server is busy.
 - Streaming BLOBs and `Deno.Reader`s.
 - Custom handler for LOCAL INFILE.
 - Advanced transactions manager: regular transactions, readonly, distributed (2-phase commit), savepoints.
@@ -33,8 +34,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Connections pool
@@ -89,6 +89,8 @@ Or: `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`
 
 The DSN can contain question mark followed by parameters. Possible parameters are:
 
+- `connectionTimeout` (number, default `500`) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds.
+- `reconnectInterval` (number, default `100`) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`.
 - `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
 - `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
@@ -113,6 +115,9 @@ If somebody killed a connection while it was idle in the pool, and you asked to 
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
 
 In the beginning of `callback`, `conn` may be not connected to the server. It will connect on first requested query.
+
+If server is busy ("too many connections", "server shutdown in progress", etc.), the connection will be retried during the period of `connectionTimeout` milliseconds (specified in the DSN parameters).
+During this period the connection will be retried each `reconnectInterval` milliseconds.
 
 ## Cross-server sessions
 
@@ -158,8 +163,7 @@ pool.session
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 At the end of callback all active connections will be returned to the pool. However you can call `conn.end()` to free a connection earlier.
 
@@ -219,8 +223,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 If your query returns single row, you can read it with `Resultsets.first()` or `ResultsetsPromise.first()`.
 It returns the first row itself, not an array of rows.
@@ -251,8 +254,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 You can iterate the resultset with `for await` loop, or you can call `ResultsetsPromise.forEach()` or `Resultsets.forEach()` method.
 
@@ -289,8 +291,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 - `MyConn.query()` method iterates over rows as Javascript default objects with fields.
@@ -320,8 +321,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 Here is the complete definition of query functions:
@@ -370,8 +370,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 If you're sure about column types, you can override the column type with `any` (or something else), so each column value will be assumed to have this type.
@@ -401,8 +400,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Type conversions
@@ -462,8 +460,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ### Named parameters
@@ -492,8 +489,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ### Using external SQL generators
@@ -580,8 +576,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 There're the following external libraries that implement `toSqlBytesWithParamsBackslashAndBuffer()` to optimally support `x/office_spirit_mysql`:
@@ -626,8 +621,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Writing long BLOBS
@@ -664,8 +658,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Importing big dumps
@@ -717,8 +710,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Prepared statements
@@ -759,8 +751,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## LOAD DATA LOCAL INFILE
@@ -832,8 +823,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 ## Connection status
@@ -896,8 +886,7 @@ pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 `Resultsets` object has the following properties and methods:
@@ -1005,8 +994,7 @@ await pool.forConn
 	}
 );
 
-await pool.onEnd();
-await pool.closeIdle();
+await pool.shutdown();
 ```
 
 It's also possible to start a READONLY transaction:
@@ -1138,8 +1126,7 @@ try
 	);
 }
 finally
-{	await pool.onEnd();
-	await pool.closeIdle();
+{	await pool.shutdown();
 }
 ```
 
