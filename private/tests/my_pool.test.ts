@@ -566,16 +566,14 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_double double NOT NULL,
 
 							c_tinytext tinytext,
-							c_smalltext tinytext,
-							c_text tinytext,
-							c_mediumtext tinytext,
-							c_longtext tinytext,
+							c_text text,
+							c_mediumtext mediumtext,
+							c_longtext longtext,
 
 							c_tinyblob tinyblob,
-							c_smallblob tinyblob,
-							c_blob tinyblob,
-							c_mediumblob tinyblob,
-							c_longblob tinyblob,
+							c_blob blob,
+							c_mediumblob mediumblob,
+							c_longblob longblob,
 
 							c_char char(5),
 							c_binary binary(5),
@@ -612,16 +610,14 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_double = -12.25,
 
 							c_tinytext = 'abcd',
-							c_smalltext = 'efgh',
-							c_text = 'ijkl',
-							c_mediumtext = 'mnop',
-							c_longtext = 'qrst',
+							c_text = 'efgh',
+							c_mediumtext = 'ijkl',
+							c_longtext = 'mnop',
 
 							c_tinyblob = x'01020304',
-							c_smallblob = x'05060708',
-							c_blob = x'090A0B0C',
-							c_mediumblob = x'0D0E0F10',
-							c_longblob = x'11121314',
+							c_blob = x'05060708',
+							c_mediumblob = x'090A0B0C',
+							c_longblob = x'0D0E0F10',
 
 							c_char = 'abc',
 							c_binary = x'010203',
@@ -698,16 +694,14 @@ async function testVariousColumnTypes(dsnStr: string)
 						'c_double': -12.25,
 
 						'c_tinytext': 'abcd',
-						'c_smalltext': 'efgh',
-						'c_text': 'ijkl',
-						'c_mediumtext': 'mnop',
-						'c_longtext': 'qrst',
+						'c_text': 'efgh',
+						'c_mediumtext': 'ijkl',
+						'c_longtext': 'mnop',
 
 						'c_tinyblob': new Uint8Array([1, 2, 3, 4]),
-						'c_smallblob': new Uint8Array([5, 6, 7, 8]),
-						'c_blob': new Uint8Array([0x09, 0x0A, 0x0B, 0x0C]),
-						'c_mediumblob': new Uint8Array([0x0D, 0x0E, 0x0F, 0x10]),
-						'c_longblob': new Uint8Array([0x11, 0x12, 0x13, 0x14]),
+						'c_blob': new Uint8Array([5, 6, 7, 8]),
+						'c_mediumblob': new Uint8Array([0x09, 0x0A, 0x0B, 0x0C]),
+						'c_longblob': new Uint8Array([0x0D, 0x0E, 0x0F, 0x10]),
 
 						'c_char': 'abc',
 						'c_binary': new Uint8Array([1, 2, 3, 0, 0]),
@@ -725,6 +719,52 @@ async function testVariousColumnTypes(dsnStr: string)
 					}
 					assertEquals(res.columns.length, Object.keys(expectedRow).length);
 					assertEquals(row, expectedRow);
+					const expectedColumnTypes =
+					[	'integer',
+						'text',
+
+						'bit',
+						'bit',
+
+						'tinyint',
+						'tinyint unsigned',
+						'smallint',
+						'smallint unsigned',
+						'mediumint',
+						'mediumint unsigned',
+						'integer',
+						'integer unsigned',
+						'bigint',
+						'bigint unsigned',
+
+						'float',
+						'double',
+
+						'tinytext',
+						'text',
+						'mediumtext',
+						'longtext',
+
+						'tinyblob',
+						'blob',
+						'mediumblob',
+						'longblob',
+
+						'char',
+						'binary',
+
+						'varchar',
+						'varbinary',
+
+						'year',
+						'timestamp',
+						'date',
+						'datetime',
+					];
+					if (row && ('c_json' in row))
+					{	expectedColumnTypes.splice(expectedColumnTypes.indexOf('year'), 0, 'json');
+					}
+					assertEquals(res.columns.map(v => v.typeName), expectedColumnTypes);
 					assertEquals(res.hasMore, false);
 					assertEquals(await res.nextResultset(), false);
 					assertEquals(await res.nextResultset(), false);

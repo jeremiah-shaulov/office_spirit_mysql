@@ -249,11 +249,43 @@ export class Column
 			case FieldType.MYSQL_TYPE_TINY_BLOB: return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
 			case FieldType.MYSQL_TYPE_MEDIUM_BLOB: return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
 			case FieldType.MYSQL_TYPE_LONG_BLOB: return this.flags & ColumnFlags.BINARY ? 'longblob' : 'longtext';
-			case FieldType.MYSQL_TYPE_BLOB: return this.flags & ColumnFlags.BINARY ? 'blob' : 'text';
+			case FieldType.MYSQL_TYPE_BLOB:
+				if (this.length==0xFF || this.length==0xFF*2 || this.length==0xFF*3 || this.length==0xFF*4)
+				{	return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
+				}
+				else if (this.length==0xFFFFFF || this.length==0xFFFFFF*2 || this.length==0xFFFFFF*3 || this.length==0xFFFFFF*4)
+				{	return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
+				}
+				else if (this.length > 0xFFFFFF*4)
+				{	return this.flags & ColumnFlags.BINARY ? 'longblob' : 'longtext';
+				}
+				else
+				{	return this.flags & ColumnFlags.BINARY ? 'blob' : 'text';
+				}
 			case FieldType.MYSQL_TYPE_VAR_STRING: return this.flags & ColumnFlags.BINARY ? 'varbinary' : 'varchar';
 			case FieldType.MYSQL_TYPE_STRING: return this.flags & ColumnFlags.BINARY ? 'binary' : 'char';
 			case FieldType.MYSQL_TYPE_GEOMETRY: return 'geometry';
 		}
 		return '';
+	}
+
+	get isNotNull()
+	{	return (this.flags & ColumnFlags.NOT_NULL) != 0;
+	}
+
+	get isPrimaryKey()
+	{	return (this.flags & ColumnFlags.PRI_KEY) != 0;
+	}
+
+	get isUniqueKey()
+	{	return (this.flags & ColumnFlags.UNIQUE_KEY) != 0;
+	}
+
+	get isKey()
+	{	return (this.flags & (ColumnFlags.PRI_KEY | ColumnFlags.UNIQUE_KEY | ColumnFlags.MULTIPLE_KEY)) != 0;
+	}
+
+	get isAutoIncrement()
+	{	return (this.flags & ColumnFlags.AUTO_INCREMENT) != 0;
 	}
 }
