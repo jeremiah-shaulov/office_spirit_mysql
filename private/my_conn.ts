@@ -3,7 +3,7 @@ import {StatusFlags} from './constants.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, SqlError} from './errors.ts';
-import {Resultsets, ResultsetsProtocol, ResultsetsPromise} from './resultsets.ts';
+import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 
@@ -334,7 +334,7 @@ export class MyConn
 		this.isXaPrepared = false;
 	}
 
-	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsProtocol<Row>>
+	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.maxConns;
 
 		while (true)

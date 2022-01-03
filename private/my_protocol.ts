@@ -5,7 +5,7 @@ import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './err
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
-import {Column, ResultsetsProtocol} from './resultsets.ts';
+import {Column, ResultsetsInternal} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
 import {convColumnValue} from './conv_column_value.ts';
 
@@ -76,7 +76,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
 	private onLoadFile?: OnLoadFile;
 
-	private curResultsets: ResultsetsProtocol<unknown> | undefined;
+	private curResultsets: ResultsetsInternal<unknown> | undefined;
 	private pendingCloseStmts: number[] = [];
 	private curLastColumnReader: Deno.Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
@@ -472,7 +472,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		return this.send();
 	}
 
-	private initResultsets(resultsets: ResultsetsProtocol<unknown>)
+	private initResultsets(resultsets: ResultsetsInternal<unknown>)
 	{	resultsets.lastInsertId = this.lastInsertId;
 		resultsets.warnings = this.warnings;
 		resultsets.statusInfo = this.statusInfo;
@@ -487,7 +487,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private async readQueryResponse(resultsets: ResultsetsProtocol<unknown>, mode: ReadPacketMode, skipColumns=false)
+	private async readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false)
 	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
 		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
@@ -784,7 +784,7 @@ L:		while (true)
 		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_QUERY);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
-			const resultsets = new ResultsetsProtocol<Row>(rowType);
+			const resultsets = new ResultsetsInternal<Row>(rowType);
 			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 			if (state != ProtocolState.IDLE)
 			{	resultsets.protocol = this;
@@ -812,7 +812,7 @@ L:		while (true)
 		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, false, putParamsTo);
-			const resultsets = new ResultsetsProtocol<Row>(rowType);
+			const resultsets = new ResultsetsInternal<Row>(rowType);
 			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
 			if (this.pendingCloseStmts.length != 0)
@@ -850,7 +850,7 @@ L:		while (true)
 		}
 	}
 
-	async sendComStmtExecute(resultsets: ResultsetsProtocol<unknown>, params: Param[])
+	async sendComStmtExecute(resultsets: ResultsetsInternal<unknown>, params: Param[])
 	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
 		if (stmtId < 0)
 		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');

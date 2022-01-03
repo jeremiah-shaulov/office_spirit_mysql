@@ -192,7 +192,7 @@ export class MySession
 	}
 }
 
-/**	This library creates connections as MySessionInternal object, but exposes them as MySession.
+/**	This library creates sessions as MySessionInternal object, but exposes them as MySession.
 	Methods that don't exist on MySession are for internal use.
  **/
 export class MySessionInternal extends MySession

@@ -126,7 +126,10 @@ export class Resultsets<Row>
 	}
 }
 
-export class ResultsetsProtocol<Row> extends Resultsets<Row>
+/**	This library creates resultsets as ResultsetsInternal object, but exposes them as Resultsets.
+	Methods that don't exist on Resultsets are for internal use.
+ **/
+export class ResultsetsInternal<Row> extends Resultsets<Row>
 {	protocol: MyProtocol | undefined;
 	isPreparedStmt = false; // `stmtId` can be reset to -1 when the stmt is disposed, but `isPreparedStmt` must remain true, because the stmt can be disposed before resultsets are read, and prepared stmts have different packet format
 	stmtId = -1;
