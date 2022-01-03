@@ -565,6 +565,8 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_float float NOT NULL,
 							c_double double NOT NULL,
 
+							c_decimal decimal(63,30) NOT NULL,
+
 							c_tinytext tinytext,
 							c_text text,
 							c_mediumtext mediumtext,
@@ -584,9 +586,10 @@ async function testVariousColumnTypes(dsnStr: string)
 							/*!50708 c_json json,*/
 
 							c_year year NOT NULL,
-							c_timestamp timestamp NOT NULL,
+							c_timestamp timestamp(6) NOT NULL,
 							c_date date NOT NULL,
-							c_datetime datetime NOT NULL
+							c_datetime datetime NOT NULL,
+							c_time time(3) NOT NULL
 						);
 
 						INSERT INTO t1 SET
@@ -609,6 +612,8 @@ async function testVariousColumnTypes(dsnStr: string)
 							c_float = 11.5,
 							c_double = -12.25,
 
+							c_decimal = '123456789012345678901234567890123.012345678901234567890123456789',
+
 							c_tinytext = 'abcd',
 							c_text = 'efgh',
 							c_mediumtext = 'ijkl',
@@ -628,9 +633,10 @@ async function testVariousColumnTypes(dsnStr: string)
 							/*!50708 c_json = Json_object('a', 1, 'b', 2),*/
 
 							c_year = 2020,
-							c_timestamp = '2000-12-01 01:02:03',
+							c_timestamp = '2000-12-01 01:02:03.432',
 							c_date = '2000-12-02',
-							c_datetime = '2000-12-01 01:02:03';
+							c_datetime = '2000-12-01 01:02:03',
+							c_time = '1:2:3.456';
 					`
 				);
 
@@ -693,6 +699,8 @@ async function testVariousColumnTypes(dsnStr: string)
 						'c_float': 11.5,
 						'c_double': -12.25,
 
+						'c_decimal': '123456789012345678901234567890123.012345678901234567890123456789',
+
 						'c_tinytext': 'abcd',
 						'c_text': 'efgh',
 						'c_mediumtext': 'ijkl',
@@ -710,9 +718,10 @@ async function testVariousColumnTypes(dsnStr: string)
 						'c_varbinary': new Uint8Array([1, 2, 3]),
 
 						'c_year': 2020,
-						'c_timestamp': new Date(2000, 11, 1, 1, 2, 3),
+						'c_timestamp': new Date(2000, 11, 1, 1, 2, 3, 432),
 						'c_date': new Date(2000, 11, 2),
-						'c_datetime': new Date(2000, 11, 1, 1, 2, 3)
+						'c_datetime': new Date(2000, 11, 1, 1, 2, 3),
+						'c_time': 1*60*60 + 2*60 + 3.456,
 					};
 					if (row && ('c_json' in row))
 					{	expectedRow.c_json = {a: 1, b: 2};
@@ -740,6 +749,8 @@ async function testVariousColumnTypes(dsnStr: string)
 						'float',
 						'double',
 
+						'decimal',
+
 						'tinytext',
 						'text',
 						'mediumtext',
@@ -760,11 +771,12 @@ async function testVariousColumnTypes(dsnStr: string)
 						'timestamp',
 						'date',
 						'datetime',
+						'time',
 					];
 					if (row && ('c_json' in row))
 					{	expectedColumnTypes.splice(expectedColumnTypes.indexOf('year'), 0, 'json');
 					}
-					assertEquals(res.columns.map(v => v.typeName), expectedColumnTypes);
+					assertEquals(res.columns.map(v => v.type), expectedColumnTypes);
 					assertEquals(res.hasMore, false);
 					assertEquals(await res.nextResultset(), false);
 					assertEquals(await res.nextResultset(), false);

@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, FieldType, ColumnFlags} from './constants.ts';
+import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags} from './constants.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
@@ -976,37 +976,37 @@ L:		while (true)
 				let paramsLen = 0;
 				for (let i=0; i<nPlaceholders; i++)
 				{	const param = params[i];
-					let type = FieldType.MYSQL_TYPE_STRING;
+					let type = MysqlType.MYSQL_TYPE_STRING;
 					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 					{	if (typeof(param) == 'boolean')
-						{	type = FieldType.MYSQL_TYPE_TINY;
+						{	type = MysqlType.MYSQL_TYPE_TINY;
 							paramsLen++;
 						}
 						else if (typeof(param) == 'number')
 						{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-							{	type = FieldType.MYSQL_TYPE_LONG;
+							{	type = MysqlType.MYSQL_TYPE_LONG;
 								paramsLen += 4;
 							}
 							else
-							{	type = FieldType.MYSQL_TYPE_DOUBLE;
+							{	type = MysqlType.MYSQL_TYPE_DOUBLE;
 								paramsLen+= 8;
 							}
 						}
 						else if (typeof(param) == 'bigint')
-						{	type = FieldType.MYSQL_TYPE_LONGLONG;
+						{	type = MysqlType.MYSQL_TYPE_LONGLONG;
 							paramsLen += 8;
 						}
 						else if (typeof(param) == 'object')
 						{	if (param instanceof Date)
-							{	type = FieldType.MYSQL_TYPE_DATETIME;
+							{	type = MysqlType.MYSQL_TYPE_DATETIME;
 								paramsLen += 12;
 							}
 							else if (param.buffer instanceof ArrayBuffer)
-							{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+							{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
 								paramsLen += param.byteLength;
 							}
 							else if (typeof(param.read) == 'function')
-							{	type = FieldType.MYSQL_TYPE_LONG_BLOB;
+							{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
 								paramsLen++;
 							}
 						}
@@ -1164,7 +1164,7 @@ L:		while (true)
 			{	// Text protocol row
 				this.unput(type);
 				for (let i=0; i<nColumns; i++)
-				{	const {type, flags, name} = columns[i];
+				{	const {typeId, flags, name} = columns[i];
 					let len = this.readLenencInt() ?? await this.readLenencIntAsync();
 					if (len > Number.MAX_SAFE_INTEGER)
 					{	throw new Error(`Field is too long: ${len} bytes`);
@@ -1180,7 +1180,7 @@ L:		while (true)
 						}
 						else if (len <= this.buffer.length)
 						{	const v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
-							value = convColumnValue(v, type, flags, this.decoder);
+							value = convColumnValue(v, typeId, flags, this.decoder);
 						}
 						else
 						{	if (!buffer || buffer.length<len)
@@ -1188,7 +1188,7 @@ L:		while (true)
 							}
 							const v = buffer.subarray(0, len);
 							await this.readBytesToBuffer(v);
-							value = convColumnValue(v, type, flags, this.decoder);
+							value = convColumnValue(v, typeId, flags, this.decoder);
 						}
 					}
 					switch (rowType)
@@ -1226,10 +1226,10 @@ L:		while (true)
 					{	nullBitsI++;
 						nullBitMask = 1;
 					}
-					const {type, flags, name} = columns[i];
+					const {typeId, flags, name} = columns[i];
 					if (!isNull)
-					{	switch (type)
-						{	case FieldType.MYSQL_TYPE_TINY:
+					{	switch (typeId)
+						{	case MysqlType.MYSQL_TYPE_TINY:
 								if (flags & ColumnFlags.UNSIGNED)
 								{	value = this.readUint8() ?? await this.readUint8Async();
 								}
@@ -1237,8 +1237,8 @@ L:		while (true)
 								{	value = this.readInt8() ?? await this.readInt8Async();
 								}
 								break;
-							case FieldType.MYSQL_TYPE_SHORT:
-							case FieldType.MYSQL_TYPE_YEAR:
+							case MysqlType.MYSQL_TYPE_SHORT:
+							case MysqlType.MYSQL_TYPE_YEAR:
 								if (flags & ColumnFlags.UNSIGNED)
 								{	value = this.readUint16() ?? await this.readUint16Async();
 								}
@@ -1246,8 +1246,8 @@ L:		while (true)
 								{	value = this.readInt16() ?? await this.readInt16Async();
 								}
 								break;
-							case FieldType.MYSQL_TYPE_INT24:
-							case FieldType.MYSQL_TYPE_LONG:
+							case MysqlType.MYSQL_TYPE_INT24:
+							case MysqlType.MYSQL_TYPE_LONG:
 								if (flags & ColumnFlags.UNSIGNED)
 								{	value = this.readUint32() ?? await this.readUint32Async();
 								}
@@ -1255,7 +1255,7 @@ L:		while (true)
 								{	value = this.readInt32() ?? await this.readInt32Async();
 								}
 								break;
-							case FieldType.MYSQL_TYPE_LONGLONG:
+							case MysqlType.MYSQL_TYPE_LONGLONG:
 								if (flags & ColumnFlags.UNSIGNED)
 								{	value = this.readUint64() ?? await this.readUint64Async();
 									if (value <= Number.MAX_SAFE_INTEGER)
@@ -1269,15 +1269,15 @@ L:		while (true)
 									}
 								}
 								break;
-							case FieldType.MYSQL_TYPE_FLOAT:
+							case MysqlType.MYSQL_TYPE_FLOAT:
 								value = this.readFloat() ?? await this.readFloatAsync();
 								break;
-							case FieldType.MYSQL_TYPE_DOUBLE:
+							case MysqlType.MYSQL_TYPE_DOUBLE:
 								value = this.readDouble() ?? await this.readDoubleAsync();
 								break;
-							case FieldType.MYSQL_TYPE_DATE:
-							case FieldType.MYSQL_TYPE_DATETIME:
-							case FieldType.MYSQL_TYPE_TIMESTAMP:
+							case MysqlType.MYSQL_TYPE_DATE:
+							case MysqlType.MYSQL_TYPE_DATETIME:
+							case MysqlType.MYSQL_TYPE_TIMESTAMP:
 							{	const len = this.readUint8() ?? await this.readUint8Async();
 								if (len >= 4)
 								{	const year = this.readUint16() ?? await this.readUint16Async();
@@ -1299,7 +1299,7 @@ L:		while (true)
 								}
 								break;
 							}
-							case FieldType.MYSQL_TYPE_TIME:
+							case MysqlType.MYSQL_TYPE_TIME:
 							{	const len = this.readUint8() ?? await this.readUint8Async();
 								if (len >= 8)
 								{	const isNegative = this.readUint8() ?? await this.readUint8Async();
@@ -1321,7 +1321,7 @@ L:		while (true)
 								}
 								break;
 							}
-							case FieldType.MYSQL_TYPE_BIT:
+							case MysqlType.MYSQL_TYPE_BIT:
 							{	// MySQL sends bit value as blob with length=1
 								value = (this.readUint16() ?? await this.readUint16Async()) == 257;
 								break;
@@ -1338,7 +1338,7 @@ L:		while (true)
 								else if (len > this.maxColumnLen)
 								{	this.readVoid(len) || this.readVoidAsync(len);
 								}
-								else if ((flags & ColumnFlags.BINARY) && type != FieldType.MYSQL_TYPE_JSON)
+								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
 								{	value = new Uint8Array(len);
 									await this.readBytesToBuffer(value);
 								}
@@ -1354,7 +1354,7 @@ L:		while (true)
 										await this.readBytesToBuffer(v);
 										value = this.decoder.decode(v);
 									}
-									if (type == FieldType.MYSQL_TYPE_JSON)
+									if (typeId == MysqlType.MYSQL_TYPE_JSON)
 									{	value = JSON.parse(value);
 									}
 								}

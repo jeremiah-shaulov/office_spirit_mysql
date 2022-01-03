@@ -9,12 +9,12 @@ import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
-const DEFAULT_CONNECTION_TIMEOUT = 500;
+const DEFAULT_CONNECTION_TIMEOUT = 5000;
+const DEFAULT_RECONNECT_INTERVAL_MSEC = 1000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
 const DEFAULT_DANGLING_XA_CHECK_EACH = 6000;
-const TRY_CONNECT_INTERVAL_MSEC = 100;
 
 export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
@@ -203,7 +203,7 @@ export class MyPool
 	private async newConn(dsn: Dsn)
 	{	const unusedBuffer = this.unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
-		const reconnectInterval = dsn.reconnectInterval>0 ? dsn.reconnectInterval : TRY_CONNECT_INTERVAL_MSEC;
+		const reconnectInterval = dsn.reconnectInterval>0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
 		let now = Date.now();
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)

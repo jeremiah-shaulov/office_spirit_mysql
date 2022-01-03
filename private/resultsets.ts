@@ -1,4 +1,4 @@
-import {FieldType, Charset, ColumnFlags} from './constants.ts';
+import {MysqlType, Charset, ColumnFlags, CharsetNames} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 import {MyProtocol, RowType} from "./my_protocol.ts";
 
@@ -215,45 +215,52 @@ export class Column
 		public orgTable: string,
 		public name: string,
 		public orgName: string,
-		public charset: Charset,
+		public charsetId: Charset,
 		public length: number,
-		public type: FieldType,
-		public flags: number,
+		public typeId: MysqlType,
+		public flags: ColumnFlags,
 		public decimals: number
 	)
 	{
 	}
 
-	get typeName()
-	{	switch (this.type)
-		{	case FieldType.MYSQL_TYPE_DECIMAL: return 'decimal';
-			case FieldType.MYSQL_TYPE_TINY: return this.flags & ColumnFlags.UNSIGNED ? 'tinyint unsigned' : 'tinyint';
-			case FieldType.MYSQL_TYPE_SHORT: return this.flags & ColumnFlags.UNSIGNED ? 'smallint unsigned' : 'smallint';
-			case FieldType.MYSQL_TYPE_LONG: return this.flags & ColumnFlags.UNSIGNED ? 'integer unsigned' : 'integer';
-			case FieldType.MYSQL_TYPE_FLOAT: return 'float';
-			case FieldType.MYSQL_TYPE_DOUBLE: return 'double';
-			case FieldType.MYSQL_TYPE_NULL: return 'NULL';
-			case FieldType.MYSQL_TYPE_TIMESTAMP: return 'timestamp';
-			case FieldType.MYSQL_TYPE_LONGLONG: return this.flags & ColumnFlags.UNSIGNED ? 'bigint unsigned' : 'bigint';
-			case FieldType.MYSQL_TYPE_INT24: return this.flags & ColumnFlags.UNSIGNED ? 'mediumint unsigned' : 'mediumint';
-			case FieldType.MYSQL_TYPE_DATE: return 'date';
-			case FieldType.MYSQL_TYPE_TIME: return 'time';
-			case FieldType.MYSQL_TYPE_DATETIME: return 'datetime';
-			case FieldType.MYSQL_TYPE_YEAR: return 'year';
-			case FieldType.MYSQL_TYPE_VARCHAR: return 'varchar';
-			case FieldType.MYSQL_TYPE_BIT: return 'bit';
-			case FieldType.MYSQL_TYPE_JSON: return 'json';
-			case FieldType.MYSQL_TYPE_NEWDECIMAL: return 'decimal';
-			case FieldType.MYSQL_TYPE_ENUM: return 'enum';
-			case FieldType.MYSQL_TYPE_SET: return 'set';
-			case FieldType.MYSQL_TYPE_TINY_BLOB: return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
-			case FieldType.MYSQL_TYPE_MEDIUM_BLOB: return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
-			case FieldType.MYSQL_TYPE_LONG_BLOB: return this.flags & ColumnFlags.BINARY ? 'longblob' : 'longtext';
-			case FieldType.MYSQL_TYPE_BLOB:
-				if (this.length==0xFF || this.length==0xFF*2 || this.length==0xFF*3 || this.length==0xFF*4)
+	get charset()
+	{	return CharsetNames[this.charsetId] ?? '';
+	}
+
+	/**	Get MySQL type of the column as string, like "varchar", "integer unsigned", "enum", etc.
+		If cannot determine the type, returns empty string.
+	 **/
+	get type()
+	{	switch (this.typeId)
+		{	case MysqlType.MYSQL_TYPE_DECIMAL: return 'decimal';
+			case MysqlType.MYSQL_TYPE_TINY: return this.flags & ColumnFlags.UNSIGNED ? 'tinyint unsigned' : 'tinyint';
+			case MysqlType.MYSQL_TYPE_SHORT: return this.flags & ColumnFlags.UNSIGNED ? 'smallint unsigned' : 'smallint';
+			case MysqlType.MYSQL_TYPE_LONG: return this.flags & ColumnFlags.UNSIGNED ? 'integer unsigned' : 'integer';
+			case MysqlType.MYSQL_TYPE_FLOAT: return 'float';
+			case MysqlType.MYSQL_TYPE_DOUBLE: return 'double';
+			case MysqlType.MYSQL_TYPE_NULL: return 'NULL';
+			case MysqlType.MYSQL_TYPE_TIMESTAMP: return 'timestamp';
+			case MysqlType.MYSQL_TYPE_LONGLONG: return this.flags & ColumnFlags.UNSIGNED ? 'bigint unsigned' : 'bigint';
+			case MysqlType.MYSQL_TYPE_INT24: return this.flags & ColumnFlags.UNSIGNED ? 'mediumint unsigned' : 'mediumint';
+			case MysqlType.MYSQL_TYPE_DATE: return 'date';
+			case MysqlType.MYSQL_TYPE_TIME: return 'time';
+			case MysqlType.MYSQL_TYPE_DATETIME: return 'datetime';
+			case MysqlType.MYSQL_TYPE_YEAR: return 'year';
+			case MysqlType.MYSQL_TYPE_VARCHAR: return 'varchar';
+			case MysqlType.MYSQL_TYPE_BIT: return 'bit';
+			case MysqlType.MYSQL_TYPE_JSON: return 'json';
+			case MysqlType.MYSQL_TYPE_NEWDECIMAL: return 'decimal';
+			case MysqlType.MYSQL_TYPE_ENUM: return 'enum';
+			case MysqlType.MYSQL_TYPE_SET: return 'set';
+			case MysqlType.MYSQL_TYPE_TINY_BLOB: return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
+			case MysqlType.MYSQL_TYPE_MEDIUM_BLOB: return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
+			case MysqlType.MYSQL_TYPE_LONG_BLOB: return this.flags & ColumnFlags.BINARY ? 'longblob' : 'longtext';
+			case MysqlType.MYSQL_TYPE_BLOB:
+				if (this.length==0xFF || this.length==0xFF*2 || this.length==0xFF*3 || this.length==0xFF*4) // there can be 1, 2, 3 and 4 bytes per char
 				{	return this.flags & ColumnFlags.BINARY ? 'tinyblob' : 'tinytext';
 				}
-				else if (this.length==0xFFFFFF || this.length==0xFFFFFF*2 || this.length==0xFFFFFF*3 || this.length==0xFFFFFF*4)
+				else if (this.length==0xFFFFFF || this.length==0xFFFFFF*2 || this.length==0xFFFFFF*3 || this.length==0xFFFFFF*4) // there can be 1, 2, 3 and 4 bytes per char
 				{	return this.flags & ColumnFlags.BINARY ? 'mediumblob' : 'mediumtext';
 				}
 				else if (this.length > 0xFFFFFF*4)
@@ -262,9 +269,9 @@ export class Column
 				else
 				{	return this.flags & ColumnFlags.BINARY ? 'blob' : 'text';
 				}
-			case FieldType.MYSQL_TYPE_VAR_STRING: return this.flags & ColumnFlags.BINARY ? 'varbinary' : 'varchar';
-			case FieldType.MYSQL_TYPE_STRING: return this.flags & ColumnFlags.BINARY ? 'binary' : 'char';
-			case FieldType.MYSQL_TYPE_GEOMETRY: return 'geometry';
+			case MysqlType.MYSQL_TYPE_VAR_STRING: return this.flags & ColumnFlags.BINARY ? 'varbinary' : 'varchar';
+			case MysqlType.MYSQL_TYPE_STRING: return this.flags & ColumnFlags.BINARY ? 'binary' : 'char';
+			case MysqlType.MYSQL_TYPE_GEOMETRY: return 'geometry';
 		}
 		return '';
 	}
@@ -287,5 +294,13 @@ export class Column
 
 	get isAutoIncrement()
 	{	return (this.flags & ColumnFlags.AUTO_INCREMENT) != 0;
+	}
+
+	get isUnsigned()
+	{	return (this.flags & ColumnFlags.UNSIGNED) != 0;
+	}
+
+	get isZeroFill()
+	{	return (this.flags & ColumnFlags.ZEROFILL) != 0;
 	}
 }

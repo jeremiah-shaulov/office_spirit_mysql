@@ -1,4 +1,4 @@
-import {ColumnFlags, FieldType} from './constants.ts';
+import {ColumnFlags, MysqlType} from './constants.ts';
 import type {ColumnValue} from './resultsets.ts';
 
 const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
@@ -13,21 +13,21 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function convColumnValue(value: Uint8Array, type: FieldType, flags: number, decoder: TextDecoder): ColumnValue
+export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder): ColumnValue
 {	switch (type)
-	{	case FieldType.MYSQL_TYPE_NULL:
+	{	case MysqlType.MYSQL_TYPE_NULL:
 			return null;
 
-		case FieldType.MYSQL_TYPE_BIT:
+		case MysqlType.MYSQL_TYPE_BIT:
 			return value[0] != 0;
 
-		case FieldType.MYSQL_TYPE_DECIMAL:
-		case FieldType.MYSQL_TYPE_DOUBLE:
-		case FieldType.MYSQL_TYPE_FLOAT:
+		case MysqlType.MYSQL_TYPE_DECIMAL:
+		case MysqlType.MYSQL_TYPE_DOUBLE:
+		case MysqlType.MYSQL_TYPE_FLOAT:
 			return dataToNumber(value);
 
 		// deno-lint-ignore no-fallthrough
-		case FieldType.MYSQL_TYPE_LONGLONG:
+		case MysqlType.MYSQL_TYPE_LONGLONG:
 		{	if (value.length > NONSAFE_INTEGER_MIN_LEN)
 			{	const isNegative = value[0] == C_MINUS;
 				let i = 0;
@@ -49,22 +49,22 @@ export function convColumnValue(value: Uint8Array, type: FieldType, flags: numbe
 			// else fallthrough to int
 		}
 
-		case FieldType.MYSQL_TYPE_TINY:
-		case FieldType.MYSQL_TYPE_SHORT:
-		case FieldType.MYSQL_TYPE_LONG:
-		case FieldType.MYSQL_TYPE_INT24:
-		case FieldType.MYSQL_TYPE_YEAR:
+		case MysqlType.MYSQL_TYPE_TINY:
+		case MysqlType.MYSQL_TYPE_SHORT:
+		case MysqlType.MYSQL_TYPE_LONG:
+		case MysqlType.MYSQL_TYPE_INT24:
+		case MysqlType.MYSQL_TYPE_YEAR:
 			return dataToInt(value);
 
-		case FieldType.MYSQL_TYPE_JSON:
+		case MysqlType.MYSQL_TYPE_JSON:
 			return JSON.parse(decoder.decode(value));
 
-		case FieldType.MYSQL_TYPE_DATE:
-		case FieldType.MYSQL_TYPE_DATETIME:
-		case FieldType.MYSQL_TYPE_TIMESTAMP:
+		case MysqlType.MYSQL_TYPE_DATE:
+		case MysqlType.MYSQL_TYPE_DATETIME:
+		case MysqlType.MYSQL_TYPE_TIMESTAMP:
 			return dataToDate(value);
 
-		case FieldType.MYSQL_TYPE_TIME:
+		case MysqlType.MYSQL_TYPE_TIME:
 			return dataToTime(value);
 
 		default:
