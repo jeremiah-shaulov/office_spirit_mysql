@@ -69,7 +69,13 @@ export class MySession
 		if (xa)
 		{	const {xaInfoTables} = this;
 			const {length} = xaInfoTables;
-			const i = length<=1 ? 0 : Math.floor(Math.random() * length) % length;
+			let i = 0;
+			if (length > 1)
+			{	i = Math.floor(Math.random() * length);
+				if (i == length)
+				{	i = 0;
+				}
+			}
 			curXaInfoTable = xaInfoTables[i];
 			xaId1 = xaIdGen.next(curXaInfoTable?.hash);
 			readonly = false;
@@ -78,12 +84,12 @@ export class MySession
 		this.trxOptions = trxOptions;
 		this.curXaInfoTable = curXaInfoTable;
 		// 4. Start transaction
-		const promises = [];
-		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn.startTrx(trxOptions);
-		}
-		if (promises.length)
-		{	await this.doAll(promises, true);
+		if (this.connsArr.length)
+		{	const promises = [];
+			for (const conn of this.connsArr)
+			{	promises[promises.length] = conn.startTrx(trxOptions);
+			}
+			await this.doAll(promises, true);
 		}
 	}
 
