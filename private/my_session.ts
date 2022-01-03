@@ -50,15 +50,26 @@ export class MySession
 		return conn;
 	}
 
+	/**	If there're active transactions, they will be properly (2-phase if needed) committed.
+		Then new transaction will be started on all connections in this session.
+		If then you'll ask a new connection, it will join the transaction.
+		If error occures, this function does rollback, and throws the Error.
+	 **/
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
-	{	// 1. Fail if there are XA started
+	{	// 1. Prepare commit
+		const promises = [];
 		for (const conn of this.connsArr)
 		{	if (conn.inXa)
-			{	throw new SqlError(`There's already an active Distributed Transaction on ${conn.dsnStr}`);
+			{	promises[promises.length] = conn.prepareCommit();
 			}
 		}
-		// 2. Commit current transactions
-		await this.commit();
+		if (promises.length)
+		{	await this.doAll(promises, true);
+		}
+		// 2. Commit
+		if (this.connsArr.length)
+		{	await this.commit();
+		}
 		// 3. options
 		const readonly = !!options?.readonly;
 		const xa = !!options?.xa;
@@ -76,11 +87,13 @@ export class MySession
 		this.trxOptions = trxOptions;
 		this.curXaInfoTable = curXaInfoTable;
 		// 5. Start transaction
-		const promises = [];
+		promises.length = 0;
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.startTrx(trxOptions);
 		}
-		await this.doAll(promises, true);
+		if (promises.length)
+		{	await this.doAll(promises, true);
+		}
 	}
 
 	savepoint()

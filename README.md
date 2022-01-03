@@ -1142,4 +1142,4 @@ Transactions manager periodically monitors `managedXaDsns` for dangling transact
 If a dangling transaction found, it's either committed or rolled back.
 If a corresponding record is found in the corresponding info table, the transaction will be committed.
 If no record found, or there were no info tables, the transaction will be rolled back.
-If you want the transactions manager to always roll back transactions in such situation, don't proved info tables to the pool options.
+If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
