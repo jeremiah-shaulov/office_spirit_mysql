@@ -1,6 +1,6 @@
 import {Dsn} from './dsn.ts';
 import {SqlError} from "./errors.ts";
-import {MyConn, OnBeforeCommit, GetConnFunc, ReturnConnFunc, doSavepoint} from './my_conn.ts';
+import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc} from './my_conn.ts';
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
@@ -8,7 +8,7 @@ import {XaIdGen} from "./xa_id_gen.ts";
 const xaIdGen = new XaIdGen;
 
 export class MySession
-{	protected connsArr: MyConn[] = [];
+{	protected connsArr: MyConnInternal[] = [];
 	private savepointEnum = 0;
 	private trxOptions: {readonly: boolean, xaId1: string} | undefined;
 	private curXaInfoTable: XaInfoTable | undefined;
@@ -45,7 +45,7 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConn(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, undefined);
+		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, undefined);
 		this.connsArr[this.connsArr.length] = conn;
 		return conn;
 	}
@@ -87,7 +87,7 @@ export class MySession
 	{	const pointId = ++this.savepointEnum;
 		const promises = [];
 		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn[doSavepoint](pointId, `SAVEPOINT s${pointId}`);
+		{	promises[promises.length] = conn.doSavepoint(pointId, `SAVEPOINT s${pointId}`);
 		}
 		return this.doAll(promises);
 	}
@@ -192,6 +192,9 @@ export class MySession
 	}
 }
 
+/**	This library creates connections as MySessionInternal object, but exposes them as MySession.
+	Methods that don't exist on MySession are for internal use.
+ **/
 export class MySessionInternal extends MySession
 {	endSession()
 	{	for (const conn of this.connsArr)

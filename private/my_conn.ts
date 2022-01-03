@@ -11,17 +11,15 @@ export type GetConnFunc = (dsn: Dsn) => Promise<MyProtocol>;
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void;
 export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
-export const doSavepoint = Symbol('sessionSavepoint');
-
 export class MyConn
-{	private protocol: MyProtocol|undefined;
+{	protected protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
-	private savepointEnum = 0;
+	protected savepointEnum = 0;
 	private curXaId = '';
 	private curXaIdAppendConn = false;
 	private isXaPrepared = false;
-	private pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
+	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
@@ -254,27 +252,8 @@ export class MyConn
 	/**	Creates transaction savepoint, and returns Id number of this new savepoint.
 		Then you can call `conn.rollback(pointId)`.
 	 **/
-	savepoint()
-	{	const pointId = ++this.savepointEnum;
-		return this[doSavepoint](pointId, `SAVEPOINT p${pointId}`);
-	}
-
-	async [doSavepoint](pointId: number, sql: string)
-	{	const {protocol} = this;
-		if (protocol)
-		{	if (!(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	throw new SqlError(`There's no active transaction`);
-			}
-			// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
-			await protocol.sendComQuery(sql);
-		}
-		else
-		{	if (this.pendingTrxSql.length == 0) // call startTrx() to add the first entry
-			{	throw new SqlError(`There's no active transaction`);
-			}
-			this.pendingTrxSql.push(sql);
-		}
-		return pointId;
+	savepoint(): Promise<number>
+	{	throw new Error('Not implemented');
 	}
 
 	/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
@@ -437,5 +416,36 @@ export class MyConn
 			this.end();
 			// redo
 		}
+	}
+}
+
+/**	This library creates connections as MyConnInternal object, but exposes them as MyConn.
+	Methods that don't exist on MyConn are for internal use.
+ **/
+export class MyConnInternal extends MyConn
+{	/**	Creates transaction savepoint, and returns Id number of this new savepoint.
+		Then you can call `conn.rollback(pointId)`.
+	 **/
+	savepoint()
+	{	const pointId = ++this.savepointEnum;
+		return this.doSavepoint(pointId, `SAVEPOINT p${pointId}`);
+	}
+
+	async doSavepoint(pointId: number, sql: string)
+	{	const {protocol} = this;
+		if (protocol)
+		{	if (!(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+			{	throw new SqlError(`There's no active transaction`);
+			}
+			// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
+			await protocol.sendComQuery(sql);
+		}
+		else
+		{	if (this.pendingTrxSql.length == 0) // call startTrx() to add the first entry
+			{	throw new SqlError(`There's no active transaction`);
+			}
+			this.pendingTrxSql.push(sql);
+		}
+		return pointId;
 	}
 }

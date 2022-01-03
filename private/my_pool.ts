@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {ServerDisconnectedError} from "./errors.ts";
-import {MyConn, OnBeforeCommit} from './my_conn.ts';
+import {MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
 import {MyProtocol, OnLoadFile, Logger} from './my_protocol.ts';
 import {MySession, MySessionInternal} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
@@ -181,7 +181,7 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConn(dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+		const conn = new MyConnInternal(dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
