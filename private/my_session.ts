@@ -26,7 +26,7 @@ export class MySession
 	{
 	}
 
-	get conns(): Iterable<MyConn> // Iterable<MyConn>, not MyConn[], to ensure that the array will not be modified from outside
+	get conns(): readonly MyConn[]
 	{	return this.connsArr;
 	}
 
@@ -59,11 +59,13 @@ export class MySession
 		}
 		// 2. Commit current transactions
 		await this.commit();
-		// 3. trxOptions
+		// 3. options
 		const readonly = !!options?.readonly;
+		const xa = !!options?.xa;
+		// 4. trxOptions
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
-		if (options?.xa)
+		if (xa)
 		{	const {xaInfoTables} = this;
 			const {length} = xaInfoTables;
 			const i = length<=1 ? 0 : Math.floor(Math.random() * length) % length;
@@ -73,7 +75,7 @@ export class MySession
 		const trxOptions = {readonly, xaId1};
 		this.trxOptions = trxOptions;
 		this.curXaInfoTable = curXaInfoTable;
-		// 4. Start transaction
+		// 5. Start transaction
 		const promises = [];
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.startTrx(trxOptions);
@@ -100,77 +102,66 @@ export class MySession
 		return this.doAll(promises);
 	}
 
-	async commit()
-	{	const {trxOptions, curXaInfoTable} = this;
-		this.trxOptions = undefined;
-		this.curXaInfoTable = undefined;
-		if (trxOptions && curXaInfoTable)
-		{	await this.pool.forConn
-			(	async conn =>
-				{	// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
-					await conn.connect();
-					if (!conn.autocommit)
-					{	await conn.execute("SET autocommit=1");
-					}
-					// 2. Call onBeforeCommit
-					if (this.onBeforeCommit)
-					{	await this.onBeforeCommit(this.conns);
-					}
-					// 3. Prepare commit
-					const promises = [];
-					for (const conn of this.connsArr)
-					{	if (conn.inXa)
-						{	promises[promises.length] = conn.prepareCommit();
-						}
-					}
-					await this.doAll(promises, true);
-					// 4. Log to XA info table
-					let recordAdded = false;
-					try
-					{	await conn.execute(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
-						recordAdded = true;
-					}
-					catch (e)
-					{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${conn.dsnStr}`, e);
-					}
-					// 5. Commit
-					promises.length = 0;
-					for (const conn of this.connsArr)
-					{	promises[promises.length] = conn.commit();
-					}
-					await this.doAll(promises);
-					// 6. Remove record from XA info table
-					if (recordAdded)
-					{	try
-						{	await conn.execute(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
-						}
-						catch (e)
-						{	this.logger.error(e);
-						}
-					}
-				},
-				curXaInfoTable.dsn
+	commit()
+	{	if (this.trxOptions && this.curXaInfoTable)
+		{	return this.pool.forConn
+			(	infoTableConn => this.doCommit(infoTableConn),
+				this.curXaInfoTable.dsn
 			);
 		}
 		else
-		{	// 1. Call onBeforeCommit
-			if (this.onBeforeCommit)
-			{	await this.onBeforeCommit(this.conns);
+		{	return this.doCommit();
+		}
+	}
+
+	private async doCommit(infoTableConn?: MyConn)
+	{	const {trxOptions, curXaInfoTable} = this;
+		this.trxOptions = undefined;
+		this.curXaInfoTable = undefined;
+		// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
+		if (infoTableConn)
+		{	await infoTableConn.connect();
+			if (!infoTableConn.autocommit)
+			{	await infoTableConn.execute("SET autocommit=1");
 			}
-			// 2. Prepare commit
-			const promises = [];
-			for (const conn of this.connsArr)
-			{	if (conn.inXa)
-				{	promises[promises.length] = conn.prepareCommit();
-				}
+		}
+		// 2. Call onBeforeCommit
+		if (this.onBeforeCommit)
+		{	await this.onBeforeCommit(this.conns);
+		}
+		// 3. Prepare commit
+		const promises = [];
+		for (const conn of this.connsArr)
+		{	if (conn.inXa)
+			{	promises[promises.length] = conn.prepareCommit();
 			}
-			await this.doAll(promises, true);
-			// 3. Commit
-			promises.length = 0;
-			for (const conn of this.connsArr)
-			{	promises[promises.length] = conn.commit();
+		}
+		await this.doAll(promises, true);
+		// 4. Log to XA info table
+		let recordAdded = false;
+		if (trxOptions && curXaInfoTable && infoTableConn)
+		{	try
+			{	await infoTableConn.execute(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
+				recordAdded = true;
 			}
-			await this.doAll(promises);
+			catch (e)
+			{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsnStr}`, e);
+			}
+		}
+		// 5. Commit
+		promises.length = 0;
+		for (const conn of this.connsArr)
+		{	promises[promises.length] = conn.commit();
+		}
+		await this.doAll(promises);
+		// 6. Remove record from XA info table
+		if (recordAdded && trxOptions && curXaInfoTable && infoTableConn)
+		{	try
+			{	await infoTableConn.execute(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
+			}
+			catch (e)
+			{	this.logger.error(e);
+			}
 		}
 	}
 

@@ -278,6 +278,7 @@ export class MyConn
 	}
 
 	/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
+		Else does nothing.
 		If this function succeeded, the transaction will be saved on the server till you call `commit()`.
 		The saved transaction can survive server restart and unexpected halt.
 		You need to commit it as soon as possible, to release all the locks that it holds.
@@ -286,10 +287,7 @@ export class MyConn
 	 **/
 	async prepareCommit()
 	{	const {protocol, curXaId} = this;
-		if (!protocol || !(protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) || !curXaId)
-		{	throw new SqlError(`There's no active Distributed Transaction`);
-		}
-		if (!this.isXaPrepared)
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.isXaPrepared)
 		{	// SERVER_STATUS_IN_TRANS is set - this means that this is not the very first query in the connection, so sendComQuery() can be used
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);

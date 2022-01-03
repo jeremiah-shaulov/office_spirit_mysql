@@ -929,6 +929,7 @@ function MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: s
 function MyConn.savepoint(): Promise<number>;
 
 /**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
+	Else does nothing.
 	If this function succeeded, the transaction will be saved on the server till you call `commit()`.
 	The saved transaction can survive server restart and unexpected halt.
 	You need to commit it as soon as possible, to release all the locks that it holds.
