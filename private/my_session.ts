@@ -61,7 +61,7 @@ export class MySession
 		{	await this.commit();
 		}
 		// 2. options
-		const readonly = !!options?.readonly;
+		let readonly = !!options?.readonly;
 		const xa = !!options?.xa;
 		// 3. trxOptions
 		let xaId1 = '';
@@ -72,6 +72,7 @@ export class MySession
 			const i = length<=1 ? 0 : Math.floor(Math.random() * length) % length;
 			curXaInfoTable = xaInfoTables[i];
 			xaId1 = xaIdGen.next(curXaInfoTable?.hash);
+			readonly = false;
 		}
 		const trxOptions = {readonly, xaId1};
 		this.trxOptions = trxOptions;
