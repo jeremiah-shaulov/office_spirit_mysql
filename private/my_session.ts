@@ -56,24 +56,14 @@ export class MySession
 		If error occures, this function does rollback, and throws the Error.
 	 **/
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
-	{	// 1. Prepare commit
-		const promises = [];
-		for (const conn of this.connsArr)
-		{	if (conn.inXa)
-			{	promises[promises.length] = conn.prepareCommit();
-			}
-		}
-		if (promises.length)
-		{	await this.doAll(promises, true);
-		}
-		// 2. Commit
+	{	// 1. Commit
 		if (this.connsArr.length)
 		{	await this.commit();
 		}
-		// 3. options
+		// 2. options
 		const readonly = !!options?.readonly;
 		const xa = !!options?.xa;
-		// 4. trxOptions
+		// 3. trxOptions
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
 		if (xa)
@@ -86,8 +76,8 @@ export class MySession
 		const trxOptions = {readonly, xaId1};
 		this.trxOptions = trxOptions;
 		this.curXaInfoTable = curXaInfoTable;
-		// 5. Start transaction
-		promises.length = 0;
+		// 4. Start transaction
+		const promises = [];
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.startTrx(trxOptions);
 		}
