@@ -308,6 +308,7 @@ export class MyConn
 		this.curXaId = '';
 		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
+		this.pendingTrxSql.length = 0;
 	}
 
 	/**	Commit.
@@ -332,6 +333,7 @@ export class MyConn
 		this.curXaId = '';
 		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
+		this.pendingTrxSql.length = 0;
 	}
 
 	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsInternal<Row>>
