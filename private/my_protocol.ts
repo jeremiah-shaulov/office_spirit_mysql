@@ -744,7 +744,7 @@ L:		while (true)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_RESET_CONNECTION);
 		if (schema)
-		{	this.startWritingNextPacket(true);
+		{	this.startWritingNewPacket(true, true);
 			this.writeUint8(Command.COM_INIT_DB);
 			this.writeString(schema);
 		}
@@ -801,6 +801,30 @@ L:		while (true)
 		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 		}
 	}
+
+	/*async sendBatchComQuery<Row>(sqlArr: SqlSource[], rowType=RowType.FIRST_COLUMN, letReturnUndefined=false)
+	{	const isFromPool = this.setQueryingState();
+		try
+		{	this.startWritingNewPacket(true);
+			this.writeUint8(Command.COM_QUERY);
+			const packetStart = await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, true);
+			const resultsets = new ResultsetsInternal<Row>(rowType);
+			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+			if (state != ProtocolState.IDLE)
+			{	resultsets.protocol = this;
+				resultsets.hasMoreProtocol = true;
+				this.curResultsets = resultsets;
+			}
+			else if (this.pendingCloseStmts.length != 0)
+			{	await this.doPending();
+			}
+			this.setState(state);
+			return resultsets;
+		}
+		catch (e)
+		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+		}
+	}*/
 
 	/**	On success returns ResultsetsProtocol<Row>.
 		On error throws exception.
@@ -860,7 +884,6 @@ L:		while (true)
 		{	debugAssert(!resultsets.hasMoreProtocol); // because setQueryingState() ensures that current resultset is read to the end
 			const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 			let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
-			let packetStart = 0;
 			const placeholdersSent = new Set<number>();
 			// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
 			for (let i=0; i<nPlaceholders; i++)
@@ -869,11 +892,11 @@ L:		while (true)
 				{	if (typeof(param) == 'string')
 					{	const maxByteLen = param.length * 4;
 						if (maxByteLen > extraSpaceForParams)
-						{	this.startWritingNewPacket(true, packetStart);
+						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
-							packetStart = await this.sendWithData(param, false, true);
+							await this.sendWithData(param, false, true);
 							placeholdersSent.add(i);
 						}
 						else
@@ -883,11 +906,11 @@ L:		while (true)
 					else if (typeof(param) == 'object')
 					{	if (param instanceof Uint8Array)
 						{	if (param.byteLength > extraSpaceForParams)
-							{	this.startWritingNewPacket(true, packetStart);
+							{	this.startWritingNewPacket(true, true);
 								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 								this.writeUint32(stmtId);
 								this.writeUint16(i);
-								packetStart = await this.sendWithData(param, false, true);
+								await this.sendWithData(param, false, true);
 								placeholdersSent.add(i);
 							}
 							else
@@ -896,11 +919,11 @@ L:		while (true)
 						}
 						else if (param.buffer instanceof ArrayBuffer)
 						{	if (param.byteLength > extraSpaceForParams)
-							{	this.startWritingNewPacket(true, packetStart);
+							{	this.startWritingNewPacket(true, true);
 								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 								this.writeUint32(stmtId);
 								this.writeUint16(i);
-								packetStart = await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
+								await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
 								placeholdersSent.add(i);
 							}
 							else
@@ -910,7 +933,7 @@ L:		while (true)
 						else if (typeof(param.read) == 'function')
 						{	let isEmpty = true;
 							while (true)
-							{	this.startWritingNewPacket(isEmpty, packetStart);
+							{	this.startWritingNewPacket(isEmpty, true);
 								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 								this.writeUint32(stmtId);
 								this.writeUint16(i);
@@ -920,7 +943,6 @@ L:		while (true)
 									break;
 								}
 								await this.send();
-								packetStart = 0;
 								isEmpty = false;
 							}
 							if (!isEmpty)
@@ -928,23 +950,22 @@ L:		while (true)
 							}
 						}
 						else if (!(param instanceof Date))
-						{	this.startWritingNewPacket(true, packetStart);
+						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
-							packetStart = await this.sendWithData(JSON.stringify(param), false, true);
+							await this.sendWithData(JSON.stringify(param), false, true);
 							placeholdersSent.add(i);
 						}
 					}
 				}
 			}
 			// Flush, if not enuogh space in buffer for the placeholders packet
-			if (packetStart > 0 && packetStart + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
+			if (this.bufferEnd > this.bufferStart && this.bufferEnd + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
 			{	await this.send();
-				packetStart = 0;
 			}
 			// Send params in binary protocol
-			this.startWritingNewPacket(true, packetStart);
+			this.startWritingNewPacket(true, true);
 			this.writeUint8(Command.COM_STMT_EXECUTE);
 			this.writeUint32(stmtId);
 			this.writeUint8(CursorType.NO_CURSOR);

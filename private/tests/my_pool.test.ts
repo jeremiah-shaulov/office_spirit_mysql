@@ -1088,7 +1088,11 @@ async function testManyPlaceholders(dsnStr: string)
 					}
 				}
 
-				const res = await conn.execute(q, params);
+				let res = await conn.execute(q, params);
+				assertEquals(res.affectedRows, 8191);
+				assertEquals(res.nPlaceholders, N_ROWS*8);
+
+				res = await conn.execute(q, params.map(v => v+''));
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
@@ -1243,7 +1247,7 @@ async function testTrx(dsnStr: string)
 				res = await conn.query("DELETE FROM t_log");
 				assertEquals(res.affectedRows, 1);
 
-				// xa when another xa active
+				// xa when another xa active (must commit)
 				await conn.startTrx({xaId1: MY_XA_ID});
 				error = undefined;
 				try
@@ -1252,7 +1256,7 @@ async function testTrx(dsnStr: string)
 				catch (e)
 				{	error = e;
 				}
-				assertEquals(error?.message, `There's already an active Distributed Transaction`);
+				assert(!error);
 				await conn.rollback();
 
 				// xa
