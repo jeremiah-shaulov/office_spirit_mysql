@@ -133,14 +133,14 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 {	protocol: MyProtocol | undefined;
 	isPreparedStmt = false; // `stmtId` can be reset to -1 when the stmt is disposed, but `isPreparedStmt` must remain true, because the stmt can be disposed before resultsets are read, and prepared stmts have different packet format
 	stmtId = -1;
-	hasMoreProtocol = false;
+	hasMoreInternal = false;
 
 	constructor(public rowType: RowType)
 	{	super();
 	}
 
 	get hasMore(): boolean
-	{	return this.hasMoreProtocol;
+	{	return this.hasMoreInternal;
 	}
 
 	exec(params: Param[]): Promise<void>
@@ -151,7 +151,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	if (this.hasMoreProtocol)
+	{	if (this.hasMoreInternal)
 		{	if (!this.protocol)
 			{	throw new CanceledError(`Connection terminated`);
 			}
@@ -166,7 +166,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	nextResultset(): Promise<boolean>
-	{	if (!this.hasMoreProtocol)
+	{	if (!this.hasMoreInternal)
 		{	return Promise.resolve(false);
 		}
 		if (!this.protocol)
@@ -176,7 +176,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	async discard()
-	{	if (this.hasMoreProtocol)
+	{	if (this.hasMoreInternal)
 		{	while (this.protocol && await this.protocol.nextResultset(true));
 		}
 	}
@@ -185,7 +185,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	{	const {protocol, stmtId} = this;
 		if (protocol)
 		{	this.stmtId = -1;
-			if (!this.hasMoreProtocol)
+			if (!this.hasMoreInternal)
 			{	this.protocol = undefined;
 			}
 			return protocol.disposePreparedStmt(stmtId);

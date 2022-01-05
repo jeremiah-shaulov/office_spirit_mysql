@@ -788,7 +788,7 @@ L:		while (true)
 			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 			if (state != ProtocolState.IDLE)
 			{	resultsets.protocol = this;
-				resultsets.hasMoreProtocol = true;
+				resultsets.hasMoreInternal = true;
 				this.curResultsets = resultsets;
 			}
 			else if (this.pendingCloseStmts.length != 0)
@@ -857,7 +857,7 @@ L:		while (true)
 		}
 		this.setQueryingState();
 		try
-		{	debugAssert(!resultsets.hasMoreProtocol); // because setQueryingState() ensures that current resultset is read to the end
+		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
 			const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 			let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
 			const placeholdersSent = new Set<number>();
@@ -1072,13 +1072,13 @@ L:		while (true)
 			if (rowNColumns > 0)
 			{	resultsets.columns = await this.readColumnDefinitionPackets(rowNColumns);
 				resultsets.protocol = this;
-				resultsets.hasMoreProtocol = true;
+				resultsets.hasMoreInternal = true;
 				this.curResultsets = resultsets;
 				this.setState(ProtocolState.HAS_MORE_ROWS);
 			}
 			else if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
 			{	resultsets.protocol = this;
-				resultsets.hasMoreProtocol = true;
+				resultsets.hasMoreInternal = true;
 				if (!this.isAtEndOfPacket())
 				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 					this.initResultsets(resultsets);
@@ -1114,7 +1114,7 @@ L:		while (true)
 				throw new CanceledError('Connection terminated');
 		}
 		debugAssert(this.state == ProtocolState.HAS_MORE_ROWS);
-		debugAssert(this.curResultsets?.hasMoreProtocol); // because we're in ProtocolState.HAS_MORE_ROWS
+		debugAssert(this.curResultsets?.hasMoreInternal); // because we're in ProtocolState.HAS_MORE_ROWS
 		this.state = ProtocolState.QUERYING;
 		try
 		{	const {curResultsets} = this;
@@ -1129,7 +1129,7 @@ L:		while (true)
 				{	if (stmtId < 0)
 					{	curResultsets.protocol = undefined;
 					}
-					curResultsets.hasMoreProtocol = false;
+					curResultsets.hasMoreInternal = false;
 					this.curResultsets = undefined;
 					if (this.pendingCloseStmts.length != 0)
 					{	await this.doPending();
@@ -1487,7 +1487,7 @@ L:		while (true)
 		{	if (stmtId < 0)
 			{	curResultsets.protocol = undefined;
 			}
-			curResultsets.hasMoreProtocol = false;
+			curResultsets.hasMoreInternal = false;
 			this.curResultsets = undefined;
 		}
 		return state;
@@ -1519,7 +1519,7 @@ L:		while (true)
 			{	yes = true;
 				this.state = ProtocolState.QUERYING;
 				const {curResultsets} = this;
-				debugAssert(curResultsets?.hasMoreProtocol);
+				debugAssert(curResultsets?.hasMoreInternal);
 				const {isPreparedStmt, stmtId} = curResultsets;
 				curResultsets.resetFields();
 				state = await this.readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
@@ -1527,7 +1527,7 @@ L:		while (true)
 				{	if (stmtId < 0)
 					{	curResultsets.protocol = undefined;
 					}
-					curResultsets.hasMoreProtocol = false;
+					curResultsets.hasMoreInternal = false;
 					this.curResultsets = undefined;
 				}
 			}
@@ -1566,10 +1566,10 @@ L:		while (true)
 			if (curResultsets)
 			{	debugAssert(state==ProtocolState.HAS_MORE_ROWS || state==ProtocolState.HAS_MORE_RESULTSETS);
 				try
-				{	debugAssert(curResultsets.hasMoreProtocol);
+				{	debugAssert(curResultsets.hasMoreInternal);
 					state = await this.doDiscard(state);
-					debugAssert(!curResultsets.hasMoreProtocol && (!curResultsets.protocol || curResultsets.stmtId>=0));
-					curResultsets.hasMoreProtocol = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
+					debugAssert(!curResultsets.hasMoreInternal && (!curResultsets.protocol || curResultsets.stmtId>=0));
+					curResultsets.hasMoreInternal = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
 				}
 				catch (e)
 				{	this.logger.error(e);

@@ -11,6 +11,21 @@ export type GetConnFunc = (dsn: Dsn) => Promise<MyProtocol>;
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void;
 export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
+const C_COMMA = ','.charCodeAt(0);
+const C_AT = '@'.charCodeAt(0);
+const C_BACKTICK = '`'.charCodeAt(0);
+const C_UNDERSCORE = '_'.charCodeAt(0);
+const C_ZERO = '0'.charCodeAt(0);
+const C_A = 'a'.charCodeAt(0);
+const C_S_CAP = 'S'.charCodeAt(0);
+const C_E_CAP = 'E'.charCodeAt(0);
+const C_T_CAP = 'T'.charCodeAt(0);
+const C_SPACE = ' '.charCodeAt(0);
+const C_EQ = '='.charCodeAt(0);
+const C_QEST = '?'.charCodeAt(0);
+
+const encoder = new TextEncoder;
+
 export class MyConn
 {	protected protocol: MyProtocol|undefined;
 
@@ -20,6 +35,7 @@ export class MyConn
 	private curXaIdAppendConn = false;
 	private isXaPrepared = false;
 	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
+	private preparedStmtsForParams: (Resultsets<void> | null)[] = [];
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
@@ -103,6 +119,7 @@ export class MyConn
 		this.curXaIdAppendConn = false;
 		this.isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
+		this.preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
 		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '');
@@ -416,40 +433,11 @@ export class MyConn
 			}
 			else
 			{	// Prepare to execute immediately: named parameters
-				let sqlSet = "";
-				const paramsSet: Param[] = [];
-				for (const [n, v] of Object.entries(params))
-				{	sqlSet += !sqlSet.length ? "SET @`" : "`=?,@`";
-					sqlSet += n.replaceAll('`', '``');
-					paramsSet[paramsSet.length] = v;
-				}
-
-				let ok = true;
-				if (sqlSet.length != 0)
-				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sqlSet+"`=?", undefined, rowType, nRetriesRemaining-->0, true);
+				const letReturnUndefined = nRetriesRemaining-- > 0;
+				if (await this.setNamedParams(protocol, params, letReturnUndefined))
+				{	const resultsets = await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined);
 					if (resultsets)
-					{	try
-						{	await resultsets.exec(paramsSet);
-							debugAssert(!resultsets.hasMore);
-						}
-						finally
-						{	await resultsets.disposePreparedStmt();
-						}
-					}
-					else
-					{	ok = false;
-					}
-				}
-				if (ok)
-				{	const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, true);
-					if (resultsets)
-					{	try
-						{	await resultsets.exec([]);
-						}
-						finally
-						{	await resultsets.disposePreparedStmt();
-						}
-						return resultsets;
+					{	return resultsets;
 					}
 				}
 			}
@@ -457,6 +445,115 @@ export class MyConn
 			this.end();
 			// redo
 		}
+	}
+
+	async setNamedParams(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
+	{	const paramKeys = Object.keys(params);
+		if (paramKeys.length == 0)
+		{	return true;
+		}
+		if (paramKeys.length > 0xFFFF)
+		{	throw new SqlError(`Too many query parameters. The maximum of ${0xFFFF} is supported`);
+		}
+		// Prepare stmts with not less than 8 placeholders, and increase by magnitude of 8 (if 9 params, use 16 placeholders)
+		const pos = (paramKeys.length - 1) >> 3;
+		const nPlaceholders = (pos + 1) << 3;
+		const {preparedStmtsForParams} = this;
+		let stmt = preparedStmtsForParams[pos];
+		// SET @_yl_fk=?,@_yl_fl=?,@_yl_fm=?,...,@_yl_g0=?,@_yl_g1=?,...,@_yl_ga=?,@_yl_gb=?,...,@_ym_00=?,...
+		const query0 = stmt ? undefined : new Uint8Array(3 /*SET*/ + 10 /*,@_NN_NN=?*/ * nPlaceholders);
+		// SET @`hello`=@_yl_fk,@world=@_yl_fl
+		let query1Len = 3 /*SET*/;
+		for (let i=paramKeys.length-1; i>=0; i--)
+		{	query1Len += 12 /*,@``=@_NN_NN*/ + paramKeys[i].length; // guess: no multibyte chars
+		}
+		let query1 = new Uint8Array(query1Len);
+		// Generate the queries
+		debugAssert((36*36*36*36 - 0x10000).toString(36) == 'ylfk');
+		const n = ['y'.charCodeAt(0), 'l'.charCodeAt(0), 'f'.charCodeAt(0), 'k'.charCodeAt(0)];
+		for (let i=0, j=3, k=3; i<nPlaceholders; i++)
+		{	// query0 += ",@_NN_NN"
+			if (query0)
+			{	query0[j++] = C_COMMA;
+				query0[j++] = C_AT;
+				query0[j++] = C_UNDERSCORE;
+				query0[j++] = n[0];
+				query0[j++] = n[1];
+				query0[j++] = C_UNDERSCORE;
+				query0[j++] = n[2];
+				query0[j++] = n[3];
+				query0[j++] = C_EQ;
+				query0[j++] = C_QEST;
+			}
+			// query1 += ",@`hello`=@_NN_NN"
+			query1[k++] = C_COMMA;
+			query1[k++] = C_AT;
+			query1[k++] = C_BACKTICK;
+			if (i < paramKeys.length)
+			{	const param = paramKeys[i].replaceAll('`', '``');
+				while (true)
+				{	const {read, written} = encoder.encodeInto(param, query1.subarray(k));
+					if (read == param.length)
+					{	k += written;
+						break;
+					}
+					// realloc query1
+					const tmp = new Uint8Array(query1.length * 2 + 12); // add 12 to be sure that i can `query1[k++] = ...` at least 12 times
+					tmp.set(query1);
+					query1 = tmp;
+				}
+				query1[k++] = C_BACKTICK;
+				query1[k++] = C_EQ;
+				query1[k++] = C_AT;
+				query1[k++] = C_UNDERSCORE;
+				query1[k++] = n[0];
+				query1[k++] = n[1];
+				query1[k++] = C_UNDERSCORE;
+				query1[k++] = n[2];
+				query1[k++] = n[3];
+			}
+			else if (!query0)
+			{	break;
+			}
+			// inc n
+			for (let l=3; l>=0; l--)
+			{	if (++n[l] == C_ZERO+10)
+				{	n[l] = C_A;
+				}
+				else if (n[l] == C_A+26)
+				{	n[l] = C_ZERO;
+					continue;
+				}
+				break;
+			}
+		}
+		query1[0] = C_S_CAP;
+		query1[1] = C_E_CAP;
+		query1[2] = C_T_CAP;
+		query1[3] = C_SPACE;
+		if (query0)
+		{	query0[0] = C_S_CAP;
+			query0[1] = C_E_CAP;
+			query0[2] = C_T_CAP;
+			query0[3] = C_SPACE;
+			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.FIRST_COLUMN, letReturnUndefined, true);
+			if (!resultsets)
+			{	return false;
+			}
+			stmt = resultsets;
+			while (preparedStmtsForParams.length < pos)
+			{	preparedStmtsForParams[preparedStmtsForParams.length] = null;
+			}
+			preparedStmtsForParams[pos] = stmt;
+		}
+		debugAssert(stmt);
+		const values = Object.values(params);
+		while (values.length < nPlaceholders)
+		{	values[values.length] = null;
+		}
+		await stmt.exec(values); // SET @_yl_fk=?,@_yl_fl=?
+		await protocol.sendComQuery<void>(query1); // SET @`hello`=@_yl_fk,@`world`=@_yl_fl
+		return true;
 	}
 }
 
