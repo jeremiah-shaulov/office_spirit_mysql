@@ -890,7 +890,7 @@ L:		while (true)
 			{	const param = params[i];
 				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 				{	if (typeof(param) == 'string')
-					{	const maxByteLen = param.length * 4;
+					{	const maxByteLen = 9 + param.length * 4;
 						if (maxByteLen > extraSpaceForParams)
 						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
@@ -997,7 +997,7 @@ L:		while (true)
 				let paramsLen = 0;
 				for (let i=0; i<nPlaceholders; i++)
 				{	const param = params[i];
-					let type = MysqlType.MYSQL_TYPE_STRING;
+					let type = MysqlType.MYSQL_TYPE_NULL;
 					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 					{	if (typeof(param) == 'boolean')
 						{	type = MysqlType.MYSQL_TYPE_TINY;
@@ -1017,22 +1017,29 @@ L:		while (true)
 						{	type = MysqlType.MYSQL_TYPE_LONGLONG;
 							paramsLen += 8;
 						}
-						else if (typeof(param) == 'object')
-						{	if (param instanceof Date)
-							{	type = MysqlType.MYSQL_TYPE_DATETIME;
-								paramsLen += 12;
-							}
-							else if (param.buffer instanceof ArrayBuffer)
-							{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-								paramsLen += param.byteLength;
-							}
-							else if (typeof(param.read) == 'function')
-							{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-								paramsLen++;
+						else if (typeof(param) == 'string')
+						{	type = MysqlType.MYSQL_TYPE_STRING;
+							if (!placeholdersSent.has(i))
+							{	paramsLen += 9 + param.length*4;
 							}
 						}
+						else if (param instanceof Date)
+						{	type = MysqlType.MYSQL_TYPE_DATETIME;
+							paramsLen += 12;
+						}
+						else if (param.buffer instanceof ArrayBuffer)
+						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+							if (!placeholdersSent.has(i))
+							{	paramsLen += param.byteLength;
+							}
+						}
+						else if (typeof(param.read) == 'function')
+						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+							paramsLen++;
+						}
 						else
-						{	debugAssert(typeof(param) == 'string');
+						{	debugAssert(placeholdersSent.has(i));
+							type = MysqlType.MYSQL_TYPE_STRING;
 						}
 					}
 					this.writeUint16(type);

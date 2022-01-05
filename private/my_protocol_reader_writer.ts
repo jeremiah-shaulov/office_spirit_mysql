@@ -5,6 +5,7 @@ import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
+const BUFFER_FOR_ENCODE_MAX_LEN = 1*1024*1024;
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -338,7 +339,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
 			try
 			{	let packetSizeRemaining = packetSize;
-				const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, 4*1024*1024));
+				const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, BUFFER_FOR_ENCODE_MAX_LEN));
 				while (packetSizeRemaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.setHeader(0xFFFFFF);

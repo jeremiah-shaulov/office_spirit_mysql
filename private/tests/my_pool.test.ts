@@ -1077,7 +1077,7 @@ async function testManyPlaceholders(dsnStr: string)
 				await conn.query("USE test1");
 
 				// CREATE TABLE
-				await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int, b int, c int, d int, e int, f int, g int, h int)");
+				await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a text, b text, c text, d text, e text, f text, g text, h text)");
 
 				const N_ROWS = 8*1024-1;
 				const q = `INSERT INTO t_log (a, b, c, d, e, f, g, h) VALUES ` + `(?, ?, ?, ?, ?, ?, ?, ?), `.repeat(N_ROWS).slice(0, -2);
@@ -1093,6 +1093,10 @@ async function testManyPlaceholders(dsnStr: string)
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
 				res = await conn.execute(q, params.map(v => v+''));
+				assertEquals(res.affectedRows, 8191);
+				assertEquals(res.nPlaceholders, N_ROWS*8);
+
+				res = await conn.execute(q, params.map(v => v%100==0 ? (v+'').repeat(10000) : v%20==0 ? null : v%10==0 ? v : v+''));
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
