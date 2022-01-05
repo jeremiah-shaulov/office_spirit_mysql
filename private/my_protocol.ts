@@ -802,30 +802,6 @@ L:		while (true)
 		}
 	}
 
-	/*async sendBatchComQuery<Row>(sqlArr: SqlSource[], rowType=RowType.FIRST_COLUMN, letReturnUndefined=false)
-	{	const isFromPool = this.setQueryingState();
-		try
-		{	this.startWritingNewPacket(true);
-			this.writeUint8(Command.COM_QUERY);
-			const packetStart = await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, true);
-			const resultsets = new ResultsetsInternal<Row>(rowType);
-			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-			if (state != ProtocolState.IDLE)
-			{	resultsets.protocol = this;
-				resultsets.hasMoreProtocol = true;
-				this.curResultsets = resultsets;
-			}
-			else if (this.pendingCloseStmts.length != 0)
-			{	await this.doPending();
-			}
-			this.setState(state);
-			return resultsets;
-		}
-		catch (e)
-		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
-		}
-	}*/
-
 	/**	On success returns ResultsetsProtocol<Row>.
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
@@ -997,7 +973,7 @@ L:		while (true)
 				let paramsLen = 0;
 				for (let i=0; i<nPlaceholders; i++)
 				{	const param = params[i];
-					let type = MysqlType.MYSQL_TYPE_NULL;
+					let type = MysqlType.MYSQL_TYPE_STRING;
 					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 					{	if (typeof(param) == 'boolean')
 						{	type = MysqlType.MYSQL_TYPE_TINY;
@@ -1010,7 +986,7 @@ L:		while (true)
 							}
 							else
 							{	type = MysqlType.MYSQL_TYPE_DOUBLE;
-								paramsLen+= 8;
+								paramsLen += 8;
 							}
 						}
 						else if (typeof(param) == 'bigint')
@@ -1018,10 +994,7 @@ L:		while (true)
 							paramsLen += 8;
 						}
 						else if (typeof(param) == 'string')
-						{	type = MysqlType.MYSQL_TYPE_STRING;
-							if (!placeholdersSent.has(i))
-							{	paramsLen += 9 + param.length*4;
-							}
+						{	// no need to add to `paramsLen`, because strings must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
 						}
 						else if (param instanceof Date)
 						{	type = MysqlType.MYSQL_TYPE_DATETIME;
@@ -1029,17 +1002,11 @@ L:		while (true)
 						}
 						else if (param.buffer instanceof ArrayBuffer)
 						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-							if (!placeholdersSent.has(i))
-							{	paramsLen += param.byteLength;
-							}
+							// no need to add to `paramsLen`, because ArrayBuffer must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
 						}
 						else if (typeof(param.read) == 'function')
 						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
 							paramsLen++;
-						}
-						else
-						{	debugAssert(placeholdersSent.has(i));
-							type = MysqlType.MYSQL_TYPE_STRING;
 						}
 					}
 					this.writeUint16(type);

@@ -158,13 +158,54 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	}
 
 	protected writeString(value: string)
-	{	this.writeBytes(encoder.encode(value));
+	{	const {read, written} = encoder.encodeInto(value, this.buffer.subarray(this.bufferEnd));
+		debugAssert(read == value.length);
+		this.bufferEnd += written;
+		debugAssert(this.bufferEnd <= this.buffer.length);
 	}
 
 	protected writeLenencString(value: string)
-	{	const data = encoder.encode(value);
-		this.writeLenencInt(data.length);
-		this.writeBytes(data);
+	{	if (value.length < 0x80)
+		{	// guess 1-byte length
+			const {read, written} = encoder.encodeInto(value, this.buffer.subarray(this.bufferEnd + 1));
+			debugAssert(read == value.length);
+			if (written < 0xFB)
+			{	// 1-byte length
+				this.buffer[this.bufferEnd++] = written;
+			}
+			else
+			{	// 3-byte length
+				this.buffer[this.bufferEnd++] = 0xFC;
+				this.buffer.copyWithin(this.bufferEnd+2, this.bufferEnd, this.bufferEnd+written);
+				this.dataView.setUint16(this.bufferEnd, written, true);
+				this.bufferEnd += 2;
+			}
+			this.bufferEnd += written;
+			debugAssert(this.bufferEnd <= this.buffer.length);
+		}
+		else if (value.length < (0x10000 / 4)) // assume max string length value.length*4, so value.length*4 < 0x10000
+		{	// guess 3-byte length
+			const {read, written} = encoder.encodeInto(value, this.buffer.subarray(this.bufferEnd + 3));
+			debugAssert(read == value.length);
+			if (written < 0xFB)
+			{	// 1-byte length
+				this.buffer[this.bufferEnd++] = written;
+				this.buffer.copyWithin(this.bufferEnd, this.bufferEnd+2, this.bufferEnd+2+written);
+			}
+			else
+			{	// 3-byte length
+				this.buffer[this.bufferEnd++] = 0xFC;
+				this.dataView.setUint16(this.bufferEnd, written, true);
+				this.bufferEnd += 2;
+			}
+			this.bufferEnd += written;
+			debugAssert(this.bufferEnd <= this.buffer.length);
+		}
+		else
+		{	const data = encoder.encode(value);
+			this.writeLenencInt(data.length);
+			this.writeBytes(data);
+		}
 	}
 
 	protected writeNulString(value: string)
@@ -205,7 +246,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	this.bufferEnd += data.length;
 				debugAssert(!canWait); // after sending Sql queries response always follows
 				await this.send();
-				return;
+				return false;
 			}
 		}
 		if (data instanceof Uint8Array)
@@ -228,7 +269,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	this.buffer.set(data, this.bufferEnd);
 					this.bufferEnd += data.length;
 					if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-					{	return;
+					{	return true;
 					}
 					this.setHeader(packetSizeRemaining);
 					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
@@ -240,7 +281,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	this.buffer.set(data);
 						this.bufferStart = data.length;
 						this.bufferEnd = data.length;
-						return;
+						return true;
 					}
 					await writeAll(this.conn, data);
 				}
@@ -301,7 +342,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					dataLength -= n;
 				}
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-				{	return;
+				{	return true;
 				}
 				this.setHeader(packetSizeRemaining);
 				try
@@ -363,7 +404,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					debugAssert(written == dataLength);
 					this.bufferEnd += written;
 					if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-					{	return;
+					{	return true;
 					}
 					this.setHeader(packetSizeRemaining);
 					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
@@ -386,5 +427,6 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		// prepare for reader
 		this.bufferStart = 0;
 		this.bufferEnd = 0;
+		return false;
 	}
 }
