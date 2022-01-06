@@ -489,11 +489,11 @@ export class MyConn
 				query0[j++] = C_QEST;
 			}
 			// query1 += ",@`hello`=@_NN_NN"
-			query1[k++] = C_COMMA;
-			query1[k++] = C_AT;
-			query1[k++] = C_BACKTICK;
 			if (i < paramKeys.length)
-			{	const param = paramKeys[i].replaceAll('`', '``');
+			{	query1[k++] = C_COMMA;
+				query1[k++] = C_AT;
+				query1[k++] = C_BACKTICK;
+				const param = paramKeys[i].replaceAll('`', '``');
 				while (true)
 				{	const {read, written} = encoder.encodeInto(param, query1.subarray(k));
 					if (read == param.length)
