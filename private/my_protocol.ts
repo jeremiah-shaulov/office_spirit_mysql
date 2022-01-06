@@ -806,6 +806,89 @@ L:		while (true)
 		}
 	}
 
+	/**	Send 2 queries in 1 round-trip.
+		`prequery` must not return resultsets.
+	 **/
+	async sendTwoQueries<Row>(prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	{	const isFromPool = this.setQueryingState();
+		try
+		{	// Send prequery
+			let prequeryDone = false;
+			if (typeof(prequery) == 'string')
+			{	const prequeryMaxLen = prequery.length * 4;
+				if (prequeryMaxLen+32 < this.buffer.length)
+				{	this.startWritingNewPacket(true);
+					this.writeUint8(Command.COM_QUERY);
+					this.writeString(prequery);
+					prequeryDone = true;
+				}
+			}
+			else
+			{	if (prequery.length+32 < this.buffer.length)
+				{	this.startWritingNewPacket(true);
+					this.writeUint8(Command.COM_QUERY);
+					this.writeBytes(prequery);
+					prequeryDone = true;
+				}
+			}
+			if (!prequeryDone)
+			{	this.startWritingNewPacket(true);
+				this.writeUint8(Command.COM_QUERY);
+				await this.sendWithData(prequery, false, true);
+			}
+			// Send sql
+			this.startWritingNewPacket(true, true);
+			this.writeUint8(Command.COM_QUERY);
+			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
+			// Read result of prequery
+			const resultsets = new ResultsetsInternal<Row>(rowType);
+			let state = ProtocolState.IDLE;
+			let error;
+			try
+			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+			}
+			catch (e)
+			{	if (ignorePrequeryError && (e instanceof SqlError))
+				{	this.logger.error(e);
+				}
+				else
+				{	error = e;
+				}
+			}
+			debugAssert(state == ProtocolState.IDLE);
+			// Read result of sql
+			try
+			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+			}
+			catch (e)
+			{	if (error)
+				{	this.logger.error(error);
+				}
+				error = e;
+			}
+			if (error)
+			{	throw error;
+			}
+			if (state != ProtocolState.IDLE)
+			{	resultsets.protocol = this;
+				resultsets.hasMoreInternal = true;
+				this.curResultsets = resultsets;
+				if (rowType == RowType.VOID)
+				{	// discard resultsets
+					state = await this.doDiscard(state);
+				}
+			}
+			else if (this.pendingCloseStmts.length != 0)
+			{	await this.doPending();
+			}
+			this.setState(state);
+			return resultsets;
+		}
+		catch (e)
+		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+		}
+	}
+
 	/**	On success returns ResultsetsProtocol<Row>.
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
@@ -1603,19 +1686,7 @@ L:		while (true)
 			this.curLastColumnReader = undefined;
 			this.onEndSession = undefined;
 			const buffer = this.recycleBuffer();
-			if (!recycleConnection || state!=ProtocolState.IDLE && state!=ProtocolState.IDLE_IN_POOL)
-			{	// don't recycle connection (only buffer)
-				if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
-				{	try
-					{	this.conn.close();
-					}
-					catch (e)
-					{	this.logger.error(e);
-					}
-				}
-				return buffer;
-			}
-			else
+			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
 				const protocol = new MyProtocol(this.conn, this.decoder, buffer);
 				protocol.serverVersion = this.serverVersion;
@@ -1626,14 +1697,29 @@ L:		while (true)
 				protocol.maxColumnLen = this.maxColumnLen;
 				protocol.onLoadFile = this.onLoadFile;
 				const {initSchema, initSql} = this;
-				await protocol.sendComResetConnectionAndInitDb(initSchema);
-				if (initSql)
-				{	await protocol.sendComQuery(initSql);
+				try
+				{	await protocol.sendComResetConnectionAndInitDb(initSchema);
+					if (initSql)
+					{	await protocol.sendComQuery(initSql);
+					}
+					debugAssert(protocol.state == ProtocolState.IDLE);
+					protocol.state = ProtocolState.IDLE_IN_POOL;
+					return protocol;
 				}
-				debugAssert(protocol.state == ProtocolState.IDLE);
-				protocol.state = ProtocolState.IDLE_IN_POOL;
-				return protocol;
+				catch (e)
+				{	this.logger.error(e);
+				}
 			}
+			// don't recycle connection (only buffer)
+			if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
+			{	try
+				{	this.conn.close();
+				}
+				catch (e)
+				{	this.logger.error(e);
+				}
+			}
+			return buffer;
 		}
 	}
 }

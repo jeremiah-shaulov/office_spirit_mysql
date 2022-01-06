@@ -729,10 +729,10 @@ On my computer i see the following results:
 
 ```
 Begin tests
-Text Protocol took 0.3 sec (random=40662)
-Named params took 0.457 sec (random=39088)
-Positional params took 4.246 sec (random=40604)
-Positional params prepared once took 0.17 sec (random=39724)
+Text Protocol took 0.27 sec (random=39123)
+Named params took 0.401 sec (random=39620)
+Positional params took 4.135 sec (random=39443)
+Positional params prepared once took 0.194 sec (random=40280)
 ```
 
 ## Prepared statements

@@ -324,8 +324,7 @@ export class MyConn
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendComQuery(`XA END '${curXaId}'`);
-			await protocol.sendComQuery(`XA PREPARE '${curXaId}'`);
+			await protocol.sendTwoQueries(`XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.isXaPrepared = true;
 		}
 	}
@@ -350,14 +349,11 @@ export class MyConn
 				try
 				{	if (curXaId)
 					{	if (!this.isXaPrepared)
-						{	try
-							{	await protocol.sendComQuery(`XA END '${curXaId}'`);
-							}
-							catch (e)
-							{	protocol.logger.error(e);
-							}
+						{	await protocol.sendTwoQueries(`XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
 						}
-						await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
+						else
+						{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
+						}
 					}
 					else
 					{	await protocol.sendComQuery(`ROLLBACK`);
@@ -448,7 +444,7 @@ export class MyConn
 						}
 						sql = `XA START '${this.curXaId}'`;
 					}
-					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0))
+					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
 					{	this.end();
 						continue;
 					}
@@ -486,8 +482,9 @@ export class MyConn
 			else
 			{	// Prepare to execute immediately: named parameters
 				const letReturnUndefined = nRetriesRemaining-- > 0;
-				if (await this.setNamedParams(protocol, params, letReturnUndefined))
-				{	const resultsets = await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined);
+				const prequery = await this.setNamedParams(protocol, params, letReturnUndefined);
+				if (prequery)
+				{	const resultsets = await protocol.sendTwoQueries<Row>(prequery, false, sql, rowType, letReturnUndefined);
 					if (resultsets)
 					{	return resultsets;
 					}
@@ -502,7 +499,7 @@ export class MyConn
 	async setNamedParams(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
 	{	const paramKeys = Object.keys(params);
 		if (paramKeys.length == 0)
-		{	return true;
+		{	return new Uint8Array;
 		}
 		if (paramKeys.length > 0xFFFF)
 		{	throw new SqlError(`Too many query parameters. The maximum of ${0xFFFF} is supported`);
@@ -603,7 +600,7 @@ export class MyConn
 			query0[3] = C_SPACE;
 			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.VOID, letReturnUndefined, true);
 			if (!resultsets)
-			{	return false;
+			{	return;
 			}
 			stmt = resultsets;
 			while (preparedStmtsForParams.length < pos)
@@ -617,8 +614,7 @@ export class MyConn
 		{	values[values.length] = null;
 		}
 		await stmt.exec(values); // SET @_yl_fk=?,@_yl_fl=?
-		await protocol.sendComQuery<void>(query1); // SET @`hello`=@_yl_fk,@_yl_fk=NULL,@world=@_yl_fl,@_yl_fl=NULL
-		return true;
+		return query1;
 	}
 }
 
