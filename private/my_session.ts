@@ -133,7 +133,7 @@ export class MySession
 			if (infoTableConn)
 			{	await infoTableConn.connect();
 				if (!infoTableConn.autocommit)
-				{	await infoTableConn.execute("SET autocommit=1");
+				{	await infoTableConn.queryVoid("SET autocommit=1");
 				}
 			}
 			// 2. Call onBeforeCommit
@@ -154,7 +154,7 @@ export class MySession
 			let recordAdded = false;
 			if (trxOptions && curXaInfoTable && infoTableConn)
 			{	try
-				{	await infoTableConn.execute(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
+				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
 					recordAdded = true;
 				}
 				catch (e)
@@ -170,7 +170,7 @@ export class MySession
 			// 6. Remove record from XA info table
 			if (recordAdded && trxOptions && curXaInfoTable && infoTableConn)
 			{	try
-				{	await infoTableConn.execute(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
+				{	await infoTableConn.queryVoid(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 				}
 				catch (e)
 				{	this.logger.error(e);

@@ -542,7 +542,7 @@ class XaTask
 						for (const {conn, xaId, time, pid, connectionId, commit} of items)
 						{	promise = promise.then
 							(	() =>
-								{	conn.execute((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'");
+								{	conn.queryVoid((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'");
 								}
 							).then
 							(	() =>
