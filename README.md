@@ -626,7 +626,7 @@ And this statement is kept during the current connection.
 Then this statement is executed with the 5 parameters that you provided. And then another query is executed in Text Protocol:
 
 ```sql
-SET @id=@par1, @name=@par2, @value_a=@par3, @value_b=@par4, @value_c=@par5
+SET @id=@par1, @par1=NULL, @name=@par2, @par2=NULL, @value_a=@par3, @par3=NULL, @value_b=@par4, @par4=NULL, @value_c=@par5, @par5=NULL
 ```
 
 And finally your SQL query is executed, also in Text Protocol.
@@ -853,8 +853,9 @@ This allows to read SQL from files.
 
 ```ts
 // To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests?multiStatements'
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
-// DSN='mysql://root:hello@localhost/tests?multiStatements' deno run --allow-env --allow-net /tmp/example16.ts
+// deno run --allow-env --allow-net /tmp/example16.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.3.4/mod.ts';
 

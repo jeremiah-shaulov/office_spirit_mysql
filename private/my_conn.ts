@@ -20,6 +20,9 @@ const C_A = 'a'.charCodeAt(0);
 const C_S_CAP = 'S'.charCodeAt(0);
 const C_E_CAP = 'E'.charCodeAt(0);
 const C_T_CAP = 'T'.charCodeAt(0);
+const C_N_CAP = 'N'.charCodeAt(0);
+const C_U_CAP = 'U'.charCodeAt(0);
+const C_L_CAP = 'L'.charCodeAt(0);
 const C_SPACE = ' '.charCodeAt(0);
 const C_EQ = '='.charCodeAt(0);
 const C_QEST = '?'.charCodeAt(0);
@@ -462,10 +465,10 @@ export class MyConn
 		let stmt = preparedStmtsForParams[pos];
 		// SET @_yl_fk=?,@_yl_fl=?,@_yl_fm=?,...,@_yl_g0=?,@_yl_g1=?,...,@_yl_ga=?,@_yl_gb=?,...,@_ym_00=?,...
 		const query0 = stmt ? undefined : new Uint8Array(3 /*SET*/ + 10 /*,@_NN_NN=?*/ * nPlaceholders);
-		// SET @`hello`=@_yl_fk,@world=@_yl_fl
+		// SET @`hello`=@_yl_fk,@_yl_fk=NULL,@world=@_yl_fl,@_yl_fl=NULL
 		let query1Len = 3 /*SET*/;
 		for (let i=paramKeys.length-1; i>=0; i--)
-		{	query1Len += 12 /*,@``=@_NN_NN*/ + paramKeys[i].length; // guess: no multibyte chars
+		{	query1Len += 12 /*,@``=@_NN_NN*/ + paramKeys[i].length + 13 /*,@_NN_NN=NULL*/; // guess: no multibyte chars
 		}
 		let query1 = new Uint8Array(query1Len);
 		// Generate the queries
@@ -498,7 +501,7 @@ export class MyConn
 						break;
 					}
 					// realloc query1
-					const tmp = new Uint8Array(query1.length * 2 + 12); // add 12 to be sure that i can `query1[k++] = ...` at least 12 times
+					const tmp = new Uint8Array(query1.length * 2 + 25); // add 12 to be sure that i can `query1[k++] = ...` at least 25 times
 					tmp.set(query1);
 					query1 = tmp;
 				}
@@ -511,6 +514,19 @@ export class MyConn
 				query1[k++] = C_UNDERSCORE;
 				query1[k++] = n[2];
 				query1[k++] = n[3];
+				query1[k++] = C_COMMA;
+				query1[k++] = C_AT;
+				query1[k++] = C_UNDERSCORE;
+				query1[k++] = n[0];
+				query1[k++] = n[1];
+				query1[k++] = C_UNDERSCORE;
+				query1[k++] = n[2];
+				query1[k++] = n[3];
+				query1[k++] = C_EQ;
+				query1[k++] = C_N_CAP;
+				query1[k++] = C_U_CAP;
+				query1[k++] = C_L_CAP;
+				query1[k++] = C_L_CAP;
 			}
 			else if (!query0)
 			{	break;
@@ -552,7 +568,7 @@ export class MyConn
 		{	values[values.length] = null;
 		}
 		await stmt.exec(values); // SET @_yl_fk=?,@_yl_fl=?
-		await protocol.sendComQuery<void>(query1); // SET @`hello`=@_yl_fk,@`world`=@_yl_fl
+		await protocol.sendComQuery<void>(query1); // SET @`hello`=@_yl_fk,@_yl_fk=NULL,@world=@_yl_fl,@_yl_fl=NULL
 		return true;
 	}
 }
