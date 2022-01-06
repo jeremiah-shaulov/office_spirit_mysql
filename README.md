@@ -11,6 +11,8 @@ Features:
 - Binary protocol. Query parameters are sent separately from text query.
 - Made with CPU and RAM efficiency in mind.
 
+This library is not just a driver, but it's ready to use tool, that covers many MySQL use cases.
+
 Basic example:
 
 ```ts
@@ -602,7 +604,7 @@ When the `params` argument is specified, even if it's an empty array, the Binary
 
 If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol (see above about "Using external SQL generators").
 
-`conn.forQuery()` (detailed below) always uses the Binary Protocol.
+`conn.forQuery*()` functions (detailed below) always use the Binary Protocol.
 
 Not all query types can be run in Binary Protocol - see [here](https://dev.mysql.com/worklog/task/?id=2871) what's supported by MySQL.
 
@@ -772,6 +774,22 @@ pool.forConn
 );
 
 await pool.shutdown();
+```
+
+There's family of functions:
+
+```ts
+MyConn.forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
+MyConn.forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
+MyConn.forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
+MyConn.forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
+MyConn.forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
+```
+
+The difference between them is result type that `Resultsets.exec()` returns.
+
+```ts
+Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
 ```
 
 ## Reading long BLOBs
