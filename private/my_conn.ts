@@ -161,6 +161,17 @@ export class MyConn
 		);
 	}
 
+	queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
+	{	return this.doQuery<void>(sql, params, RowType.VOID);
+	}
+
+	/**	@deprecated
+		Alias of queryVoid().
+	 **/
+	execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
+	{	return this.doQuery<void>(sql, params, RowType.VOID);
+	}
+
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	const resultsets = await this.doQuery<Record<string, ColumnType|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		const it = resultsets[Symbol.asyncIterator]();
@@ -168,7 +179,7 @@ export class MyConn
 		return value==undefined ? undefined : value; // void -> undefined
 	}
 
-	async forQuery<ColumnType=ColumnValue>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<unknown>): Promise<unknown>
+	async forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
 	{	const prepared = await this.doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
 		try
 		{	return await callback(prepared);
@@ -179,10 +190,48 @@ export class MyConn
 		}
 	}
 
-	async execute(sql: SqlSource, params?: Params)
-	{	const resultsets: Resultsets<void> = await this.doQuery<void>(sql, params, RowType.FIRST_COLUMN);
-		await resultsets.discard();
-		return resultsets;
+	async forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
+	{	const prepared = await this.doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP);
+		try
+		{	return await callback(prepared);
+		}
+		finally
+		{	await prepared.discard();
+			await prepared.disposePreparedStmt();
+		}
+	}
+
+	async forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
+	{	const prepared = await this.doQuery<ColumnType[]>(sql, true, RowType.ARRAY);
+		try
+		{	return await callback(prepared);
+		}
+		finally
+		{	await prepared.discard();
+			await prepared.disposePreparedStmt();
+		}
+	}
+
+	async forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
+	{	const prepared = await this.doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN);
+		try
+		{	return await callback(prepared);
+		}
+		finally
+		{	await prepared.discard();
+			await prepared.disposePreparedStmt();
+		}
+	}
+
+	async forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
+	{	const prepared = await this.doQuery<void>(sql, true, RowType.VOID);
+		try
+		{	return await callback(prepared);
+		}
+		finally
+		{	await prepared.discard();
+			await prepared.disposePreparedStmt();
+		}
 	}
 
 	/**	Start transaction.
@@ -377,7 +426,7 @@ export class MyConn
 		}
 	}
 
-	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.FIRST_COLUMN): Promise<ResultsetsInternal<Row>>
+	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.maxConns;
 
 		while (true)
@@ -399,7 +448,7 @@ export class MyConn
 						}
 						sql = `XA START '${this.curXaId}'`;
 					}
-					if (!await protocol.sendComQuery(sql, RowType.FIRST_COLUMN, nRetriesRemaining-->0))
+					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0))
 					{	this.end();
 						continue;
 					}
@@ -552,7 +601,7 @@ export class MyConn
 			query0[1] = C_E_CAP;
 			query0[2] = C_T_CAP;
 			query0[3] = C_SPACE;
-			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.FIRST_COLUMN, letReturnUndefined, true);
+			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.VOID, letReturnUndefined, true);
 			if (!resultsets)
 			{	return false;
 			}

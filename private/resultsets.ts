@@ -72,8 +72,8 @@ export class Resultsets<Row>
 
 	/**	Execute (again) a prepared statement.
 	 **/
-	exec(_params: Param[])
-	{	return Promise.resolve();
+	exec(_params: Param[]): ResultsetsPromise<Row>
+	{	throw new Error('Not implemented');
 	}
 
 	/**	Iterates over rows in current resultset.
@@ -143,11 +143,19 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	{	return this.hasMoreInternal;
 	}
 
-	exec(params: Param[]): Promise<void>
-	{	if (!this.protocol)
-		{	throw new CanceledError(`Connection terminated`);
-		}
-		return this.protocol.sendComStmtExecute(this, params);
+	exec(params: Param[]): ResultsetsPromise<Row>
+	{	return new ResultsetsPromise<Row>
+		(	(y, n) =>
+			{	if (!this.protocol)
+				{	throw new CanceledError(`Connection terminated`);
+				}
+				let promise = this.protocol.sendComStmtExecute(this, params);
+				if (this.rowType == RowType.VOID)
+				{	promise = promise.then(() => this.discard());
+				}
+				return promise.then(() => {y(this)}, n);
+			}
+		);
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>

@@ -148,45 +148,45 @@ async function testBasic(dsnStr: string)
 				const connId = await conn.queryCol("SELECT Connection_id()").first();
 				assertEquals(conn.connectionId, connId);
 
-				await conn.execute("SET autocommit=1");
+				await conn.queryVoid("SET autocommit=1");
 				assertEquals(conn.autocommit, true);
-				await conn.execute("SET autocommit=0");
+				await conn.queryVoid("SET autocommit=0");
 				assertEquals(conn.autocommit, false);
-				await conn.execute("SET autocommit=1");
+				await conn.queryVoid("SET autocommit=1");
 
-				await conn.execute("START TRANSACTION");
+				await conn.queryVoid("START TRANSACTION");
 				assertEquals(conn.inTrx, true);
 				assertEquals(conn.inTrxReadonly, false);
-				await conn.execute("ROLLBACK");
+				await conn.queryVoid("ROLLBACK");
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
 
-				await conn.execute("SET autocommit=0");
+				await conn.queryVoid("SET autocommit=0");
 				assertEquals(conn.inTrx, false);
-				await conn.execute("START TRANSACTION");
+				await conn.queryVoid("START TRANSACTION");
 				assertEquals(conn.inTrx, true);
 				assertEquals(conn.inTrxReadonly, false);
-				await conn.execute("ROLLBACK");
+				await conn.queryVoid("ROLLBACK");
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
-				await conn.execute("SET autocommit=1");
+				await conn.queryVoid("SET autocommit=1");
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
 
 				if (parseFloat(conn.serverVersion) >= 6.0) // conn.serverVersion can be: 8.0.25-0ubuntu0.21.04.1
-				{	await conn.execute("START TRANSACTION READ ONLY");
+				{	await conn.queryVoid("START TRANSACTION READ ONLY");
 					assertEquals(conn.inTrx, true);
 					assertEquals(conn.inTrxReadonly, true);
-					await conn.execute("ROLLBACK");
+					await conn.queryVoid("ROLLBACK");
 					assertEquals(conn.inTrx, false);
 					assertEquals(conn.inTrxReadonly, false);
 				}
 
-				await conn.execute("XA START 'a'");
+				await conn.queryVoid("XA START 'a'");
 				assertEquals(conn.inTrx, true);
 				assertEquals(conn.inTrxReadonly, false);
-				await conn.execute("XA END 'a'");
-				await conn.execute("XA ROLLBACK 'a'");
+				await conn.queryVoid("XA END 'a'");
+				await conn.queryVoid("XA ROLLBACK 'a'");
 				assertEquals(conn.inTrx, false);
 				assertEquals(conn.inTrxReadonly, false);
 
@@ -228,7 +228,7 @@ async function testBasic(dsnStr: string)
 						assertEquals(prepared.affectedRows, 1);
 					}
 				);
-				let res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+4000), 'Message 4']);
+				let res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+4000), 'Message 4']);
 				assertEquals(res.lastInsertId, 4);
 				assertEquals(res.affectedRows, 1);
 
@@ -346,7 +346,7 @@ async function testBasic(dsnStr: string)
 						try
 						{	await writeAll(fh, new TextEncoder().encode(id==6 ? '' : 'Message '+id));
 							await fh.seek(0, Deno.SeekMode.Start);
-							res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
+							res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
 							assertEquals(res.lastInsertId, id);
 							assertEquals(res.affectedRows, 1);
 							const gen = new SqlSelectGenerator('t_log', 'id', id);
@@ -361,72 +361,72 @@ async function testBasic(dsnStr: string)
 					}
 				}
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+7000), new TextEncoder().encode('Message 7')]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+7000), new TextEncoder().encode('Message 7')]);
 				assertEquals(res.lastInsertId, 7);
 				assertEquals(res.affectedRows, 1);
 				gen = new SqlSelectGenerator('t_log', 'id', 7);
 				assertEquals(await conn.query(gen, []).first(), {id: 7, time: new Date(now+7000), message: 'Message 7'});
 				assertEquals(gen.has_put_params_to, true);
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+8000), new Uint16Array(new TextEncoder().encode('Message 8*').buffer)]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+8000), new Uint16Array(new TextEncoder().encode('Message 8*').buffer)]);
 				assertEquals(res.lastInsertId, 8);
 				assertEquals(res.affectedRows, 1);
 				gen = new SqlSelectGenerator('t_log', 'id', 8);
 				assertEquals(await conn.query(gen).first(), {id: 8, time: new Date(now+8000), message: 'Message 8*'});
 				assertEquals(gen.has_put_params_to, false);
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+9000), {value: 'Message 9'}]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+9000), {value: 'Message 9'}]);
 				assertEquals(res.lastInsertId, 9);
 				assertEquals(res.affectedRows, 1);
 				gen = new SqlSelectGenerator('t_log', 'id', 9);
 				assertEquals(await conn.query(gen).first(), {id: 9, time: new Date(now+9000), message: JSON.stringify({value: 'Message 9'})});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+10001), new TextEncoder().encode('-')]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+10001), new TextEncoder().encode('-')]);
 				assertEquals(res.lastInsertId, 10);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [10]).first(), {time: new Date(now+10001), message: '-'});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+11001), new Uint16Array(new TextEncoder().encode('--').buffer)]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+11001), new Uint16Array(new TextEncoder().encode('--').buffer)]);
 				assertEquals(res.lastInsertId, 11);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [11]).first(), {time: new Date(now+11001), message: '--'});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+12000), 123n]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+12000), 123n]);
 				assertEquals(res.lastInsertId, 12);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [12]).first(), {time: new Date(now+12000), message: '123'});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+13000), null]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+13000), null]);
 				assertEquals(res.lastInsertId, 13);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [13]).first(), {time: new Date(now+13000), message: null});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+14000), undefined]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+14000), undefined]);
 				assertEquals(res.lastInsertId, 14);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [14]).first(), {time: new Date(now+14000), message: null});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+15000), () => {}]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+15000), () => {}]);
 				assertEquals(res.lastInsertId, 15);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [15]).first(), {time: new Date(now+15000), message: null});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+16000), Symbol.iterator]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+16000), Symbol.iterator]);
 				assertEquals(res.lastInsertId, 16);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [16]).first(), {time: new Date(now+16000), message: null});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+17000), false]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+17000), false]);
 				assertEquals(res.lastInsertId, 17);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [17]).first(), {time: new Date(now+17000), message: '0'});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+18000), true]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+18000), true]);
 				assertEquals(res.lastInsertId, 18);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [18]).first(), {time: new Date(now+18000), message: '1'});
 
-				res = await conn.execute("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+19000), 123.5]);
+				res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+19000), 123.5]);
 				assertEquals(res.lastInsertId, 19);
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.query("SELECT `time`, message FROM t_log WHERE id=?", [19]).first(), {time: new Date(now+19000), message: '123.5'});
@@ -897,7 +897,7 @@ async function testInitSql(dsnStr: string)
 				}
 				assertEquals(value, 'all');
 
-				await conn.execute("SET @myvar2=1");
+				await conn.queryVoid("SET @myvar2=1");
 				assertEquals(await conn.queryCol("SELECT @myvar2").first(), 1);
 
 				connectionId = conn.connectionId;
@@ -972,7 +972,7 @@ async function testBusyState(dsnStr: string)
 				assertEquals(error instanceof BusyError, true);
 				assertEquals(await value, 10);
 
-				let promise = conn.execute("SELECT 12");
+				let promise = conn.query("SELECT 12");
 				conn.end();
 				error = undefined;
 				let couldQuery = false;
@@ -988,7 +988,7 @@ async function testBusyState(dsnStr: string)
 				assertEquals(couldQuery, true);
 
 				await conn.connect();
-				promise = conn.execute("INSERT INTO test1.t_log SET `time`=Now(), message='Message 1'");
+				promise = conn.query("INSERT INTO test1.t_log SET `time`=Now(), message='Message 1'");
 				conn.end();
 				const resultset = await promise; // this must succeed, because INSERT receives only 1 response packet
 				assertEquals(resultset.affectedRows, 1);
@@ -1088,15 +1088,15 @@ async function testManyPlaceholders(dsnStr: string)
 					}
 				}
 
-				let res = await conn.execute(q, params);
+				let res = await conn.queryVoid(q, params);
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
-				res = await conn.execute(q, params.map(v => v+''));
+				res = await conn.queryVoid(q, params.map(v => v+''));
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
-				res = await conn.execute(q, params.map(v => v%100==0 ? (v+'').repeat(10000) : v%20==0 ? null : v%10==0 ? v : v+''));
+				res = await conn.queryVoid(q, params.map(v => v%100==0 ? (v+'').repeat(10000) : v%20==0 ? null : v%10==0 ? v : v+''));
 				assertEquals(res.affectedRows, 8191);
 				assertEquals(res.nPlaceholders, N_ROWS*8);
 
@@ -1468,7 +1468,7 @@ async function testLoadBigDump(dsnStr: string)
 							{	wantSize >>= 1;
 								sizeRounded <<= 1;
 							}
-							await conn.execute("SET GLOBAL max_allowed_packet = ?", [sizeRounded]);
+							await conn.queryVoid("SET GLOBAL max_allowed_packet = ?", [sizeRounded]);
 							conn.end();
 							assert(Number(await conn.queryCol("SELECT @@max_allowed_packet").first()) >= wantSize);
 						}
@@ -1497,7 +1497,7 @@ async function testLoadBigDump(dsnStr: string)
 								await writeAll(fh, new TextEncoder().encode("'"));
 
 								// DELETE
-								await conn.execute("DELETE FROM t_log");
+								await conn.queryVoid("DELETE FROM t_log");
 
 								// Read INSERT from file
 								let insertStatus: Resultsets<Any>|undefined;

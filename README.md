@@ -169,10 +169,10 @@ At the end of callback all active connections will be returned to the pool. Howe
 
 ## Making queries
 
-To run a query that doesn't return rows, use `execute()`:
+To run a query that doesn't return rows, use `queryVoid()`:
 
 ```ts
-MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets>
+MyConn.queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets>
 ```
 
 This method executes it's query and discards returned rows.
@@ -188,11 +188,11 @@ MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise
 MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise
 ```
 
-`query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
+These `query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
 Awaiting it gives you `Resultsets` object.
 Iterating over `Resultsets` yields rows.
 
-If your query didn't return rows (query like `INSERT`), then these methods work exactly as `execute()`, so zero rows will be yielded, and `resultsets.columns` will be empty array,
+If your query didn't return rows (query like `INSERT`), then these methods work exactly as `queryVoid()`, so zero rows will be yielded, and `resultsets.columns` will be empty array,
 and `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
 
 If there're rows, you need to iterate them to the end, before you can execute another query.
@@ -210,8 +210,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		// use ResultsetsPromise.all()
 		console.log(await conn.query("SELECT * FROM t_log").all());
@@ -241,8 +241,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		// use ResultsetsPromise.first()
 		console.log(await conn.query("SELECT Count(*) FROM t_log").first());
@@ -274,8 +274,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		// for await loop
 		for await (const row of await conn.query("SELECT * FROM t_log"))
@@ -313,8 +313,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		const count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
 		console.log(count); // prints 3
@@ -327,7 +327,7 @@ await pool.shutdown();
 Here is the complete definition of query functions:
 
 ```ts
-MyConn.execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>> {...}
+MyConn.queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>> {...}
 MyConn.query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnType>> {...}
 MyConn.queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnType>> {...}
 MyConn.queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType[]> {...}
@@ -354,8 +354,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		const row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
 		if (row)
@@ -387,8 +387,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.execute("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
 		// Use query<any>()
 		const row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
@@ -457,8 +457,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+		await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
 		const row = await conn.query("SELECT `time` + INTERVAL ? DAY AS 'time', message FROM t_log WHERE id=?", [3, 1]).first();
 		console.log(row);
@@ -486,8 +486,8 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.execute("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+		await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
 		const row = await conn.query("SELECT `time` + INTERVAL @days DAY AS 'time', message FROM t_log WHERE id=@`id`", {days: 3, id: 1}).first();
 		console.log(row);
@@ -504,7 +504,7 @@ Another option for parameters substitution is to use libraries that generate SQL
 Any library that produces SQL queries is alright if it takes into consideration the very important `conn.noBackslashEscapes` flag.
 Remember that the value of this flag can change during server session, if user executes a query like `SET sql_mode='no_backslash_escapes'`.
 
-Query functions (`execute()`, `query()` and the such) can receive SQL queries in several forms:
+Query functions (`query*()`) can receive SQL queries in several forms:
 
 ```ts
 type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
@@ -597,7 +597,7 @@ MySQL and MariaDB support 2 ways to execute queries:
 Then the server sends back resultsets, where all values are also strings, and must be converted to target types (information about target types is also sent).
 2. **Binary Protocol.** SQL query is prepared on the server, and then it's possible to execute this query one or many times, referring to the query by it's ID. The query can contain `?`-placeholders. After query execution the server sends resultset in binary form. Later this prepared query must be deallocated.
 
-The second argument in `conn.execute(sql, params)` or `conn.query*(sql, params)` functions is called `params`.
+The second argument in `conn.query*(sql, params)` functions is called `params`.
 When the `params` argument is specified, even if it's an empty array, the Binary Protocol is used.
 
 If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol (see above about "Using external SQL generators").
@@ -612,7 +612,7 @@ In my tests, preparing a query and then executing it was about 15 times slower t
 However, preparing a query once, and executing it 1000 times was slightly faster than just executing it 1000 times in Text Protocol.
 
 Therefore using Binary Protocol to substitute parameters is probably a bad idea with the current MySQL server implementation.
-So using `?`-placeholders in `conn.execute()` and `conn.query*()` is **discouraged**.
+So using `?`-placeholders in `conn.query*()` is **discouraged**.
 
 For the named parameters this library has 1 optimization that makes them perform decently.
 Once you execute a query with, for instance, 5 named parameters: `id`, `name`, `value_a`, `value_b` and `value_c`, this library prepares statement like this:
@@ -667,7 +667,7 @@ try
 			for (let i=1; i<N_ROWS; i++)
 			{	sql += `,(${i})`;
 			}
-			await conn.execute(sql);
+			await conn.queryVoid(sql);
 
 			// Begin tests
 			console.log('Begin tests');
@@ -702,13 +702,12 @@ try
 			// Positional params prepared once
 			since = Date.now();
 			sum = 0;
-			await conn.forQuery
+			await conn.forQueryCol
 			(	"SELECT val FROM t_log WHERE id = ?",
 				async stmt =>
 				{	for (let i=0; i<N_QUERIES; i++)
 					{	const n = 1 + Math.floor(Math.random() * N_ROWS);
-						await stmt.exec([n]);
-						sum += Number((await stmt.first())?.val);
+						sum += Number(await stmt.exec([n]).first());
 					}
 				}
 			);
@@ -728,10 +727,10 @@ On my computer i see the following results:
 
 ```
 Begin tests
-Text Protocol took 0.316 sec (random=38316)
-Named params took 0.443 sec (random=38875)
-Positional params took 4.156 sec (random=40182)
-Positional params prepared once took 0.193 sec (random=39511)
+Text Protocol took 0.3 sec (random=40662)
+Named params took 0.457 sec (random=39088)
+Positional params took 4.246 sec (random=40604)
+Positional params prepared once took 0.17 sec (random=39724)
 ```
 
 ## Prepared statements
@@ -820,12 +819,12 @@ const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tes
 
 pool.forConn
 (	async conn =>
-	{	await conn.execute("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 
 		const file = await Deno.open('/etc/passwd', {read: true});
 		try
 		{	// Write the file to db
-			await conn.execute("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
+			await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
 		}
 		finally
 		{	file.close();
@@ -842,7 +841,7 @@ await pool.shutdown();
 
 ## Importing big dumps
 
-Functions like `MyConn.execute()`, `MyConn.query()`, etc. allow to provide SQL query in several forms, including `Deno.Reader`.
+Functions like `MyConn.query*()` allow to provide SQL query in several forms, including `Deno.Reader`.
 
 ```ts
 MyConn.query(sql: SqlSource, params?: object|null): ResultsetsPromise;
@@ -876,7 +875,7 @@ pool.forConn
 
 			const file = await Deno.open(filename, {read: true});
 			try
-			{	await conn.execute(file);
+			{	await conn.queryVoid(file);
 			}
 			finally
 			{	file.close();
@@ -931,7 +930,7 @@ await Deno.writeTextFile(filename, await data.text());
 pool.forConn
 (	async conn =>
 	{	// CREATE TABLE
-		await conn.execute
+		await conn.queryVoid
 		(	`	CREATE TEMPORARY TABLE t_countries
 				(	country_code char(2) CHARACTER SET latin1 NOT NULL PRIMARY KEY,
 					country_name varchar(128) NOT NULL
@@ -943,7 +942,7 @@ pool.forConn
 		const filenameSql = await conn.queryCol("SELECT Quote(?)", [filename]).first();
 
 		// LOAD DATA
-		const res = await conn.execute
+		const res = await conn.queryVoid
 		(	`	LOAD DATA LOCAL INFILE ${filenameSql}
 				INTO TABLE t_countries
 				FIELDS TERMINATED BY ','
@@ -981,12 +980,12 @@ Initially these variables can be empty. They are set after actual connection to 
 
 ## Resultsets
 
-`conn.execute()`, and `conn.query*()` methods all return `Resultsets` object, that contains information about your query result.
+`conn.query*()` methods all return `Resultsets` object, that contains information about your query result.
 Also this object allows to iterate over rows that the query returned.
 
-If your query returned multiple resultsets, `conn.execute()` skips them, and returns only the status of the last one.
+If your query returned multiple resultsets, `conn.queryVoid()` skips them, and returns only the status of the last one.
 
-`conn.query*()` functions don't skip resultsets, and `await resultsets.nextResultset()` will advance to the next result, and return true.
+`conn.query*()` functions except `conn.queryVoid()` don't skip resultsets, and `await resultsets.nextResultset()` will advance to the next result, and return true.
 If there are no more resultsets, `await resultsets.nextResultset()` returns false.
 And you must read or discard all the resultsets before being able to issue next queries.
 

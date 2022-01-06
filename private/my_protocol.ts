@@ -35,11 +35,12 @@ export const enum ReadPacketMode
 }
 
 export const enum RowType
-{	MAP,
-	OBJECT,
+{	OBJECT,
+	LAST_COLUMN_READER,
+	MAP,
 	ARRAY,
 	FIRST_COLUMN,
-	LAST_COLUMN_READER,
+	VOID,
 }
 
 const enum ProtocolState
@@ -112,8 +113,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				await protocol.readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
-			{	const resultsets = await protocol.sendComQuery(initSql);
-				await resultsets!.discard();
+			{	await protocol.sendComQuery(initSql);
 			}
 			return protocol;
 		}
@@ -778,18 +778,22 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.FIRST_COLUMN, letReturnUndefined=false)
+	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		try
 		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_QUERY);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
 			const resultsets = new ResultsetsInternal<Row>(rowType);
-			const state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+			let state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 			if (state != ProtocolState.IDLE)
 			{	resultsets.protocol = this;
 				resultsets.hasMoreInternal = true;
 				this.curResultsets = resultsets;
+				if (rowType == RowType.VOID)
+				{	// discard resultsets
+					state = await this.doDiscard(state);
+				}
 			}
 			else if (this.pendingCloseStmts.length != 0)
 			{	await this.doPending();
@@ -1141,18 +1145,18 @@ L:		while (true)
 			let buffer: Uint8Array|undefined;
 			let row: Any;
 			switch (rowType)
-			{	case RowType.ARRAY:
-					row = [];
-					break;
-				case RowType.OBJECT:
+			{	case RowType.OBJECT:
 				case RowType.LAST_COLUMN_READER:
 					row = {};
 					break;
 				case RowType.MAP:
 					row = new Map;
 					break;
+				case RowType.ARRAY:
+					row = [];
+					break;
 				default:
-					debugAssert(rowType == RowType.FIRST_COLUMN);
+					debugAssert(rowType==RowType.FIRST_COLUMN || rowType==RowType.VOID);
 			}
 			let lastColumnReaderLen = 0;
 			if (!isPreparedStmt)
@@ -1170,7 +1174,7 @@ L:		while (true)
 					{	if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
 						{	lastColumnReaderLen = len;
 						}
-						else if (len > this.maxColumnLen)
+						else if (len>this.maxColumnLen || rowType==RowType.VOID)
 						{	this.readVoid(len) || this.readVoidAsync(len);
 						}
 						else if (len <= this.buffer.length)
@@ -1187,21 +1191,23 @@ L:		while (true)
 						}
 					}
 					switch (rowType)
-					{	case RowType.ARRAY:
-							row[i] = value;
-							break;
-						case RowType.OBJECT:
+					{	case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
 							row[name] = value;
 							break;
 						case RowType.MAP:
 							row.set(name, value);
 							break;
-						default:
-							debugAssert(rowType == RowType.FIRST_COLUMN);
+						case RowType.ARRAY:
+							row[i] = value;
+							break;
+						case RowType.FIRST_COLUMN:
 							if (i == 0)
 							{	row = value;
 							}
+							break;
+						default:
+							debugAssert(rowType == RowType.VOID);
 					}
 				}
 			}
@@ -1330,7 +1336,7 @@ L:		while (true)
 								if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
 								{	lastColumnReaderLen = len;
 								}
-								else if (len > this.maxColumnLen)
+								else if (len>this.maxColumnLen || rowType==RowType.VOID)
 								{	this.readVoid(len) || this.readVoidAsync(len);
 								}
 								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
@@ -1357,21 +1363,23 @@ L:		while (true)
 						}
 					}
 					switch (rowType)
-					{	case RowType.ARRAY:
-							row[i] = value;
-							break;
-						case RowType.OBJECT:
+					{	case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
 							row[name] = value;
 							break;
 						case RowType.MAP:
 							row.set(name, value);
 							break;
-						default:
-							debugAssert(rowType == RowType.FIRST_COLUMN);
+						case RowType.ARRAY:
+							row[i] = value;
+							break;
+						case RowType.FIRST_COLUMN:
 							if (i == 0)
 							{	row = value;
 							}
+							break;
+						default:
+							debugAssert(rowType == RowType.VOID);
 					}
 				}
 			}
@@ -1620,8 +1628,7 @@ L:		while (true)
 				const {initSchema, initSql} = this;
 				await protocol.sendComResetConnectionAndInitDb(initSchema);
 				if (initSql)
-				{	const resultsets = await protocol.sendComQuery(initSql);
-					await resultsets!.discard();
+				{	await protocol.sendComQuery(initSql);
 				}
 				debugAssert(protocol.state == ProtocolState.IDLE);
 				protocol.state = ProtocolState.IDLE_IN_POOL;
