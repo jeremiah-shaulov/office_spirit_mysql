@@ -484,7 +484,7 @@ export class MyConn
 				const letReturnUndefined = nRetriesRemaining-- > 0;
 				const prequery = await this.setNamedParams(protocol, params, letReturnUndefined);
 				if (prequery)
-				{	const resultsets = await protocol.sendTwoQueries<Row>(prequery, false, sql, rowType, letReturnUndefined);
+				{	const resultsets = prequery.length==0 ? await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) : await protocol.sendTwoQueries<Row>(prequery, false, sql, rowType, letReturnUndefined);
 					if (resultsets)
 					{	return resultsets;
 					}
