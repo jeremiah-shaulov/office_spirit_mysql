@@ -38,7 +38,7 @@ export class MyConn
 	private curXaIdAppendConn = false;
 	private isXaPrepared = false;
 	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
-	private preparedStmtsForParams: (Resultsets<void> | null)[] = [];
+	private preparedStmtsForParams: (ResultsetsInternal<void> | null)[] = [];
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
@@ -229,8 +229,7 @@ export class MyConn
 		{	return await callback(prepared);
 		}
 		finally
-		{	await prepared.discard();
-			await prepared.disposePreparedStmt();
+		{	await prepared.disposePreparedStmt();
 		}
 	}
 
@@ -613,7 +612,7 @@ export class MyConn
 		while (values.length < nPlaceholders)
 		{	values[values.length] = null;
 		}
-		await stmt.exec(values); // SET @_yl_fk=?,@_yl_fl=?
+		await protocol.sendComStmtExecute(stmt, values); // SET @_yl_fk=?,@_yl_fl=?
 		return query1;
 	}
 }
