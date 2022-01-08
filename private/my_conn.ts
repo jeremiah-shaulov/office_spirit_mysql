@@ -323,7 +323,7 @@ export class MyConn
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendTreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
+			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.isXaPrepared = true;
 		}
 	}
@@ -348,7 +348,7 @@ export class MyConn
 				try
 				{	if (curXaId)
 					{	if (!this.isXaPrepared)
-						{	await protocol.sendTreeQueries(-1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
+						{	await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
 						}
 						else
 						{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
@@ -486,7 +486,7 @@ export class MyConn
 				{	const resultsets =
 					(	!query1 ?
 						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) :
-						await protocol.sendTreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined)
+						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined)
 					);
 					if (resultsets)
 					{	return resultsets;

@@ -815,7 +815,7 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendTreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		try
 		{	// Send preStmt
