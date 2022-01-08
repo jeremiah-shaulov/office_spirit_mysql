@@ -240,7 +240,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
 	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, canWait=false, putParamsTo?: Any[])
-	{	if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
+	{	debugAssert(this.bufferEnd > this.bufferStart); // call startWritingNewPacket() first
+		if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
 		{	data = data.toSqlBytesWithParamsBackslashAndBuffer(putParamsTo, noBackslashEscapes, this.buffer.subarray(this.bufferEnd));
 			if (data.buffer == this.buffer.buffer)
 			{	this.bufferEnd += data.length;
@@ -375,53 +376,65 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 			}
 		}
-		else // long string
-		{	let dataLength = utf8StringLength(data);
-			const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
-			try
-			{	let packetSizeRemaining = packetSize;
-				const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, BUFFER_FOR_ENCODE_MAX_LEN));
-				while (packetSizeRemaining >= 0xFFFFFF)
-				{	// send current packet part + data chunk = 0xFFFFFF
-					this.setHeader(0xFFFFFF);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
-					let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
-					dataLength -= dataChunkLen;
-					while (dataChunkLen > 0)
-					{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
-						data = data.slice(read);
-						await writeAll(this.conn, forEncode.subarray(0, written));
-						dataChunkLen -= written;
-					}
-					this.bufferStart = 0;
-					this.bufferEnd = 4; // after header
-					packetSizeRemaining = dataLength;
+		else // string
+		{	const maxByteLen = data.length * 4;
+			if (this.bufferEnd+maxByteLen <= this.buffer.length)
+			{	// short string
+				this.writeString(data);
+				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
+				{	return true;
 				}
-				debugAssert(packetSizeRemaining < 0xFFFFFF);
-				if (this.bufferStart+4+packetSizeRemaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
-				{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.bufferEnd));
-					debugAssert(read == data.length);
-					debugAssert(written == dataLength);
-					this.bufferEnd += written;
-					if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-					{	return true;
-					}
-					this.setHeader(packetSizeRemaining);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
-				}
-				else
-				{	this.setHeader(packetSizeRemaining);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
-					while (dataLength > 0)
-					{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
-						data = data.slice(read);
-						dataLength -= written;
-						await writeAll(this.conn, forEncode.subarray(0, written));
-					}
-				}
+				await this.send();
 			}
-			catch (e)
-			{	throw new SendWithDataError(e.message, packetSize);
+			else
+			{	// long string
+				let dataLength = utf8StringLength(data);
+				const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
+				try
+				{	let packetSizeRemaining = packetSize;
+					const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, BUFFER_FOR_ENCODE_MAX_LEN));
+					while (packetSizeRemaining >= 0xFFFFFF)
+					{	// send current packet part + data chunk = 0xFFFFFF
+						this.setHeader(0xFFFFFF);
+						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
+						dataLength -= dataChunkLen;
+						while (dataChunkLen > 0)
+						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
+							data = data.slice(read);
+							await writeAll(this.conn, forEncode.subarray(0, written));
+							dataChunkLen -= written;
+						}
+						this.bufferStart = 0;
+						this.bufferEnd = 4; // after header
+						packetSizeRemaining = dataLength;
+					}
+					debugAssert(packetSizeRemaining < 0xFFFFFF);
+					if (this.bufferStart+4+packetSizeRemaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
+					{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.bufferEnd));
+						debugAssert(read == data.length);
+						debugAssert(written == dataLength);
+						this.bufferEnd += written;
+						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
+						{	return true;
+						}
+						this.setHeader(packetSizeRemaining);
+						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
+					}
+					else
+					{	this.setHeader(packetSizeRemaining);
+						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						while (dataLength > 0)
+						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
+							data = data.slice(read);
+							dataLength -= written;
+							await writeAll(this.conn, forEncode.subarray(0, written));
+						}
+					}
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message, packetSize);
+				}
 			}
 		}
 		// prepare for reader

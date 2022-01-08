@@ -953,7 +953,7 @@ L:		while (true)
 			{	const param = params[i];
 				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
 				{	if (typeof(param) == 'string')
-					{	const maxByteLen = 9 + param.length * 4;
+					{	const maxByteLen = 9 + param.length * 4; // lenenc string length (9 max bytes) + string byte length
 						if (maxByteLen > extraSpaceForParams)
 						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
@@ -1053,7 +1053,8 @@ L:		while (true)
 					}
 				}
 				if (nullBitMask != 1)
-				{	this.writeUint8(nullBits);
+				{	// partial byte
+					this.writeUint8(nullBits);
 				}
 				this.writeUint8(1); // new_params_bound_flag
 				// Send type of each param
@@ -1150,12 +1151,15 @@ L:		while (true)
 			await this.send();
 			// Read Binary Protocol Resultset
 			const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
-			this.unput(type);
-			let rowNColumns = this.readLenencInt() ?? await this.readLenencIntAsync();
-			if (rowNColumns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
-			{	throw new Error(`Can't handle so many columns: ${rowNColumns}`);
+			let rowNColumns = type;
+			if (type >= 0xFB)
+			{	this.unput(type);
+				const value = this.readLenencInt() ?? await this.readLenencIntAsync();
+				if (value > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
+				{	throw new Error(`Can't handle so many columns: ${value}`);
+				}
+				rowNColumns = Number(value);
 			}
-			rowNColumns = Number(rowNColumns);
 			if (rowNColumns > 0)
 			{	resultsets.columns = await this.readColumnDefinitionPackets(rowNColumns);
 				resultsets.protocol = this;

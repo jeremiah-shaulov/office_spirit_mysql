@@ -478,7 +478,8 @@ export class MyProtocolReader
 	protected readLenencInt()
 	{	if (this.bufferEnd > this.bufferStart && this.packetOffset <= 0xFFFFFF-9)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 1);
-			switch (this.buffer[this.bufferStart])
+			const desc = this.buffer[this.bufferStart];
+			switch (desc)
 			{	case 0xFE:
 				{	if (this.bufferEnd-this.bufferStart < 9)
 					{	return;
@@ -516,7 +517,8 @@ export class MyProtocolReader
 				}
 				default:
 				{	this.packetOffset++;
-					return this.buffer[this.bufferStart++];
+					this.bufferStart++
+					return desc;
 				}
 			}
 		}
@@ -533,7 +535,8 @@ export class MyProtocolReader
 		if (this.bufferEnd == this.bufferStart)
 		{	await this.recvAtLeast(1);
 		}
-		switch (this.buffer[this.bufferStart])
+		const desc = this.buffer[this.bufferStart];
+		switch (desc)
 		{	case 0xFE:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 9);
 				await this.recvAtLeast(9);
@@ -565,7 +568,8 @@ export class MyProtocolReader
 			}
 			default:
 			{	this.packetOffset++;
-				return this.buffer[this.bufferStart++];
+				this.bufferStart++;
+				return desc;
 			}
 		}
 	}
