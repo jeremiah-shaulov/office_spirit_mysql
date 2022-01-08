@@ -149,7 +149,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 			{	if (!this.protocol)
 				{	throw new CanceledError(`Connection terminated`);
 				}
-				let promise = this.protocol.sendComStmtExecute(this, params);
+				let promise = this.protocol.execStmt(this, params);
 				if (this.rowType == RowType.VOID)
 				{	promise = promise.then(() => this.discard());
 				}

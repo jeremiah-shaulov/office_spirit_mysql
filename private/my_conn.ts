@@ -38,7 +38,7 @@ export class MyConn
 	private curXaIdAppendConn = false;
 	private isXaPrepared = false;
 	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
-	private preparedStmtsForParams: (ResultsetsInternal<void> | null)[] = [];
+	private preparedStmtsForParams: number[] = [];
 
 	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
 
@@ -323,7 +323,7 @@ export class MyConn
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendTwoQueries(`XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
+			await protocol.sendTreeQueries(-1, -1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.isXaPrepared = true;
 		}
 	}
@@ -348,7 +348,7 @@ export class MyConn
 				try
 				{	if (curXaId)
 					{	if (!this.isXaPrepared)
-						{	await protocol.sendTwoQueries(`XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
+						{	await protocol.sendTreeQueries(-1, -1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
 						}
 						else
 						{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
@@ -481,9 +481,13 @@ export class MyConn
 			else
 			{	// Prepare to execute immediately: named parameters
 				const letReturnUndefined = nRetriesRemaining-- > 0;
-				const prequery = await this.setNamedParams(protocol, params, letReturnUndefined);
-				if (prequery)
-				{	const resultsets = prequery.length==0 ? await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) : await protocol.sendTwoQueries<Row>(prequery, false, sql, rowType, letReturnUndefined);
+				const {stmtId, nPlaceholders, values, query1} = await this.getNamedParamsQueries(protocol, params, letReturnUndefined);
+				if (nPlaceholders != -1)
+				{	const resultsets =
+					(	!query1 ?
+						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) :
+						await protocol.sendTreeQueries<Row>(stmtId, nPlaceholders, values, query1, false, sql, rowType, letReturnUndefined)
+					);
 					if (resultsets)
 					{	return resultsets;
 					}
@@ -495,10 +499,10 @@ export class MyConn
 		}
 	}
 
-	async setNamedParams(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
+	async getNamedParamsQueries(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
 	{	const paramKeys = Object.keys(params);
 		if (paramKeys.length == 0)
-		{	return new Uint8Array;
+		{	return {stmtId: -1, nPlaceholders: 0, values: undefined, query1: undefined};
 		}
 		if (paramKeys.length > 0xFFFF)
 		{	throw new SqlError(`Too many query parameters. The maximum of ${0xFFFF} is supported`);
@@ -507,9 +511,9 @@ export class MyConn
 		const pos = (paramKeys.length - 1) >> 3;
 		const nPlaceholders = (pos + 1) << 3;
 		const {preparedStmtsForParams} = this;
-		let stmt = preparedStmtsForParams[pos];
+		let stmtId = preparedStmtsForParams[pos];
 		// SET @_yl_fk=?,@_yl_fl=?,@_yl_fm=?,...,@_yl_g0=?,@_yl_g1=?,...,@_yl_ga=?,@_yl_gb=?,...,@_ym_00=?,...
-		const query0 = stmt ? undefined : new Uint8Array(3 /*SET*/ + 10 /*,@_NN_NN=?*/ * nPlaceholders);
+		const query0 = typeof(stmtId)=='number' && stmtId!=-1 ? undefined : new Uint8Array(3 /*SET*/ + 10 /*,@_NN_NN=?*/ * nPlaceholders);
 		// SET @`hello`=@_yl_fk,@_yl_fk=NULL,@world=@_yl_fl,@_yl_fl=NULL
 		let query1Len = 3 /*SET*/;
 		for (let i=paramKeys.length-1; i>=0; i--)
@@ -599,21 +603,21 @@ export class MyConn
 			query0[3] = C_SPACE;
 			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.VOID, letReturnUndefined, true);
 			if (!resultsets)
-			{	return;
+			{	return {stmtId: -1, nPlaceholders: -1, values: undefined, query1: undefined};
 			}
-			stmt = resultsets;
+			stmtId = resultsets.stmtId;
+			debugAssert(resultsets.nPlaceholders == nPlaceholders);
 			while (preparedStmtsForParams.length < pos)
-			{	preparedStmtsForParams[preparedStmtsForParams.length] = null;
+			{	preparedStmtsForParams[preparedStmtsForParams.length] = -1;
 			}
-			preparedStmtsForParams[pos] = stmt;
+			preparedStmtsForParams[pos] = stmtId;
 		}
-		debugAssert(stmt);
+		debugAssert(typeof(stmtId)=='number' && stmtId!=-1);
 		const values = Object.values(params);
 		while (values.length < nPlaceholders)
 		{	values[values.length] = null;
 		}
-		await protocol.sendComStmtExecute(stmt, values); // SET @_yl_fk=?,@_yl_fl=?
-		return query1;
+		return {stmtId, nPlaceholders, values, query1};
 	}
 }
 

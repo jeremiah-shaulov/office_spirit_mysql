@@ -334,6 +334,9 @@ async function testBasic(dsnStr: string)
 				assertEquals(await conn.queryCol("SELECT message FROM t_log WHERE id=@id", {id: 3, junk: '*'}).first(), 'Message 3');
 
 				// SELECT
+				assertEquals(await conn.queryCol("SELECT message FROM t_log WHERE id=@id", {id: 3, j1: 0, j2: 0, j3: 0, j4: 0, j5: 0, j6: 0, j7: 0, j8: 0}).first(), 'Message 3');
+
+				// SELECT
 				const value = 'Message 3';
 				let gen = new SqlSelectGenerator('t_log', 'message', value);
 				assertEquals(await conn.queryCol(gen).first(), 3);

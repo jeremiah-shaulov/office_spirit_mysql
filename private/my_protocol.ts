@@ -806,13 +806,23 @@ L:		while (true)
 		}
 	}
 
-	/**	Send 2 queries in 1 round-trip.
-		`prequery` must not return resultsets.
+	/**	Send 2 or 3 queries in 1 round-trip.
+		First sends preStmt (if preStmtId >= 0) defined by `preStmtId`, `preStmtNPlaceholders` ans `preStmtParams`.
+		Then sends `prequery`.
+		`preStmt` and `prequery` must not return resultsets.
+		And finally it sends `sql`.
+		Then it reads the results of the sent queries.
+		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendTwoQueries<Row>(prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendTreeQueries<Row>(preStmtId: number, preStmtNPlaceholders: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		try
-		{	// Send prequery
+		{	// Send preStmt
+			if (preStmtId >= 0)
+			{	debugAssert(preStmtParams);
+				await this.sendComStmtExecute(preStmtId, preStmtNPlaceholders, preStmtParams);
+			}
+			// Send prequery
 			let prequeryDone = false;
 			if (typeof(prequery) == 'string')
 			{	const prequeryMaxLen = prequery.length * 4;
@@ -840,6 +850,15 @@ L:		while (true)
 			this.startWritingNewPacket(true, true);
 			this.writeUint8(Command.COM_QUERY);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0);
+			// Read result of preStmt
+			if (preStmtId >= 0)
+			{	const rowNColumns = await this.readPacket(ReadPacketMode.PREPARED_STMT);
+				debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
+				debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
+				if (!this.isAtEndOfPacket())
+				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+				}
+			}
 			// Read result of prequery
 			const resultsets = new ResultsetsInternal<Row>(rowType);
 			let state = ProtocolState.IDLE;
@@ -937,24 +956,31 @@ L:		while (true)
 		}
 	}
 
-	async sendComStmtExecute(resultsets: ResultsetsInternal<unknown>, params: Param[])
-	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
-		if (stmtId < 0)
-		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
-		}
-		this.setQueryingState();
-		try
-		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
-			const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
-			let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
-			const placeholdersSent = new Set<number>();
-			// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-				{	if (typeof(param) == 'string')
-					{	const maxByteLen = 9 + param.length * 4; // lenenc string length (9 max bytes) + string byte length
-						if (maxByteLen > extraSpaceForParams)
+	private async sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[])
+	{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
+		let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
+		const placeholdersSent = new Set<number>();
+		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
+		for (let i=0; i<nPlaceholders; i++)
+		{	const param = params[i];
+			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+			{	if (typeof(param) == 'string')
+				{	const maxByteLen = 9 + param.length * 4; // lenenc string length (9 max bytes) + string byte length
+					if (maxByteLen > extraSpaceForParams)
+					{	this.startWritingNewPacket(true, true);
+						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+						this.writeUint32(stmtId);
+						this.writeUint16(i);
+						await this.sendWithData(param, false, true);
+						placeholdersSent.add(i);
+					}
+					else
+					{	extraSpaceForParams -= maxByteLen;
+					}
+				}
+				else if (typeof(param) == 'object')
+				{	if (param instanceof Uint8Array)
+					{	if (param.byteLength > extraSpaceForParams)
 						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
@@ -963,192 +989,189 @@ L:		while (true)
 							placeholdersSent.add(i);
 						}
 						else
-						{	extraSpaceForParams -= maxByteLen;
+						{	extraSpaceForParams -= param.byteLength;
 						}
 					}
-					else if (typeof(param) == 'object')
-					{	if (param instanceof Uint8Array)
-						{	if (param.byteLength > extraSpaceForParams)
-							{	this.startWritingNewPacket(true, true);
-								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-								this.writeUint32(stmtId);
-								this.writeUint16(i);
-								await this.sendWithData(param, false, true);
-								placeholdersSent.add(i);
-							}
-							else
-							{	extraSpaceForParams -= param.byteLength;
-							}
-						}
-						else if (param.buffer instanceof ArrayBuffer)
-						{	if (param.byteLength > extraSpaceForParams)
-							{	this.startWritingNewPacket(true, true);
-								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-								this.writeUint32(stmtId);
-								this.writeUint16(i);
-								await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
-								placeholdersSent.add(i);
-							}
-							else
-							{	extraSpaceForParams -= param.byteLength;
-							}
-						}
-						else if (typeof(param.read) == 'function')
-						{	let isEmpty = true;
-							while (true)
-							{	this.startWritingNewPacket(isEmpty, true);
-								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-								this.writeUint32(stmtId);
-								this.writeUint16(i);
-								const n = await this.writeReadChunk(param);
-								if (n == null)
-								{	this.discardPacket();
-									break;
-								}
-								await this.send();
-								isEmpty = false;
-							}
-							if (!isEmpty)
-							{	placeholdersSent.add(i);
-							}
-						}
-						else if (!(param instanceof Date))
+					else if (param.buffer instanceof ArrayBuffer)
+					{	if (param.byteLength > extraSpaceForParams)
 						{	this.startWritingNewPacket(true, true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
-							await this.sendWithData(JSON.stringify(param), false, true);
+							await this.sendWithData(new Uint8Array(param.buffer, param.byteOffset, param.byteLength), false, true);
 							placeholdersSent.add(i);
 						}
+						else
+						{	extraSpaceForParams -= param.byteLength;
+						}
+					}
+					else if (typeof(param.read) == 'function')
+					{	let isEmpty = true;
+						while (true)
+						{	this.startWritingNewPacket(isEmpty, true);
+							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+							this.writeUint32(stmtId);
+							this.writeUint16(i);
+							const n = await this.writeReadChunk(param);
+							if (n == null)
+							{	this.discardPacket();
+								break;
+							}
+							await this.send();
+							isEmpty = false;
+						}
+						if (!isEmpty)
+						{	placeholdersSent.add(i);
+						}
+					}
+					else if (!(param instanceof Date))
+					{	this.startWritingNewPacket(true, true);
+						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+						this.writeUint32(stmtId);
+						this.writeUint16(i);
+						await this.sendWithData(JSON.stringify(param), false, true);
+						placeholdersSent.add(i);
 					}
 				}
 			}
-			// Flush, if not enuogh space in buffer for the placeholders packet
-			if (this.bufferEnd > this.bufferStart && this.bufferEnd + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
-			{	await this.send();
+		}
+		// Flush, if not enuogh space in buffer for the placeholders packet
+		if (this.bufferEnd > this.bufferStart && this.bufferEnd + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
+		{	await this.send();
+		}
+		// Send params in binary protocol
+		this.startWritingNewPacket(true, true);
+		this.writeUint8(Command.COM_STMT_EXECUTE);
+		this.writeUint32(stmtId);
+		this.writeUint8(CursorType.NO_CURSOR);
+		this.writeUint32(1); // iteration_count
+		if (nPlaceholders > 0)
+		{	// Send null-bitmap for each param
+			this.ensureRoom((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
+			let nullBits = 0;
+			let nullBitMask = 1;
+			for (let i=0; i<nPlaceholders; i++)
+			{	const param = params[i];
+				if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
+				{	nullBits |= nullBitMask;
+				}
+				if (nullBitMask != 0x80)
+				{	nullBitMask <<= 1;
+				}
+				else
+				{	this.writeUint8(nullBits);
+					nullBits = 0;
+					nullBitMask = 1;
+				}
 			}
-			// Send params in binary protocol
-			this.startWritingNewPacket(true, true);
-			this.writeUint8(Command.COM_STMT_EXECUTE);
-			this.writeUint32(stmtId);
-			this.writeUint8(CursorType.NO_CURSOR);
-			this.writeUint32(1); // iteration_count
-			if (nPlaceholders > 0)
-			{	// Send null-bitmap for each param
-				this.ensureRoom((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
-				let nullBits = 0;
-				let nullBitMask = 1;
-				for (let i=0; i<nPlaceholders; i++)
-				{	const param = params[i];
-					if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
-					{	nullBits |= nullBitMask;
+			if (nullBitMask != 1)
+			{	// partial byte
+				this.writeUint8(nullBits);
+			}
+			this.writeUint8(1); // new_params_bound_flag
+			// Send type of each param
+			let paramsLen = 0;
+			for (let i=0; i<nPlaceholders; i++)
+			{	const param = params[i];
+				let type = MysqlType.MYSQL_TYPE_STRING;
+				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+				{	if (typeof(param) == 'boolean')
+					{	type = MysqlType.MYSQL_TYPE_TINY;
+						paramsLen++;
 					}
-					if (nullBitMask != 0x80)
-					{	nullBitMask <<= 1;
-					}
-					else
-					{	this.writeUint8(nullBits);
-						nullBits = 0;
-						nullBitMask = 1;
-					}
-				}
-				if (nullBitMask != 1)
-				{	// partial byte
-					this.writeUint8(nullBits);
-				}
-				this.writeUint8(1); // new_params_bound_flag
-				// Send type of each param
-				let paramsLen = 0;
-				for (let i=0; i<nPlaceholders; i++)
-				{	const param = params[i];
-					let type = MysqlType.MYSQL_TYPE_STRING;
-					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-					{	if (typeof(param) == 'boolean')
-						{	type = MysqlType.MYSQL_TYPE_TINY;
-							paramsLen++;
-						}
-						else if (typeof(param) == 'number')
-						{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-							{	type = MysqlType.MYSQL_TYPE_LONG;
-								paramsLen += 4;
-							}
-							else
-							{	type = MysqlType.MYSQL_TYPE_DOUBLE;
-								paramsLen += 8;
-							}
-						}
-						else if (typeof(param) == 'bigint')
-						{	type = MysqlType.MYSQL_TYPE_LONGLONG;
-							paramsLen += 8;
-						}
-						else if (typeof(param) == 'string')
-						{	// no need to add to `paramsLen`, because strings must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
-						}
-						else if (param instanceof Date)
-						{	type = MysqlType.MYSQL_TYPE_DATETIME;
-							paramsLen += 12;
-						}
-						else if (param.buffer instanceof ArrayBuffer)
-						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-							// no need to add to `paramsLen`, because ArrayBuffer must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
-						}
-						else if (typeof(param.read) == 'function')
-						{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-							paramsLen++;
-						}
-					}
-					this.writeUint16(type);
-				}
-				// Send value of each param
-				this.ensureRoom(paramsLen);
-				for (let i=0; i<nPlaceholders; i++)
-				{	const param = params[i];
-					if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
-					{	if (typeof(param) == 'boolean')
-						{	this.writeUint8(param ? 1 : 0);
-						}
-						else if (typeof(param) == 'number')
-						{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-							{	this.writeUint32(param);
-							}
-							else
-							{	this.writeDouble(param);
-							}
-						}
-						else if (typeof(param) == 'bigint')
-						{	this.writeUint64(param);
-						}
-						else if (typeof(param) == 'string')
-						{	this.writeLenencString(param);
-						}
-						else if (param instanceof Date)
-						{	const frac = param.getMilliseconds();
-							this.writeUint8(frac ? 11 : 7); // length
-							this.writeUint16(param.getFullYear());
-							this.writeUint8(param.getMonth() + 1);
-							this.writeUint8(param.getDate());
-							this.writeUint8(param.getHours());
-							this.writeUint8(param.getMinutes());
-							this.writeUint8(param.getSeconds());
-							if (frac)
-							{	this.writeUint32(frac * 1000);
-							}
-						}
-						else if (param instanceof Uint8Array)
-						{	this.writeLenencBytes(param);
-						}
-						else if (param.buffer instanceof ArrayBuffer)
-						{	this.writeLenencBytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+					else if (typeof(param) == 'number')
+					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+						{	type = MysqlType.MYSQL_TYPE_LONG;
+							paramsLen += 4;
 						}
 						else
-						{	debugAssert(typeof(param.read) == 'function');
-							// nothing written for this param (as it's not in placeholdersSent), so write empty string
-							this.writeUint8(0); // 0-length lenenc-string
+						{	type = MysqlType.MYSQL_TYPE_DOUBLE;
+							paramsLen += 8;
 						}
+					}
+					else if (typeof(param) == 'bigint')
+					{	type = MysqlType.MYSQL_TYPE_LONGLONG;
+						paramsLen += 8;
+					}
+					else if (typeof(param) == 'string')
+					{	// no need to add to `paramsLen`, because strings must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
+					}
+					else if (param instanceof Date)
+					{	type = MysqlType.MYSQL_TYPE_DATETIME;
+						paramsLen += 12;
+					}
+					else if (param.buffer instanceof ArrayBuffer)
+					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+						// no need to add to `paramsLen`, because ArrayBuffer must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
+					}
+					else if (typeof(param.read) == 'function')
+					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+						paramsLen++;
+					}
+				}
+				this.writeUint16(type);
+			}
+			// Send value of each param
+			this.ensureRoom(paramsLen);
+			for (let i=0; i<nPlaceholders; i++)
+			{	const param = params[i];
+				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
+				{	if (typeof(param) == 'boolean')
+					{	this.writeUint8(param ? 1 : 0);
+					}
+					else if (typeof(param) == 'number')
+					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+						{	this.writeUint32(param);
+						}
+						else
+						{	this.writeDouble(param);
+						}
+					}
+					else if (typeof(param) == 'bigint')
+					{	this.writeUint64(param);
+					}
+					else if (typeof(param) == 'string')
+					{	this.writeLenencString(param);
+					}
+					else if (param instanceof Date)
+					{	const frac = param.getMilliseconds();
+						this.writeUint8(frac ? 11 : 7); // length
+						this.writeUint16(param.getFullYear());
+						this.writeUint8(param.getMonth() + 1);
+						this.writeUint8(param.getDate());
+						this.writeUint8(param.getHours());
+						this.writeUint8(param.getMinutes());
+						this.writeUint8(param.getSeconds());
+						if (frac)
+						{	this.writeUint32(frac * 1000);
+						}
+					}
+					else if (param instanceof Uint8Array)
+					{	this.writeLenencBytes(param);
+					}
+					else if (param.buffer instanceof ArrayBuffer)
+					{	this.writeLenencBytes(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+					}
+					else
+					{	debugAssert(typeof(param.read) == 'function');
+						// nothing written for this param (as it's not in placeholdersSent), so write empty string
+						this.writeUint8(0); // 0-length lenenc-string
 					}
 				}
 			}
-			await this.send();
+		}
+		await this.send();
+	}
+
+	async execStmt(resultsets: ResultsetsInternal<unknown>, params: Param[])
+	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
+		if (stmtId < 0)
+		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
+		}
+		this.setQueryingState();
+		try
+		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
+			await this.sendComStmtExecute(stmtId, nPlaceholders, params);
 			// Read Binary Protocol Resultset
 			const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
 			let rowNColumns = type;

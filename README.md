@@ -622,6 +622,7 @@ Once you execute a query with, for instance, 5 named parameters: `id`, `name`, `
 ```sql
 SET @par1=?, @par2=?, @par3=?, @par4=?, @par5=?, @par6=?, @par7=?, @par8=?
 ```
+(Actual variable names are different.)
 
 And this statement is kept during the current connection.
 
@@ -632,6 +633,8 @@ SET @id=@par1, @par1=NULL, @name=@par2, @par2=NULL, @value_a=@par3, @par3=NULL, 
 ```
 
 And finally your SQL query is executed, also in Text Protocol.
+
+So to execute one query with named parameters, there are actually 3 internal queries (they all are sent to the server in 1 round-trip).
 
 Then each time you execute queries with from 1 to 8 named parameters, that prepared statement is reused.
 And for query with 9 to 16 named parameters a statement with 16 variables will be prepared and persisted during the connection.
@@ -729,10 +732,10 @@ On my computer i see the following results:
 
 ```
 Begin tests
-Text Protocol took 0.27 sec (random=39123)
-Named params took 0.401 sec (random=39620)
-Positional params took 4.135 sec (random=39443)
-Positional params prepared once took 0.194 sec (random=40280)
+Text Protocol took 0.289 sec (random=39948)
+Named params took 0.377 sec (random=39635)
+Positional params took 4.278 sec (random=39841)
+Positional params prepared once took 0.18 sec (random=38356)
 ```
 
 ## Prepared statements
