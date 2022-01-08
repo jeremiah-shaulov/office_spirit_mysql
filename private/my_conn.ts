@@ -323,7 +323,7 @@ export class MyConn
 			if (this.onBeforeCommit)
 			{	await this.onBeforeCommit([this]);
 			}
-			await protocol.sendTreeQueries(-1, -1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
+			await protocol.sendTreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.isXaPrepared = true;
 		}
 	}
@@ -348,7 +348,7 @@ export class MyConn
 				try
 				{	if (curXaId)
 					{	if (!this.isXaPrepared)
-						{	await protocol.sendTreeQueries(-1, -1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
+						{	await protocol.sendTreeQueries(-1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
 						}
 						else
 						{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
@@ -481,12 +481,12 @@ export class MyConn
 			else
 			{	// Prepare to execute immediately: named parameters
 				const letReturnUndefined = nRetriesRemaining-- > 0;
-				const {stmtId, nPlaceholders, values, query1} = await this.getNamedParamsQueries(protocol, params, letReturnUndefined);
-				if (nPlaceholders != -1)
+				const {stmtId, values, query1} = await this.getNamedParamsQueries(protocol, params, letReturnUndefined);
+				if (values)
 				{	const resultsets =
 					(	!query1 ?
 						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) :
-						await protocol.sendTreeQueries<Row>(stmtId, nPlaceholders, values, query1, false, sql, rowType, letReturnUndefined)
+						await protocol.sendTreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined)
 					);
 					if (resultsets)
 					{	return resultsets;
@@ -502,7 +502,7 @@ export class MyConn
 	async getNamedParamsQueries(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
 	{	const paramKeys = Object.keys(params);
 		if (paramKeys.length == 0)
-		{	return {stmtId: -1, nPlaceholders: 0, values: undefined, query1: undefined};
+		{	return {stmtId: -1, values: paramKeys, query1: undefined};
 		}
 		if (paramKeys.length > 0xFFFF)
 		{	throw new SqlError(`Too many query parameters. The maximum of ${0xFFFF} is supported`);
@@ -603,7 +603,7 @@ export class MyConn
 			query0[3] = C_SPACE;
 			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.VOID, letReturnUndefined, true);
 			if (!resultsets)
-			{	return {stmtId: -1, nPlaceholders: -1, values: undefined, query1: undefined};
+			{	return {stmtId: -1, values: undefined, query1: undefined};
 			}
 			stmtId = resultsets.stmtId;
 			debugAssert(resultsets.nPlaceholders == nPlaceholders);
@@ -617,7 +617,7 @@ export class MyConn
 		while (values.length < nPlaceholders)
 		{	values[values.length] = null;
 		}
-		return {stmtId, nPlaceholders, values, query1};
+		return {stmtId, values, query1};
 	}
 }
 

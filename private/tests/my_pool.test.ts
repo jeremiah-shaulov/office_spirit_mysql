@@ -325,6 +325,9 @@ async function testBasic(dsnStr: string)
 				assertEquals(await (await conn.queryCol("SELECT message FROM t_log", [])).first(), 'Message 1');
 
 				// SELECT
+				assertEquals(await (await conn.queryCol("SELECT message FROM t_log", {})).first(), 'Message 1');
+
+				// SELECT
 				assertEquals(await (await conn.queryCol("SELECT message FROM t_log", [])).all(), ['Message 1', 'Message 2', 'Message 3', 'Message 4']);
 
 				// SELECT

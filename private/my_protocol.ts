@@ -807,20 +807,21 @@ L:		while (true)
 	}
 
 	/**	Send 2 or 3 queries in 1 round-trip.
-		First sends preStmt (if preStmtId >= 0) defined by `preStmtId`, `preStmtNPlaceholders` ans `preStmtParams`.
+		First sends preStmt (if preStmtId >= 0) defined by `preStmtId` and `preStmtParams`.
 		Then sends `prequery`.
 		`preStmt` and `prequery` must not return resultsets.
+		Number of placeholders in prepared query must be exactly `preStmtParams.length`.
 		And finally it sends `sql`.
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendTreeQueries<Row>(preStmtId: number, preStmtNPlaceholders: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendTreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		try
 		{	// Send preStmt
 			if (preStmtId >= 0)
 			{	debugAssert(preStmtParams);
-				await this.sendComStmtExecute(preStmtId, preStmtNPlaceholders, preStmtParams);
+				await this.sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams);
 			}
 			// Send prequery
 			let prequeryDone = false;
