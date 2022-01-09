@@ -2,7 +2,7 @@ import {Resultsets} from "./resultsets.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWriterBase} from "./sql_log_to_writer_base.ts";
-import * as Colors from 'https://deno.land/std@0.120.0/fmt/colors.ts';
+import {Colors} from './deps.ts';
 
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 {	private since = 0;

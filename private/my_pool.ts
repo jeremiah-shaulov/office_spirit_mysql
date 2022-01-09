@@ -145,7 +145,7 @@ export class MyPool
 		// close idle connections
 		await this.closeKeptAliveTimedOut(true);
 		// sqlLogger
-		await this.xaTask.sqlLogger?.shutdown();
+		await this.xaTask.sqlLogger?.shutdown?.();
 	}
 
 	haveSlots(): boolean

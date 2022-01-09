@@ -70,7 +70,7 @@ export interface SqlLogger
 
 	/**	I'll call this function when `MyPool.shutdown()` is called.
 	 **/
-	shutdown(): Promise<void>;
+	shutdown?: () => Promise<void>;
 }
 
 export class SafeSqlLogger
