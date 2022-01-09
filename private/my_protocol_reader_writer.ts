@@ -239,19 +239,21 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
-	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, canWait=false, putParamsTo?: Any[])
+	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, logData?: (data: Uint8Array) => unknown, canWait=false, putParamsTo?: Any[])
 	{	debugAssert(this.bufferEnd > this.bufferStart); // call startWritingNewPacket() first
 		if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
 		{	data = data.toSqlBytesWithParamsBackslashAndBuffer(putParamsTo, noBackslashEscapes, this.buffer.subarray(this.bufferEnd));
 			if (data.buffer == this.buffer.buffer)
 			{	this.bufferEnd += data.length;
 				debugAssert(!canWait); // after sending Sql queries response always follows
+				logData?.(data);
 				await this.send();
 				return false;
 			}
 		}
 		if (data instanceof Uint8Array)
-		{	const packetSize = this.bufferEnd - this.bufferStart - 4 + data.length;
+		{	logData?.(data);
+			const packetSize = this.bufferEnd - this.bufferStart - 4 + data.length;
 			try
 			{	let packetSizeRemaining = packetSize;
 				while (packetSizeRemaining >= 0xFFFFFF)
@@ -320,8 +322,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
+					const part = this.buffer.subarray(0, n);
+					logData?.(part);
 					try
-					{	await writeAll(this.conn, this.buffer.subarray(0, n));
+					{	await writeAll(this.conn, part);
 					}
 					catch (e)
 					{	throw new SendWithDataError(e.message, packetSize);
@@ -334,7 +338,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 			debugAssert(packetSizeRemaining < 0xFFFFFF);
 			if (this.bufferStart+4+packetSizeRemaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
-			{	while (dataLength > 0)
+			{	const from = this.bufferEnd;
+				while (dataLength > 0)
 				{	const n = await data.read(this.buffer.subarray(this.bufferEnd));
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
@@ -342,6 +347,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					this.bufferEnd += n;
 					dataLength -= n;
 				}
+				logData?.(this.buffer.subarray(from, this.bufferEnd));
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	return true;
 				}
@@ -366,8 +372,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					if (n == null)
 					{	throw new Error(`Unexpected end of stream`);
 					}
+					const part = this.buffer.subarray(0, n);
+					logData?.(part);
 					try
-					{	await writeAll(this.conn, this.buffer.subarray(0, n));
+					{	await writeAll(this.conn, part);
 					}
 					catch (e)
 					{	throw new SendWithDataError(e.message, packetSize);
@@ -380,11 +388,14 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		{	const maxByteLen = data.length * 4;
 			if (this.bufferEnd+maxByteLen <= this.buffer.length)
 			{	// short string
+				const from = this.bufferEnd;
 				this.writeString(data);
+				logData?.(this.buffer.subarray(from, this.bufferEnd));
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	return true;
 				}
 				await this.send();
+				return false;
 			}
 			else
 			{	// long string
@@ -402,7 +413,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						while (dataChunkLen > 0)
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
 							data = data.slice(read);
-							await writeAll(this.conn, forEncode.subarray(0, written));
+							const part = forEncode.subarray(0, written);
+							logData?.(part);
+							await writeAll(this.conn, part);
 							dataChunkLen -= written;
 						}
 						this.bufferStart = 0;
@@ -415,6 +428,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						debugAssert(read == data.length);
 						debugAssert(written == dataLength);
 						this.bufferEnd += written;
+						logData?.(this.buffer.subarray(0, this.bufferEnd));
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 						{	return true;
 						}
@@ -428,7 +442,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
 							data = data.slice(read);
 							dataLength -= written;
-							await writeAll(this.conn, forEncode.subarray(0, written));
+							const part = forEncode.subarray(0, written);
+							logData?.(part);
+							await writeAll(this.conn, part);
 						}
 					}
 				}

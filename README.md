@@ -21,7 +21,7 @@ Basic example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
 // deno run --allow-env --allow-net /tmp/example1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -63,6 +63,7 @@ interface MyPoolOptions
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
 	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
+	sqlLogger?: SqlLogger | true;
 	logger?:
 	{	debug(...args: any[]): unknown;
 		info(...args: any[]): unknown;
@@ -79,6 +80,7 @@ interface MyPoolOptions
 - `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
 - `xaCheckEach` - Check for dangling transactions each this number of milliseconds (default `6000`).
 - `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
+- `sqlLogger` - Used to log SQL queries.
 - `logger` - a `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
 
 Data Source Name is specified in URL format, with "mysql://" protocol.
@@ -143,7 +145,7 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
 
@@ -206,7 +208,7 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
 // deno run --allow-env --allow-net /tmp/example3.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -237,7 +239,7 @@ And it skips all further rows, if they exist.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
 // deno run --allow-env --allow-net /tmp/example4.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -270,7 +272,7 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
 // deno run --allow-env --allow-net /tmp/example5.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -309,7 +311,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
 // deno run --allow-env --allow-net /tmp/example6.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -350,7 +352,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
 // deno run --allow-env --allow-net /tmp/example7.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -383,7 +385,7 @@ If you're sure about column types, you can override the column type with `any` (
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -453,7 +455,7 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
 // deno run --allow-env --allow-net /tmp/example9.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -482,7 +484,7 @@ Parameter names will override session variables with the same names.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
 // deno run --allow-env --allow-net /tmp/example10.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -539,7 +541,7 @@ Example:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
 // deno run --allow-env --allow-net /tmp/example11.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 // 1. Define the generator
 
@@ -647,7 +649,7 @@ Let's measure how fast is all that.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
 // deno run --allow-env --allow-net /tmp/example12.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -752,7 +754,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
 // deno run --allow-env --allow-net /tmp/example13.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -782,11 +784,11 @@ await pool.shutdown();
 There's family of functions:
 
 ```ts
+MyConn.forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
 MyConn.forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
 MyConn.forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
 MyConn.forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
 MyConn.forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-MyConn.forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
 ```
 
 The difference between them is result type that `Resultsets.exec()` returns.
@@ -805,7 +807,7 @@ This library tries to have everything needed in real life usage. It's possible t
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
 // deno run --allow-env --allow-net /tmp/example14.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -833,7 +835,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
 // deno run --allow-env --allow-net /tmp/example15.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -877,7 +879,7 @@ This allows to read SQL from files.
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
 // deno run --allow-env --allow-net /tmp/example16.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 // Don't forget `?multiStatements`
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
@@ -923,7 +925,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
 // deno run --allow-env --allow-net /tmp/example17.ts
 
-import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool, sql} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 import {dirname} from "https://deno.land/std@0.117.0/path/mod.ts";
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1016,7 +1018,7 @@ And you must read or discard all the resultsets before being able to issue next 
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
@@ -1120,7 +1122,7 @@ To start a regular transaction call `startTrx()` without parameters. Then you ca
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
 // deno run --allow-env --allow-net /tmp/example19.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -1249,7 +1251,7 @@ If you wish you can add a timestamp column for your own use (transactions manage
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
 // deno run --allow-env --allow-net /tmp/example20.ts
 
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.4.1/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
 
 const dsn1 = new Dsn('mysql://app:app@localhost/test1');
 const dsn2 = new Dsn('mysql://app:app@localhost/test2');
@@ -1304,3 +1306,226 @@ If a dangling transaction found, it's either committed or rolled back.
 If a corresponding record is found in the corresponding info table, the transaction will be committed.
 If no record found, or there were no info tables, the transaction will be rolled back.
 If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
+
+## SQL logging
+
+You can use different API functions to execute queries (`conn.query*()`, `conn.forQuery*()`, etc.), and some queries are generated internally.
+Also query SQL can be provided in various forms. Not only as string, but even `Deno.Reader` is possible.
+To understand what's going on in your transaction, it's convenient to have a callback functions, that catch all the queries.
+
+You can specify SQL logger in the pool options:
+
+```ts
+interface MyPoolOptions
+{	// ...
+	sqlLogger?: SqlLogger | true;
+	// ...
+}
+```
+
+By default no SQL is logged. If you set `MyPoolOptions.sqlLogger` to `true`, a default logger will be used, that logs to `Deno.stderr`.
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
+// deno run --allow-env --allow-net /tmp/example21.ts
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+pool.options({sqlLogger: true});
+
+let result;
+
+try
+{	pool.forConn
+	(	async conn =>
+		{	// CREATE DATABASE
+			await conn.query("DROP DATABASE IF EXISTS test1");
+			await conn.query("CREATE DATABASE `test1`");
+
+			// USE
+			await conn.query("USE test1");
+
+			// CREATE TABLE
+			await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+
+			// INSERT
+			await conn.query("INSERT INTO t_log SET message = 'Message 1'");
+
+			result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
+
+			// Drop database that i created
+			await conn.query("DROP DATABASE test1");
+		}
+	);
+}
+finally
+{	await pool.shutdown();
+}
+
+console.log(`Result: ${result}`);
+```
+
+This library allows you to provide your own custom logger.
+
+```ts
+interface MyPoolOptions
+{	// ...
+	sqlLogger?: SqlLogger | true;
+	// ...
+}
+
+interface SqlLogger
+{	/**	A new connection established.
+	 **/
+	connect?: (dsn: Dsn, connectionId: number) => unknown;
+
+	/**	Connection state reset (before returning this connection to it's pool).
+	 **/
+	resetConnection?: (dsn: Dsn, connectionId: number) => unknown;
+
+	/**	Disconnected.
+	 **/
+	disconnect?: (dsn: Dsn, connectionId: number) => unknown;
+
+	/**	Started to send a new query to the server.
+		`isPrepare` means that this is query preparation operation, and following `queryEnd()` will receive `stmtId` that server returned.
+		`previousResultNotRead` means that i'm sending queries batch without reading results. `queryEnd()` of previous query will be called later, but before the `queryEnd()` of this query.
+		In other words, i can call the sequence of `queryNew()`, `querySql()`, `queryStart()` several times, and then call `queryEnd()` corresponding number of times.
+	 **/
+	queryNew?: (dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean) => unknown;
+
+	/**	After `queryNew()` called, i can call `querySql()` one or several times (in case of error even 0 times).
+		Each call to `querySql()` appends more bytes to current SQL query.
+		`data` is SQL query serialized to bytes (you can use `TextDecoder` to restore the original SQL string).
+		The query SQL always comes as bytes, no matter what you passed to `conn.query()` function (bytes, string, `Deno.Reader`, etc).
+		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
+	 **/
+	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array) => unknown;
+
+	/**	After `queryNew()` and one or more `querySql()` called, i call `queryStart()`.
+		At this point the query is sent to the server.
+	 **/
+	queryStart?: (dsn: Dsn, connectionId: number) => unknown;
+
+	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
+		The query can either complete with success or with error.
+		If this was query preparation, the `stmtId` will be the numeric ID of this prepared statement.
+	 **/
+	queryEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number) => unknown;
+
+	/**	Started executing a prepared statement.
+	 **/
+	execNew?: (dsn: Dsn, connectionId: number, stmtId: number) => unknown;
+
+	/**	After `execNew()` called, i can call `execParam()` zero or more times to bind parameter values.
+		I can call `execParam()` for the same parameter several times - each time appends data to the parameter.
+		If i don't call `execParam()` for some parameter, this means that it's value is NULL.
+		Strings and `Deno.Reader`s always come as `Uint8Array`.
+		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
+	 **/
+	execParam?: (dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date) => unknown;
+
+	/**	After `execNew()` and zero or more `execParam()` called, i call `execStart()`.
+		At this point the query parameters are sent to the server.
+	 **/
+	execStart?: (dsn: Dsn, connectionId: number) => unknown;
+
+	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
+		The query can either complete with success or with error.
+		`result` can be undefined for internal queries.
+	 **/
+	execEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined) => unknown;
+
+	/**	Prepared query deallocated (unprepared).
+	 **/
+	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => unknown;
+
+	/**	I'll call this function when `MyPool.shutdown()` is called.
+	 **/
+	shutdown(): Promise<void>;
+}
+```
+You need to set `MyPoolOptions.sqlLogger` to some object that implements the above interface.
+
+Also this library provides a base class called `SqlLogToWriter` that you can use to implement a logger that logs to `Deno.Writer`.
+
+The default logger (that is used if you specify `MyPoolOptions.sqlLogger = true`) is implemented like this.
+
+The following is equivalent:
+
+```ts
+pool.options({sqlLogger: true});
+
+// Is the same as:
+
+pool.options({sqlLogger: new SqlLogToWriter(Deno.stderr, !Deno.noColor)});
+```
+
+Here is how to subclass `SqlLogToWriter` to log to a file:
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
+// deno run --allow-env --allow-net /tmp/example21.ts
+
+import {MyPool, SqlLogToWriter} from 'https://deno.land/x/office_spirit_mysql@v0.4.3/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+class SqlLogToFile extends SqlLogToWriter
+{	protected closer: Deno.Closer;
+
+	private constructor(writer: Deno.Writer&Deno.Closer, withColor=false)
+	{	super(writer, withColor);
+		this.closer = writer;
+	}
+
+	static async inst(path: string|URL, withColor=false)
+	{	const fd = await Deno.open(path, {write: true, create: true});
+		return new SqlLogToFile(fd, withColor);
+	}
+
+	async shutdown()
+	{	await super.shutdown();
+		this.closer.close();
+	}
+}
+
+pool.options({sqlLogger: await SqlLogToFile.inst('/tmp/sql.log', !Deno.noColor)});
+
+let result;
+
+try
+{	pool.forConn
+	(	async conn =>
+		{	// CREATE DATABASE
+			await conn.query("DROP DATABASE IF EXISTS test1");
+			await conn.query("CREATE DATABASE `test1`");
+
+			// USE
+			await conn.query("USE test1");
+
+			// CREATE TABLE
+			await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+
+			// INSERT
+			await conn.query("INSERT INTO t_log SET message = 'Message 1'");
+
+			result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
+
+			// Drop database that i created
+			await conn.query("DROP DATABASE test1");
+		}
+	);
+}
+finally
+{	await pool.shutdown();
+}
+
+console.log(`Result: ${result}`);
+```
