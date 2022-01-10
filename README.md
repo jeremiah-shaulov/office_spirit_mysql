@@ -1369,6 +1369,8 @@ finally
 console.log(`Result: ${result}`);
 ```
 
+![image](./readme-assets/sql-logger-1.png)
+
 This library allows you to provide your own custom logger.
 
 ```ts

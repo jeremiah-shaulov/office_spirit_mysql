@@ -107,7 +107,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		this.nQuery = 1;
 		this.nQueries = 1;
 		this.prevNParam = -1;
-		return this.write(dsn, connectionId, `EXECUTE ${stmtId}`);
+		return this.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
 	}
 
 	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
