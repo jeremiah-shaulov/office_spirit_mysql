@@ -28,7 +28,7 @@ export interface SqlLogger
 		The query SQL always comes as bytes, no matter what you passed to `conn.query()` function (bytes, string, `Deno.Reader`, etc).
 		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
 	 **/
-	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array) => Promise<unknown>;
+	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean) => Promise<unknown>;
 
 	/**	After `queryNew()` and one or more `querySql()` called, i call `queryStart()`.
 		At this point the query is sent to the server.
@@ -130,11 +130,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	querySql(data: Uint8Array)
+	querySql(data: Uint8Array, noBackslashEscapes: boolean)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.querySql)
-			{	return underlying.querySql(this.dsn, this.connectionId, data);
+			{	return underlying.querySql(this.dsn, this.connectionId, data, noBackslashEscapes);
 			}
 		}
 		catch (e)

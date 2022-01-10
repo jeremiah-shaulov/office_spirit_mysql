@@ -790,14 +790,16 @@ L:		while (true)
 	 **/
 	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
+		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		const {sqlLogger} = this;
+		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d, noBackslashEscapes);
 		try
 		{	if (sqlLogger)
 			{	await sqlLogger.queryNew(false, false);
 			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_QUERY);
-			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => sqlLogger.querySql(d));
+			await this.sendWithData(sql, noBackslashEscapes, querySql);
 			if (sqlLogger)
 			{	await sqlLogger.queryStart();
 			}
@@ -840,8 +842,9 @@ L:		while (true)
 	 **/
 	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
+		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		const {sqlLogger} = this;
-		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d);
+		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d, noBackslashEscapes);
 		try
 		{	// Send preStmt
 			if (preStmtId >= 0)
@@ -870,7 +873,7 @@ L:		while (true)
 			}
 			this.startWritingNewPacket(true, true);
 			this.writeUint8(Command.COM_QUERY);
-			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, querySql);
+			await this.sendWithData(sql, noBackslashEscapes, querySql);
 			if (sqlLogger)
 			{	await sqlLogger.queryStart();
 			}
@@ -953,14 +956,16 @@ L:		while (true)
 	 **/
 	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.setQueryingState();
+		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		const {sqlLogger} = this;
+		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d, noBackslashEscapes);
 		try
 		{	if (sqlLogger)
 			{	await sqlLogger.queryNew(true, false);
 			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
-			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => sqlLogger.querySql(d), false, putParamsTo);
+			await this.sendWithData(sql, noBackslashEscapes, querySql, false, putParamsTo);
 			if (sqlLogger)
 			{	await sqlLogger.queryStart();
 			}

@@ -147,7 +147,7 @@ export class SqlLogToWriterBase implements SqlLogger
 	{	return Promise.resolve();
 	}
 
-	querySql(_dsn: Dsn, _connectionId: number, _data: Uint8Array)
+	querySql(_dsn: Dsn, _connectionId: number, _data: Uint8Array, _noBackslashEscapes: boolean)
 	{	return Promise.resolve();
 	}
 

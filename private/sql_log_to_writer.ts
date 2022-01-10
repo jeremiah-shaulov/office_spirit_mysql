@@ -1,11 +1,39 @@
+import {debugAssert} from "./debug_assert.ts";
 import {Resultsets} from "./resultsets.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWriterBase} from "./sql_log_to_writer_base.ts";
+import {SqlWordsList} from "./sql_words_list.ts";
 import {Colors} from './deps.ts';
 
 const C_APOS = "'".charCodeAt(0);
+const C_QUOT = '"'.charCodeAt(0);
+const C_BACKTICK = '`'.charCodeAt(0);
 const C_BACKSLASH = '\\'.charCodeAt(0);
+const C_SLASH = '/'.charCodeAt(0);
+const C_TIMES = '*'.charCodeAt(0);
+const C_MINUS = '-'.charCodeAt(0);
+const C_A_CAP = 'A'.charCodeAt(0);
+const C_Z_CAP = 'Z'.charCodeAt(0);
+const C_A = 'a'.charCodeAt(0);
+const C_Z = 'z'.charCodeAt(0);
+const C_UNDERSCORE = '_'.charCodeAt(0);
+const C_ZERO = '0'.charCodeAt(0);
+const C_NINE = '9'.charCodeAt(0);
+const C_DOLLAR = '$'.charCodeAt(0);
+const C_HASH = '#'.charCodeAt(0);
+const C_CR = '\r'.charCodeAt(0);
+const C_LF = '\n'.charCodeAt(0);
+const C_SPACE = ' '.charCodeAt(0);
+const C_TAB = '\t'.charCodeAt(0);
+
+const COLOR_SQL_KEYWORD = Colors.rgb8('', 21).slice(0, Colors.rgb8('', 21).indexOf('m')+1);
+const COLOR_SQL_STRING = Colors.rgb8('', 201).slice(0, Colors.rgb8('', 201).indexOf('m')+1);
+const COLOR_SQL_QUOTED_IDENT = Colors.rgb8('', 52).slice(0, Colors.rgb8('', 52).indexOf('m')+1);
+const COLOR_SQL_COMMENT = Colors.rgb8('', 244).slice(0, Colors.rgb8('', 244).indexOf('m')+1);
+const RESET_COLOR = '\x1B[0m';
+
+const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 {	private since = 0;
@@ -26,7 +54,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	protected nextConnBanner(dsn: Dsn, connectionId: number): Uint8Array|string|undefined
 	{	const msg = `/* ${dsn.hostname} #${connectionId} */\n\n`;
-		return this.withColor ? Colors.rgb8(msg, 36) : msg;
+		return this.withColor ? COLOR_SQL_COMMENT+msg+RESET_COLOR : msg;
 	}
 
 	connect(dsn: Dsn, connectionId: number)
@@ -57,8 +85,13 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		return Promise.resolve();
 	}
 
-	querySql(dsn: Dsn, connectionId: number, data: Uint8Array)
-	{	return this.write(dsn, connectionId, data);
+	querySql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
+	{	if (this.withColor)
+		{	return this.writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
+		}
+		else
+		{	return this.write(dsn, connectionId, data);
+		}
 	}
 
 	queryStart(dsn: Dsn, connectionId: number)
@@ -126,11 +159,11 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	private async writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)
 	{	let i = 0;
-		let esc = "'";
+		let esc = this.withColor ? COLOR_SQL_STRING+"'" : "'";
 		while (true)
 		{	for (; ; i++)
 			{	if (i >= data.length)
-				{	esc += "'";
+				{	esc += this.withColor ? "'"+RESET_COLOR : "'";
 					break;
 				}
 				const c = data[i];
@@ -169,6 +202,79 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			if (i > from)
 			{	await this.write(dsn, connectionId, data.subarray(from, i));
 			}
+		}
+	}
+
+	private async writeColoredSql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
+	{	let i = 0;
+		const enum Type {DEFAULT, KEYWORD, STRING, QUOTED_IDENT, COMMENT}
+		const COLORS = [RESET_COLOR, COLOR_SQL_KEYWORD, COLOR_SQL_STRING, COLOR_SQL_QUOTED_IDENT, COLOR_SQL_COMMENT];
+		function nextToken()
+		{	let c = data[i];
+			if ((c>=C_A_CAP && c<=C_Z_CAP || c>=C_A && c<=C_Z || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80) && (i==0 || data[i-1]<C_ZERO || data[i-1]>C_NINE))
+			{	// word
+				const from = i++;
+				while (c>=C_A_CAP && c<=C_Z_CAP || c>=C_A && c<=C_Z || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80 || c>=C_ZERO && c<=C_NINE)
+				{	c = data[++i];
+				}
+				return keywords.contains(data.subarray(from, i)) ? Type.KEYWORD : Type.DEFAULT;
+			}
+			else if (c==C_APOS || c==C_QUOT || c==C_BACKTICK)
+			{	const qt = c;
+				while (++i < data.length)
+				{	c = data[i];
+					if (c==C_BACKSLASH && !noBackslashEscapes && qt!=C_BACKTICK)
+					{	i++;
+					}
+					else if (c == qt)
+					{	i++;
+						break;
+					}
+				}
+				return qt==C_BACKTICK ? Type.QUOTED_IDENT : Type.STRING;
+			}
+			else if (c==C_HASH || c==C_MINUS && data[i+1]==C_MINUS && (data[i+2]==C_SPACE || data[i+2]==C_TAB))
+			{	while (++i < data.length)
+				{	c = data[i];
+					if (c==C_CR || c==C_LF)
+					{	break;
+					}
+				}
+				return Type.COMMENT;
+			}
+			else if (c==C_SLASH && data[i+1]==C_TIMES)
+			{	i++;
+				while (++i < data.length)
+				{	if (data[i]==C_TIMES || data[i+1]==C_SLASH)
+					{	i += 2;
+						break;
+					}
+				}
+				return Type.COMMENT;
+			}
+			i++;
+			return Type.DEFAULT;
+		}
+		let from = 0;
+		let type = Type.DEFAULT;
+		let esc = RESET_COLOR;
+		while (true)
+		{	const prevType: Type = type;
+			let newFrom;
+			while ((newFrom = i)<data.length && (type = nextToken())==prevType);
+			if (newFrom > from)
+			{	await this.write(dsn, connectionId, data.subarray(from, newFrom));
+			}
+			if (type == prevType)
+			{	debugAssert(i == data.length);
+				break;
+			}
+			esc = COLORS[type];
+			await this.write(dsn, connectionId, esc);
+			from = newFrom;
+		}
+		if (esc != RESET_COLOR)
+		{	await this.write(dsn, connectionId, RESET_COLOR);
 		}
 	}
 }
