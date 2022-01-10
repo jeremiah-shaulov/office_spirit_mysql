@@ -267,7 +267,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			{	await this.write(dsn, connectionId, data.subarray(from, newFrom));
 			}
 			if (type == prevType)
-			{	debugAssert(i == data.length);
+			{	debugAssert(i >= data.length);
 				break;
 			}
 			esc = COLORS[type];
