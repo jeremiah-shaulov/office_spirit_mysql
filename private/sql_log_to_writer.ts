@@ -131,7 +131,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	}
 
 	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
-	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE: ${stmtId}`);
+	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
 	}
 
 	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId?: number)
