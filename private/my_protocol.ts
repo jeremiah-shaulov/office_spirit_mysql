@@ -111,7 +111,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			if (sqlLogger)
 			{	// connectionId is set after `readHandshake()`
 				protocol.sqlLogger = new SafeSqlLogger(dsn, protocol.connectionId, sqlLogger, protocol.logger);
-				protocol.sqlLogger.connect();
+				await protocol.sqlLogger.connect();
 			}
 			await protocol.writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
 			const authPlugin2 = await protocol.readAuthResponse(password, authPlugin);
@@ -774,12 +774,14 @@ L:		while (true)
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	private sendComStmtClose(stmtId: number)
-	{	this.sqlLogger?.deallocatePrepare(stmtId);
+	private async sendComStmtClose(stmtId: number)
+	{	if (this.sqlLogger)
+		{	await this.sqlLogger.deallocatePrepare(stmtId);
+		}
 		this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_CLOSE);
 		this.writeUint32(stmtId);
-		return this.send();
+		return await this.send();
 	}
 
 	/**	On success returns ResultsetsProtocol<Row>.
@@ -788,13 +790,17 @@ L:		while (true)
 	 **/
 	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
+		const {sqlLogger} = this;
 		try
-		{	this.sqlLogger?.queryNew(false, false);
+		{	if (sqlLogger)
+			{	await sqlLogger.queryNew(false, false);
+			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_QUERY);
-			const {sqlLogger} = this;
-			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => {sqlLogger.querySql(d)});
-			this.sqlLogger?.queryStart();
+			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => sqlLogger.querySql(d));
+			if (sqlLogger)
+			{	await sqlLogger.queryStart();
+			}
 			const resultsets = new ResultsetsInternal<Row>(rowType);
 			let state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 			if (state != ProtocolState.IDLE)
@@ -810,11 +816,15 @@ L:		while (true)
 			{	await this.doPending();
 			}
 			this.setState(state);
-			this.sqlLogger?.queryEnd(resultsets);
+			if (sqlLogger)
+			{	await sqlLogger.queryEnd(resultsets);
+			}
 			return resultsets;
 		}
 		catch (e)
-		{	this.sqlLogger?.queryEnd(e);
+		{	if (sqlLogger)
+			{	await sqlLogger.queryEnd(e);
+			}
 			this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 		}
 	}
@@ -831,27 +841,39 @@ L:		while (true)
 	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		const {sqlLogger} = this;
-		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => {sqlLogger.querySql(d)};
+		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d);
 		try
 		{	// Send preStmt
 			if (preStmtId >= 0)
 			{	debugAssert(preStmtParams);
-				this.sqlLogger?.execNew(preStmtId);
+				if (sqlLogger)
+				{	await sqlLogger.execNew(preStmtId);
+				}
 				await this.sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams);
-				this.sqlLogger?.execStart();
+				if (sqlLogger)
+				{	await sqlLogger.execStart();
+				}
 			}
 			// Send prequery
-			this.sqlLogger?.queryNew(false, preStmtId>=0);
+			if (sqlLogger)
+			{	await sqlLogger.queryNew(false, preStmtId>=0);
+			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_QUERY);
 			await this.sendWithData(prequery, false, querySql, true);
-			this.sqlLogger?.queryStart();
+			if (sqlLogger)
+			{	await sqlLogger.queryStart();
+			}
 			// Send sql
-			this.sqlLogger?.queryNew(false, true);
+			if (sqlLogger)
+			{	await sqlLogger.queryNew(false, true);
+			}
 			this.startWritingNewPacket(true, true);
 			this.writeUint8(Command.COM_QUERY);
 			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, querySql);
-			this.sqlLogger?.queryStart();
+			if (sqlLogger)
+			{	await sqlLogger.queryStart();
+			}
 			// Read result of preStmt
 			if (preStmtId >= 0)
 			{	const rowNColumns = await this.readPacket(ReadPacketMode.PREPARED_STMT);
@@ -860,7 +882,9 @@ L:		while (true)
 				if (!this.isAtEndOfPacket())
 				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 				}
-				this.sqlLogger?.execEnd(undefined);
+				if (sqlLogger)
+				{	await sqlLogger.execEnd(undefined);
+				}
 			}
 			// Read result of prequery
 			const resultsets = new ResultsetsInternal<Row>(rowType);
@@ -868,10 +892,14 @@ L:		while (true)
 			let error;
 			try
 			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-				this.sqlLogger?.queryEnd(resultsets);
+				if (sqlLogger)
+				{	await sqlLogger.queryEnd(resultsets);
+				}
 			}
 			catch (e)
-			{	this.sqlLogger?.queryEnd(e);
+			{	if (sqlLogger)
+				{	await sqlLogger.queryEnd(e);
+				}
 				if (ignorePrequeryError && (e instanceof SqlError))
 				{	this.logger.error(e);
 				}
@@ -883,10 +911,14 @@ L:		while (true)
 			// Read result of sql
 			try
 			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-				this.sqlLogger?.queryEnd(resultsets);
+				if (sqlLogger)
+				{	await sqlLogger.queryEnd(resultsets);
+				}
 			}
 			catch (e)
-			{	this.sqlLogger?.queryEnd(e);
+			{	if (sqlLogger)
+				{	await sqlLogger.queryEnd(e);
+				}
 				if (error)
 				{	this.logger.error(error);
 				}
@@ -921,13 +953,17 @@ L:		while (true)
 	 **/
 	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.setQueryingState();
+		const {sqlLogger} = this;
 		try
-		{	this.sqlLogger?.queryNew(true, false);
+		{	if (sqlLogger)
+			{	await sqlLogger.queryNew(true, false);
+			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
-			const {sqlLogger} = this;
-			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => {sqlLogger.querySql(d)}, false, putParamsTo);
-			this.sqlLogger?.queryStart();
+			await this.sendWithData(sql, (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0, !sqlLogger ? undefined : d => sqlLogger.querySql(d), false, putParamsTo);
+			if (sqlLogger)
+			{	await sqlLogger.queryStart();
+			}
 			const resultsets = new ResultsetsInternal<Row>(rowType);
 			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
@@ -935,11 +971,15 @@ L:		while (true)
 			{	await this.doPending();
 			}
 			this.setState(ProtocolState.IDLE);
-			this.sqlLogger?.queryEnd(resultsets, resultsets.stmtId);
+			if (sqlLogger)
+			{	await sqlLogger.queryEnd(resultsets, resultsets.stmtId);
+			}
 			return resultsets;
 		}
 		catch (e)
-		{	this.sqlLogger?.queryEnd(e);
+		{	if (sqlLogger)
+			{	await sqlLogger.queryEnd(e);
+			}
 			this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 		}
 	}
@@ -972,6 +1012,7 @@ L:		while (true)
 	{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 		let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
 		const placeholdersSent = new Set<number>();
+		const {sqlLogger} = this;
 		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
 		for (let i=0; i<nPlaceholders; i++)
 		{	const param = params[i];
@@ -983,8 +1024,7 @@ L:		while (true)
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);
-						const {sqlLogger} = this;
-						await this.sendWithData(param, false, !sqlLogger ? undefined : d => {sqlLogger.execParam(i, d)}, true);
+						await this.sendWithData(param, false, !sqlLogger ? undefined : d => sqlLogger.execParam(i, d), true);
 						placeholdersSent.add(i);
 					}
 					else
@@ -998,7 +1038,9 @@ L:		while (true)
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
-							this.sqlLogger?.execParam(i, param);
+							if (sqlLogger)
+							{	await sqlLogger.execParam(i, param);
+							}
 							await this.sendWithData(param, false, undefined, true);
 							placeholdersSent.add(i);
 						}
@@ -1013,7 +1055,9 @@ L:		while (true)
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
 							const data = new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
-							this.sqlLogger?.execParam(i, data);
+							if (sqlLogger)
+							{	await sqlLogger.execParam(i, data);
+							}
 							await this.sendWithData(data, false, undefined, true);
 							placeholdersSent.add(i);
 						}
@@ -1034,7 +1078,9 @@ L:		while (true)
 							{	this.discardPacket();
 								break;
 							}
-							this.sqlLogger?.execParam(i, this.buffer.subarray(from, this.bufferEnd));
+							if (sqlLogger)
+							{	await sqlLogger.execParam(i, this.buffer.subarray(from, this.bufferEnd));
+							}
 							await this.send();
 							isEmpty = false;
 						}
@@ -1047,8 +1093,7 @@ L:		while (true)
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);
-						const {sqlLogger} = this;
-						await this.sendWithData(JSON.stringify(param), false, !sqlLogger ? undefined : d => {sqlLogger.execParam(i, d)}, true);
+						await this.sendWithData(JSON.stringify(param), false, !sqlLogger ? undefined : d => sqlLogger.execParam(i, d), true);
 						placeholdersSent.add(i);
 					}
 				}
@@ -1137,11 +1182,15 @@ L:		while (true)
 				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
 				{	if (typeof(param) == 'boolean')
 					{	const data = param ? 1 : 0;
-						this.sqlLogger?.execParam(i, data);
+						if (sqlLogger)
+						{	await sqlLogger.execParam(i, data);
+						}
 						this.writeUint8(data);
 					}
 					else if (typeof(param) == 'number')
-					{	this.sqlLogger?.execParam(i, param);
+					{	if (sqlLogger)
+						{	await sqlLogger.execParam(i, param);
+						}
 						if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
 						{	this.writeUint32(param);
 						}
@@ -1150,18 +1199,22 @@ L:		while (true)
 						}
 					}
 					else if (typeof(param) == 'bigint')
-					{	this.sqlLogger?.execParam(i, param);
+					{	if (sqlLogger)
+						{	await sqlLogger.execParam(i, param);
+						}
 						this.writeUint64(param);
 					}
 					else if (typeof(param) == 'string')
 					{	const from = this.bufferEnd;
 						this.writeLenencString(param);
-						if (this.sqlLogger)
-						{	this.sqlLogger.execParam(i, this.buffer.subarray(from + this.buffer[from]==0xFC ? 3 : 1, this.bufferEnd));
+						if (sqlLogger)
+						{	await sqlLogger.execParam(i, this.buffer.subarray(from + (this.buffer[from]==0xFC ? 3 : 1), this.bufferEnd));
 						}
 					}
 					else if (param instanceof Date)
-					{	this.sqlLogger?.execParam(i, param);
+					{	if (sqlLogger)
+						{	await sqlLogger.execParam(i, param);
+						}
 						const frac = param.getMilliseconds();
 						this.writeUint8(frac ? 11 : 7); // length
 						this.writeUint16(param.getFullYear());
@@ -1175,19 +1228,23 @@ L:		while (true)
 						}
 					}
 					else if (param instanceof Uint8Array)
-					{	this.sqlLogger?.execParam(i, param);
+					{	if (sqlLogger)
+						{	await sqlLogger.execParam(i, param);
+						}
 						this.writeLenencBytes(param);
 					}
 					else if (param.buffer instanceof ArrayBuffer)
 					{	const data = new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
-						this.sqlLogger?.execParam(i, data);
+						if (sqlLogger)
+						{	await sqlLogger.execParam(i, data);
+						}
 						this.writeLenencBytes(data);
 					}
 					else
 					{	debugAssert(typeof(param.read) == 'function');
 						// nothing written for this param (as it's not in placeholdersSent), so write empty string
-						if (this.sqlLogger)
-						{	this.sqlLogger.execParam(i, new Uint8Array);
+						if (sqlLogger)
+						{	await sqlLogger.execParam(i, new Uint8Array);
 						}
 						this.writeUint8(0); // 0-length lenenc-string
 					}
@@ -1199,17 +1256,22 @@ L:		while (true)
 
 	async execStmt(resultsets: ResultsetsInternal<unknown>, params: Param[])
 	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
+		const {sqlLogger} = this;
 		if (stmtId < 0)
 		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
 		}
 		this.setQueryingState();
 		try
 		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
-			this.sqlLogger?.execNew(stmtId);
+			if (sqlLogger)
+			{	await sqlLogger.execNew(stmtId);
+			}
 			await this.sendComStmtExecute(stmtId, nPlaceholders, params);
 			// Read Binary Protocol Resultset
 			const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
-			this.sqlLogger?.execStart();
+			if (sqlLogger)
+			{	await sqlLogger.execStart();
+			}
 			let rowNColumns = type;
 			if (type >= 0xFB)
 			{	this.unput(type);
@@ -1246,10 +1308,14 @@ L:		while (true)
 				}
 				this.setState(ProtocolState.IDLE);
 			}
-			this.sqlLogger?.execEnd(resultsets);
+			if (sqlLogger)
+			{	await sqlLogger.execEnd(resultsets);
+			}
 		}
 		catch (e)
-		{	this.sqlLogger?.execEnd(e);
+		{	if (sqlLogger)
+			{	await sqlLogger.execEnd(e);
+			}
 			this.rethrowError(e);
 		}
 	}
@@ -1765,7 +1831,9 @@ L:		while (true)
 				protocol.logger = this.logger;
 				const {initSchema, initSql} = this;
 				try
-				{	this.sqlLogger?.resetConnection();
+				{	if (this.sqlLogger)
+					{	await this.sqlLogger.resetConnection();
+					}
 					await protocol.sendComResetConnectionAndInitDb(initSchema);
 					if (initSql)
 					{	await protocol.sendComQuery(initSql);
@@ -1787,7 +1855,9 @@ L:		while (true)
 				{	this.logger.error(e);
 				}
 			}
-			this.sqlLogger?.disconnect();
+			if (this.sqlLogger)
+			{	await this.sqlLogger.disconnect();
+			}
 			return buffer;
 		}
 	}

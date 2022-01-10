@@ -239,20 +239,24 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
-	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, logData?: (data: Uint8Array) => unknown, canWait=false, putParamsTo?: Any[])
+	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, logData?: (data: Uint8Array) => Promise<unknown>, canWait=false, putParamsTo?: Any[])
 	{	debugAssert(this.bufferEnd > this.bufferStart); // call startWritingNewPacket() first
 		if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
 		{	data = data.toSqlBytesWithParamsBackslashAndBuffer(putParamsTo, noBackslashEscapes, this.buffer.subarray(this.bufferEnd));
 			if (data.buffer == this.buffer.buffer)
 			{	this.bufferEnd += data.length;
 				debugAssert(!canWait); // after sending Sql queries response always follows
-				logData?.(data);
+				if (logData)
+				{	await logData(data);
+				}
 				await this.send();
 				return false;
 			}
 		}
 		if (data instanceof Uint8Array)
-		{	logData?.(data);
+		{	if (logData)
+			{	await logData(data);
+			}
 			const packetSize = this.bufferEnd - this.bufferStart - 4 + data.length;
 			try
 			{	let packetSizeRemaining = packetSize;
@@ -323,7 +327,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	throw new Error(`Unexpected end of stream`);
 					}
 					const part = this.buffer.subarray(0, n);
-					logData?.(part);
+					if (logData)
+					{	await logData(part);
+					}
 					try
 					{	await writeAll(this.conn, part);
 					}
@@ -347,7 +353,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					this.bufferEnd += n;
 					dataLength -= n;
 				}
-				logData?.(this.buffer.subarray(from, this.bufferEnd));
+				if (logData)
+				{	await logData(this.buffer.subarray(from, this.bufferEnd));
+				}
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	return true;
 				}
@@ -373,7 +381,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	throw new Error(`Unexpected end of stream`);
 					}
 					const part = this.buffer.subarray(0, n);
-					logData?.(part);
+					if (logData)
+					{	await logData(part);
+					}
 					try
 					{	await writeAll(this.conn, part);
 					}
@@ -390,7 +400,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	// short string
 				const from = this.bufferEnd;
 				this.writeString(data);
-				logData?.(this.buffer.subarray(from, this.bufferEnd));
+				if (logData)
+				{	await logData(this.buffer.subarray(from, this.bufferEnd));
+				}
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	return true;
 				}
@@ -414,7 +426,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
 							data = data.slice(read);
 							const part = forEncode.subarray(0, written);
-							logData?.(part);
+							if (logData)
+							{	await logData(part);
+							}
 							await writeAll(this.conn, part);
 							dataChunkLen -= written;
 						}
@@ -428,7 +442,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						debugAssert(read == data.length);
 						debugAssert(written == dataLength);
 						this.bufferEnd += written;
-						logData?.(this.buffer.subarray(0, this.bufferEnd));
+						if (logData)
+						{	logData(this.buffer.subarray(0, this.bufferEnd));
+						}
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 						{	return true;
 						}
@@ -443,7 +459,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							data = data.slice(read);
 							dataLength -= written;
 							const part = forEncode.subarray(0, written);
-							logData?.(part);
+							if (logData)
+							{	await logData(part);
+							}
 							await writeAll(this.conn, part);
 						}
 					}

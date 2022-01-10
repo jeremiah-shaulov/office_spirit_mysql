@@ -5,6 +5,8 @@ import {SqlLogger} from "./sql_logger.ts";
 import {Resultsets} from "./resultsets.ts";
 import {writeAll} from "./deps.ts";
 
+const MAX_BUFFER_SIZE = 1*1024*1024;
+
 const encoder = new TextEncoder;
 
 export class SqlLogToWriterBase implements SqlLogger
@@ -12,6 +14,7 @@ export class SqlLogToWriterBase implements SqlLogger
 	private ongoing: Promise<void> | undefined;
 	private prevDsn: Dsn | undefined;
 	private prevConnectionId = -1;
+	private continueAfterFlush: (() => void) | undefined;
 	private isShutDown = false;
 
 	constructor(protected writer: Deno.Writer)
@@ -26,7 +29,7 @@ export class SqlLogToWriterBase implements SqlLogger
 		{	data = encoder.encode(data);
 		}
 		if (data.length == 0)
-		{	return;
+		{	return Promise.resolve();
 		}
 		// byConn
 		let byConn = this.pending.get(dsn);
@@ -47,11 +50,21 @@ export class SqlLogToWriterBase implements SqlLogger
 		if (!this.ongoing)
 		{	this.ongoing = this.doTask();
 		}
+		// await?
+		if (this.getMemory() < MAX_BUFFER_SIZE)
+		{	return Promise.resolve();
+		}
+		return new Promise<void>(y => {this.continueAfterFlush = y});
 	}
 
 	private async doTask()
 	{	while (true)
-		{	// byConn
+		{	const {continueAfterFlush} = this;
+			if (continueAfterFlush && this.getMemory()<MAX_BUFFER_SIZE)
+			{	this.continueAfterFlush = undefined;
+				continueAfterFlush();
+			}
+			// byConn
 			const dsn: Dsn|undefined = this.pending.keys().next().value;
 			if (!dsn)
 			{	break;
@@ -97,6 +110,16 @@ export class SqlLogToWriterBase implements SqlLogger
 		this.ongoing = undefined;
 	}
 
+	private getMemory()
+	{	let memory = 0;
+		for (const b of this.pending.values())
+		{	for (const c of b.values())
+			{	memory += c.buffer.byteLength;
+			}
+		}
+		return memory;
+	}
+
 	protected nextConnBanner(_dsn: Dsn, _connectionId: number): Uint8Array|string|undefined
 	{	return;
 	}
@@ -109,50 +132,50 @@ export class SqlLogToWriterBase implements SqlLogger
 	}
 
 	connect(_dsn: Dsn, _connectionId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	resetConnection(_dsn: Dsn, _connectionId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	disconnect(_dsn: Dsn, _connectionId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	queryNew(_dsn: Dsn, _connectionId: number, _isPrepare: boolean, _previousResultNotRead: boolean)
-	{
+	{	return Promise.resolve();
 	}
 
 	querySql(_dsn: Dsn, _connectionId: number, _data: Uint8Array)
-	{
+	{	return Promise.resolve();
 	}
 
 	queryStart(_dsn: Dsn, _connectionId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	queryEnd(_dsn: Dsn, _connectionId: number, _result: Resultsets<unknown>|Error, _stmtId?: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	execNew(_dsn: Dsn, _connectionId: number, _stmtId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	execParam(_dsn: Dsn, _connectionId: number, _nParam: number, _data: Uint8Array|number|bigint|Date)
-	{
+	{	return Promise.resolve();
 	}
 
 	execStart(_dsn: Dsn, _connectionId: number)
-	{
+	{	return Promise.resolve();
 	}
 
 	execEnd(_dsn: Dsn, _connectionId: number, _result: Resultsets<unknown>|Error|undefined)
-	{
+	{	return Promise.resolve();
 	}
 
 	deallocatePrepare(_dsn: Dsn, _connectionId: number, _stmtId: number)
-	{
+	{	return Promise.resolve();
 	}
 }

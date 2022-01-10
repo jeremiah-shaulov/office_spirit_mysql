@@ -4,6 +4,9 @@ import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWriterBase} from "./sql_log_to_writer_base.ts";
 import {Colors} from './deps.ts';
 
+const C_APOS = "'".charCodeAt(0);
+const C_BACKSLASH = '\\'.charCodeAt(0);
+
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 {	private since = 0;
 	private nQuery = 0;
@@ -27,15 +30,15 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	}
 
 	connect(dsn: Dsn, connectionId: number)
-	{	this.write(dsn, connectionId, 'CONNECT\n\n');
+	{	return this.write(dsn, connectionId, 'CONNECT\n\n');
 	}
 
 	resetConnection(dsn: Dsn, connectionId: number)
-	{	this.write(dsn, connectionId, 'RESET CONNECTION\n\n');
+	{	return this.write(dsn, connectionId, 'RESET CONNECTION\n\n');
 	}
 
 	disconnect(dsn: Dsn, connectionId: number)
-	{	this.write(dsn, connectionId, 'DISCONNECT\n\n');
+	{	return this.write(dsn, connectionId, 'DISCONNECT\n\n');
 	}
 
 	queryNew(dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean)
@@ -49,20 +52,21 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			this.nQueries = Math.max(this.nQuery, this.nQueries);
 		}
 		if (isPrepare)
-		{	this.write(dsn, connectionId, 'PREPARE FROM: ');
+		{	return this.write(dsn, connectionId, 'PREPARE FROM: ');
 		}
+		return Promise.resolve();
 	}
 
 	querySql(dsn: Dsn, connectionId: number, data: Uint8Array)
-	{	this.write(dsn, connectionId, data);
+	{	return this.write(dsn, connectionId, data);
 	}
 
 	queryStart(dsn: Dsn, connectionId: number)
-	{	this.write(dsn, connectionId, '\n');
+	{	return this.write(dsn, connectionId, '\n');
 	}
 
 	queryEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number)
-	{	this.logResult(dsn, connectionId, result, stmtId);
+	{	return this.logResult(dsn, connectionId, result, stmtId);
 	}
 
 	execNew(dsn: Dsn, connectionId: number, stmtId: number)
@@ -70,30 +74,31 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		this.nQuery = 1;
 		this.nQueries = 1;
 		this.prevNParam = -1;
-		this.write(dsn, connectionId, `EXECUTE ${stmtId}`);
+		return this.write(dsn, connectionId, `EXECUTE ${stmtId}`);
 	}
 
-	execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
-	{	if (data instanceof Uint8Array)
-		{	this.write(dsn, connectionId, `${this.prevNParam==nParam ? '' : '\n'}\tBIND param_${nParam}=`);
-			this.write(dsn, connectionId, data);
+	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
+	{	const str = `${this.prevNParam==nParam ? '' : '\n'}\tBIND param_${nParam}=`;
+		this.prevNParam = nParam;
+		if (data instanceof Uint8Array)
+		{	await this.write(dsn, connectionId, str);
+			await this.writeSqlString(dsn, connectionId, data);
 		}
 		else
-		{	this.write(dsn, connectionId, `${this.prevNParam==nParam ? '' : '\n'}\tBIND param_${nParam}=${data}`);
+		{	await this.write(dsn, connectionId, str + data);
 		}
-		this.prevNParam = nParam;
 	}
 
 	execStart(dsn: Dsn, connectionId: number)
-	{	this.write(dsn, connectionId, '\n');
+	{	return this.write(dsn, connectionId, '\n');
 	}
 
 	execEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined)
-	{	this.logResult(dsn, connectionId, result);
+	{	return this.logResult(dsn, connectionId, result);
 	}
 
 	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
-	{	this.write(dsn, connectionId, `DEALLOCATE PREPARE: ${stmtId}`);
+	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE: ${stmtId}`);
 	}
 
 	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId?: number)
@@ -114,7 +119,56 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			else
 			{	str += ` - ${this.msgOk} (${!stmtId ? '' : 'stmt_id='+stmtId+', '}${result.affectedRows} affected, ${result.foundRows} found, last_id ${result.lastInsertId})\n\n`;
 			}
-			this.write(dsn, connectionId, str);
+			return this.write(dsn, connectionId, str);
+		}
+		return Promise.resolve();
+	}
+
+	private async writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)
+	{	let i = 0;
+		let esc = "'";
+		while (true)
+		{	for (; ; i++)
+			{	if (i >= data.length)
+				{	esc += "'";
+					break;
+				}
+				const c = data[i];
+				if (c == C_APOS)
+				{	esc += "\\'";
+				}
+				else if (c == C_BACKSLASH)
+				{	esc += "\\\\";
+				}
+				else if (c < 0x10)
+				{	esc += '\\x0';
+					esc += c.toString(16);
+				}
+				else if (c < 0x20)
+				{	esc += '\\x';
+					esc += c.toString(16);
+				}
+				else
+				{	break;
+				}
+			}
+			if (esc)
+			{	await this.write(dsn, connectionId, esc);
+				if (i >= data.length)
+				{	break;
+				}
+				esc = '';
+			}
+			const from = i;
+			for (; i<data.length; i++)
+			{	const c = data[i];
+				if (c<0x20 || c==C_APOS || c==C_BACKSLASH)
+				{	break;
+				}
+			}
+			if (i > from)
+			{	await this.write(dsn, connectionId, data.subarray(from, i));
+			}
 		}
 	}
 }
