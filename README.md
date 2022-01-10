@@ -1381,22 +1381,22 @@ interface MyPoolOptions
 interface SqlLogger
 {	/**	A new connection established.
 	 **/
-	connect?: (dsn: Dsn, connectionId: number) => unknown;
+	connect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Connection state reset (before returning this connection to it's pool).
 	 **/
-	resetConnection?: (dsn: Dsn, connectionId: number) => unknown;
+	resetConnection?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Disconnected.
 	 **/
-	disconnect?: (dsn: Dsn, connectionId: number) => unknown;
+	disconnect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Started to send a new query to the server.
 		`isPrepare` means that this is query preparation operation, and following `queryEnd()` will receive `stmtId` that server returned.
 		`previousResultNotRead` means that i'm sending queries batch without reading results. `queryEnd()` of previous query will be called later, but before the `queryEnd()` of this query.
 		In other words, i can call the sequence of `queryNew()`, `querySql()`, `queryStart()` several times, and then call `queryEnd()` corresponding number of times.
 	 **/
-	queryNew?: (dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean) => unknown;
+	queryNew?: (dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean) => Promise<unknown>;
 
 	/**	After `queryNew()` called, i can call `querySql()` one or several times (in case of error even 0 times).
 		Each call to `querySql()` appends more bytes to current SQL query.
@@ -1404,22 +1404,22 @@ interface SqlLogger
 		The query SQL always comes as bytes, no matter what you passed to `conn.query()` function (bytes, string, `Deno.Reader`, etc).
 		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
 	 **/
-	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array) => unknown;
+	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array) => Promise<unknown>;
 
 	/**	After `queryNew()` and one or more `querySql()` called, i call `queryStart()`.
 		At this point the query is sent to the server.
 	 **/
-	queryStart?: (dsn: Dsn, connectionId: number) => unknown;
+	queryStart?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
 		The query can either complete with success or with error.
 		If this was query preparation, the `stmtId` will be the numeric ID of this prepared statement.
 	 **/
-	queryEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number) => unknown;
+	queryEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number) => Promise<unknown>;
 
 	/**	Started executing a prepared statement.
 	 **/
-	execNew?: (dsn: Dsn, connectionId: number, stmtId: number) => unknown;
+	execNew?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
 
 	/**	After `execNew()` called, i can call `execParam()` zero or more times to bind parameter values.
 		I can call `execParam()` for the same parameter several times - each time appends data to the parameter.
@@ -1427,26 +1427,26 @@ interface SqlLogger
 		Strings and `Deno.Reader`s always come as `Uint8Array`.
 		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
 	 **/
-	execParam?: (dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date) => unknown;
+	execParam?: (dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date) => Promise<unknown>;
 
 	/**	After `execNew()` and zero or more `execParam()` called, i call `execStart()`.
 		At this point the query parameters are sent to the server.
 	 **/
-	execStart?: (dsn: Dsn, connectionId: number) => unknown;
+	execStart?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
 		The query can either complete with success or with error.
 		`result` can be undefined for internal queries.
 	 **/
-	execEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined) => unknown;
+	execEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined) => Promise<unknown>;
 
 	/**	Prepared query deallocated (unprepared).
 	 **/
-	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => unknown;
+	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
 
 	/**	I'll call this function when `MyPool.shutdown()` is called.
 	 **/
-	shutdown(): Promise<void>;
+	shutdown?: () => Promise<unknown>;
 }
 ```
 You need to set `MyPoolOptions.sqlLogger` to some object that implements the above interface.
