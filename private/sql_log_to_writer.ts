@@ -213,7 +213,8 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		{	let c = data[i];
 			if ((c>=C_A_CAP && c<=C_Z_CAP || c>=C_A && c<=C_Z || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80) && (i==0 || data[i-1]<C_ZERO || data[i-1]>C_NINE))
 			{	// word
-				const from = i++;
+				const from = i;
+				c = data[++i];
 				while (c>=C_A_CAP && c<=C_Z_CAP || c>=C_A && c<=C_Z || c==C_UNDERSCORE || c==C_DOLLAR || c>=0x80 || c>=C_ZERO && c<=C_NINE)
 				{	c = data[++i];
 				}
