@@ -170,6 +170,12 @@ export const enum SessionTrack
 	GTIDS,
 }
 
+export const enum ErrorCodes
+{	ER_SERVER_SHUTDOWN = 1053, // can retry in autocommit mode understanding that session-state (variables and user locks) are lost
+	ER_LOCK_WAIT_TIMEOUT = 1205, // can retry in both modes - autocommit and transaction
+	ER_LOCK_DEADLOCK = 1213, // transaction was rolled back
+}
+
 export const enum Charset
 {	UNKNOWN					= 0,
 	BIG5_CHINESE_CI			= 1,

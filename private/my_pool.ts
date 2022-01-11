@@ -11,6 +11,7 @@ import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
+const DEFAULT_RETRY_QUERY_TIMES = 0;
 const DEFAULT_CONNECTION_TIMEOUT = 5000;
 const DEFAULT_RECONNECT_INTERVAL_MSEC = 1000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
@@ -23,6 +24,7 @@ export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 export interface MyPoolOptions
 {	dsn?: Dsn | string;
 	maxConns?: number;
+	retryQueryTimes?: number;
 	onLoadFile?: OnLoadFile;
 	onBeforeCommit?: OnBeforeCommit;
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
@@ -52,6 +54,7 @@ export class MyPool
 
 	private dsn: Dsn | undefined;
 	private maxConns = DEFAULT_MAX_CONNS;
+	private retryQueryTimes = DEFAULT_RETRY_QUERY_TIMES;
 	private onLoadFile: OnLoadFile|undefined;
 	private onBeforeCommit: OnBeforeCommit|undefined;
 
@@ -70,7 +73,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger} = options;
+			const {dsn, maxConns, retryQueryTimes, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -81,6 +84,10 @@ export class MyPool
 			// maxConns
 			if (typeof(maxConns) == 'number')
 			{	this.maxConns = maxConns>0 ? maxConns : DEFAULT_MAX_CONNS;
+			}
+			// retryQueryTimes
+			if (typeof(retryQueryTimes) == 'number')
+			{	this.retryQueryTimes = retryQueryTimes>=0 ? retryQueryTimes : DEFAULT_RETRY_QUERY_TIMES;
 			}
 			// onLoadFile
 			this.onLoadFile = onLoadFile;
@@ -130,8 +137,8 @@ export class MyPool
 			// logger
 			this.xaTask.logger = logger ?? console;
 		}
-		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger}} = this;
-		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger};
+		const {dsn, maxConns, retryQueryTimes, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger}} = this;
+		return {dsn, maxConns, retryQueryTimes, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger};
 	}
 
 	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
@@ -215,7 +222,7 @@ export class MyPool
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, this.xaTask.sqlLogger, this.xaTask.logger);
+			{	return await MyProtocol.inst(dsn, this.retryQueryTimes, unusedBuffer, this.onLoadFile, this.xaTask.sqlLogger, this.xaTask.logger);
 			}
 			catch (e)
 			{	// with connectTill==0 must not retry

@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
 import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags} from './constants.ts';
-import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
+import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
@@ -76,6 +76,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private initSchema = '';
 	private initSql = '';
 	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
+	private retryQueryTimes = 0;
 	private onLoadFile?: OnLoadFile;
 	private sqlLogger: SafeSqlLogger | undefined;
 
@@ -84,7 +85,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private curLastColumnReader: Deno.Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SqlLogger, logger?: Logger): Promise<MyProtocol>
+	static async inst(dsn: Dsn, retryQueryTimes: number, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SqlLogger, logger?: Logger): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
@@ -102,6 +103,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		if (maxColumnLen > 0)
 		{	protocol.maxColumnLen = maxColumnLen;
 		}
+		protocol.retryQueryTimes = retryQueryTimes;
 		protocol.onLoadFile = onLoadFile;
 		if (logger)
 		{	protocol.logger = logger;
@@ -793,41 +795,49 @@ L:		while (true)
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		const {sqlLogger} = this;
 		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d, noBackslashEscapes);
-		try
-		{	if (sqlLogger)
-			{	await sqlLogger.queryNew(false, false);
-			}
-			this.startWritingNewPacket(true);
-			this.writeUint8(Command.COM_QUERY);
-			await this.sendWithData(sql, noBackslashEscapes, querySql);
-			if (sqlLogger)
-			{	await sqlLogger.queryStart();
-			}
-			const resultsets = new ResultsetsInternal<Row>(rowType);
-			let state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-			if (state != ProtocolState.IDLE)
-			{	resultsets.protocol = this;
-				resultsets.hasMoreInternal = true;
-				this.curResultsets = resultsets;
-				if (rowType == RowType.VOID)
-				{	// discard resultsets
-					state = await this.doDiscard(state);
+		let nRetry = this.retryQueryTimes;
+		while (true)
+		{	try
+			{	if (sqlLogger)
+				{	await sqlLogger.queryNew(false, false);
 				}
+				this.startWritingNewPacket(true);
+				this.writeUint8(Command.COM_QUERY);
+				await this.sendWithData(sql, noBackslashEscapes, querySql);
+				if (sqlLogger)
+				{	await sqlLogger.queryStart();
+				}
+				const resultsets = new ResultsetsInternal<Row>(rowType);
+				let state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+				if (state != ProtocolState.IDLE)
+				{	resultsets.protocol = this;
+					resultsets.hasMoreInternal = true;
+					this.curResultsets = resultsets;
+					if (rowType == RowType.VOID)
+					{	// discard resultsets
+						state = await this.doDiscard(state);
+					}
+				}
+				else if (this.pendingCloseStmts.length != 0)
+				{	await this.doPending();
+				}
+				this.setState(state);
+				if (sqlLogger)
+				{	await sqlLogger.queryEnd(resultsets);
+				}
+				return resultsets;
 			}
-			else if (this.pendingCloseStmts.length != 0)
-			{	await this.doPending();
+			catch (e)
+			{	if (sqlLogger)
+				{	await sqlLogger.queryEnd(e);
+				}
+				if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
+				{	nRetry--;
+					continue;
+				}
+				this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 			}
-			this.setState(state);
-			if (sqlLogger)
-			{	await sqlLogger.queryEnd(resultsets);
-			}
-			return resultsets;
-		}
-		catch (e)
-		{	if (sqlLogger)
-			{	await sqlLogger.queryEnd(e);
-			}
-			this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+			break;
 		}
 	}
 
@@ -840,113 +850,127 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
 	{	const isFromPool = this.setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		const {sqlLogger} = this;
 		const querySql = !sqlLogger ? undefined : (d: Uint8Array) => sqlLogger.querySql(d, noBackslashEscapes);
-		try
-		{	// Send preStmt
-			if (preStmtId >= 0)
-			{	debugAssert(preStmtParams);
+		let nRetry = this.retryQueryTimes;
+		while (true)
+		{	try
+			{	// Send preStmt
+				if (preStmtId >= 0)
+				{	debugAssert(preStmtParams);
+					if (sqlLogger)
+					{	await sqlLogger.execNew(preStmtId);
+					}
+					await this.sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams);
+					if (sqlLogger)
+					{	await sqlLogger.execStart();
+					}
+				}
+				// Send prequery
+				if (prequery)
+				{	if (sqlLogger)
+					{	await sqlLogger.queryNew(false, preStmtId>=0);
+					}
+					this.startWritingNewPacket(true);
+					this.writeUint8(Command.COM_QUERY);
+					await this.sendWithData(prequery, false, querySql, true);
+					if (sqlLogger)
+					{	await sqlLogger.queryStart();
+					}
+				}
+				// Send sql
 				if (sqlLogger)
-				{	await sqlLogger.execNew(preStmtId);
+				{	await sqlLogger.queryNew(false, preStmtId>=0 || !!prequery);
 				}
-				await this.sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams);
+				this.startWritingNewPacket(true, true);
+				this.writeUint8(Command.COM_QUERY);
+				await this.sendWithData(sql, noBackslashEscapes, querySql);
 				if (sqlLogger)
-				{	await sqlLogger.execStart();
+				{	await sqlLogger.queryStart();
 				}
-			}
-			// Send prequery
-			if (sqlLogger)
-			{	await sqlLogger.queryNew(false, preStmtId>=0);
-			}
-			this.startWritingNewPacket(true);
-			this.writeUint8(Command.COM_QUERY);
-			await this.sendWithData(prequery, false, querySql, true);
-			if (sqlLogger)
-			{	await sqlLogger.queryStart();
-			}
-			// Send sql
-			if (sqlLogger)
-			{	await sqlLogger.queryNew(false, true);
-			}
-			this.startWritingNewPacket(true, true);
-			this.writeUint8(Command.COM_QUERY);
-			await this.sendWithData(sql, noBackslashEscapes, querySql);
-			if (sqlLogger)
-			{	await sqlLogger.queryStart();
-			}
-			// Read result of preStmt
-			if (preStmtId >= 0)
-			{	const rowNColumns = await this.readPacket(ReadPacketMode.PREPARED_STMT);
-				debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
-				debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
-				if (!this.isAtEndOfPacket())
-				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+				// Read result of preStmt
+				if (preStmtId >= 0)
+				{	const rowNColumns = await this.readPacket(ReadPacketMode.PREPARED_STMT);
+					debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
+					debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
+					if (!this.isAtEndOfPacket())
+					{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					}
+					if (sqlLogger)
+					{	await sqlLogger.execEnd(undefined);
+					}
 				}
-				if (sqlLogger)
-				{	await sqlLogger.execEnd(undefined);
+				// Read result of prequery
+				const resultsets = new ResultsetsInternal<Row>(rowType);
+				let state = ProtocolState.IDLE;
+				let error;
+				if (prequery)
+				{	try
+					{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+						if (sqlLogger)
+						{	await sqlLogger.queryEnd(resultsets);
+						}
+					}
+					catch (e)
+					{	if (sqlLogger)
+						{	await sqlLogger.queryEnd(e);
+						}
+						if (ignorePrequeryError && (e instanceof SqlError))
+						{	this.logger.error(e);
+						}
+						else
+						{	error = e;
+						}
+					}
 				}
-			}
-			// Read result of prequery
-			const resultsets = new ResultsetsInternal<Row>(rowType);
-			let state = ProtocolState.IDLE;
-			let error;
-			try
-			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-				if (sqlLogger)
-				{	await sqlLogger.queryEnd(resultsets);
+				debugAssert(state == ProtocolState.IDLE);
+				// Read result of sql
+				try
+				{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+					if (sqlLogger)
+					{	await sqlLogger.queryEnd(resultsets);
+					}
 				}
-			}
-			catch (e)
-			{	if (sqlLogger)
-				{	await sqlLogger.queryEnd(e);
-				}
-				if (ignorePrequeryError && (e instanceof SqlError))
-				{	this.logger.error(e);
-				}
-				else
-				{	error = e;
-				}
-			}
-			debugAssert(state == ProtocolState.IDLE);
-			// Read result of sql
-			try
-			{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
-				if (sqlLogger)
-				{	await sqlLogger.queryEnd(resultsets);
-				}
-			}
-			catch (e)
-			{	if (sqlLogger)
-				{	await sqlLogger.queryEnd(e);
+				catch (e)
+				{	if (sqlLogger)
+					{	await sqlLogger.queryEnd(e);
+					}
+					if (error)
+					{	this.logger.error(error);
+					}
+					error = e;
 				}
 				if (error)
-				{	this.logger.error(error);
+				{	throw error;
 				}
-				error = e;
-			}
-			if (error)
-			{	throw error;
-			}
-			if (state != ProtocolState.IDLE)
-			{	resultsets.protocol = this;
-				resultsets.hasMoreInternal = true;
-				this.curResultsets = resultsets;
-				if (rowType == RowType.VOID)
-				{	// discard resultsets
-					state = await this.doDiscard(state);
+				if (state != ProtocolState.IDLE)
+				{	resultsets.protocol = this;
+					resultsets.hasMoreInternal = true;
+					this.curResultsets = resultsets;
+					if (rowType == RowType.VOID)
+					{	// discard resultsets
+						state = await this.doDiscard(state);
+					}
 				}
+				else if (this.pendingCloseStmts.length != 0)
+				{	await this.doPending();
+				}
+				this.setState(state);
+				return resultsets;
 			}
-			else if (this.pendingCloseStmts.length != 0)
-			{	await this.doPending();
+			catch (e)
+			{	if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
+				{	nRetry--;
+					preStmtId = -1;
+					prequery = undefined;
+					continue;
+				}
+				this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 			}
-			this.setState(state);
-			return resultsets;
-		}
-		catch (e)
-		{	this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+			break;
 		}
 	}
 
@@ -1831,6 +1855,7 @@ L:		while (true)
 				protocol.initSchema = this.initSchema;
 				protocol.initSql = this.initSql;
 				protocol.maxColumnLen = this.maxColumnLen;
+				protocol.retryQueryTimes = this.retryQueryTimes;
 				protocol.onLoadFile = this.onLoadFile;
 				protocol.sqlLogger = this.sqlLogger;
 				protocol.logger = this.logger;

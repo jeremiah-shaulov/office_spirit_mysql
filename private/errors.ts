@@ -1,8 +1,28 @@
+import {ErrorCodes} from "./constants.ts";
+
 export const SUSPECT_PACKET_ERROR_IF_PACKET_SIZE = 1*1024*1024;
 
+export const enum CanRetry
+{	NONE,
+	CONN,
+	TRX,
+	QUERY,
+}
+
 export class SqlError extends Error
-{	constructor(message: string, public errorCode=0, public sqlState='')
+{	public canRetry = CanRetry.NONE;
+
+	constructor(message: string, public errorCode=0, public sqlState='', autocommit=false, inTrx=false)
 	{	super(message);
+		if (errorCode == ErrorCodes.ER_LOCK_WAIT_TIMEOUT)
+		{	this.canRetry = CanRetry.QUERY;
+		}
+		else if (errorCode == ErrorCodes.ER_LOCK_DEADLOCK)
+		{	this.canRetry = autocommit && !inTrx ? CanRetry.QUERY : CanRetry.TRX;
+		}
+		else if (errorCode == ErrorCodes.ER_SERVER_SHUTDOWN)
+		{	this.canRetry = CanRetry.CONN;
+		}
 	}
 }
 
