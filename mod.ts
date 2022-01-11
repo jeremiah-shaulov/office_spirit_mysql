@@ -7,6 +7,6 @@ export {ResultsetsPromise, Resultsets, Column} from './private/resultsets.ts';
 export type {ColumnValue, JsonNode, Params} from './private/resultsets.ts';
 export {Charset, MysqlType, ColumnFlags} from './private/constants.ts';
 export type {SqlSource} from './private/my_protocol_reader_writer.ts';
-export {SqlError, ServerDisconnectedError, BusyError, CanceledError} from './private/errors.ts';
+export {SqlError, ServerDisconnectedError, BusyError, CanceledError, CanRetry} from './private/errors.ts';
 export type {SqlLogger} from './private/sql_logger.ts';
 export {SqlLogToWriter} from './private/sql_log_to_writer.ts';
