@@ -65,7 +65,6 @@ interface MyPoolOptions
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
 	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
-	sqlLogger?: SqlLogger | true;
 	logger?:
 	{	debug(...args: any[]): unknown;
 		info(...args: any[]): unknown;
@@ -82,7 +81,6 @@ interface MyPoolOptions
 - `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
 - `xaCheckEach` - Check for dangling transactions each this number of milliseconds (default `6000`).
 - `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
-- `sqlLogger` - Used to log SQL queries.
 - `logger` - a `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
 
 Data Source Name is specified in URL format, with "mysql://" protocol.
