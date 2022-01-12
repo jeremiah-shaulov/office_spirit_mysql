@@ -114,7 +114,7 @@ If `dsn` is not provided, the default DSN of the pool will be used. You can ask 
 
 The requested connection will be available in the provided `callback` function, and when the function returns, this connection will come back to the pool.
 
-Connection state is reset before returning to the pool. This means that incomplete transaction are rolled back, and all kind of locks are cleared.
+Connection state is reset before returning to the pool. This means that incomplete transactions are rolled back, and all kind of locks are cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
@@ -605,7 +605,7 @@ Then the server sends back resultsets, where all values are also strings, and mu
 The second argument in `conn.query*(sql, params)` functions is called `params`.
 When the `params` argument is specified, even if it's an empty array, the Binary Protocol is used.
 
-If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol (see above about "Using external SQL generators").
+If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol by adding values to this array and generating `?` in the SQL string (see above about "Using external SQL generators").
 
 `conn.forQuery*()` functions (detailed below) always use the Binary Protocol.
 
@@ -1015,12 +1015,13 @@ And you must read or discard all the resultsets before being able to issue next 
 
 ```ts
 // To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests'
+// export DSN='mysql://root:hello@localhost/tests?multiStatements'
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
 
+// Don't forget `?multiStatements`
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
 
 pool.forConn
