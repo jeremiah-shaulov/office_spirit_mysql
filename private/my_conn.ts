@@ -1,14 +1,16 @@
 import {debugAssert} from './debug_assert.ts';
 import {StatusFlags} from './constants.ts';
-import {MyProtocol, RowType} from './my_protocol.ts';
+import {MyProtocol, RowType, Logger} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts';
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
+import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
+import {SqlLogToWriter} from "./sql_log_to_writer.ts";
 
-export type GetConnFunc = (dsn: Dsn) => Promise<MyProtocol>;
-export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string) => void;
+export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
+export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
 export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
 const C_COMMA = ','.charCodeAt(0);
@@ -33,6 +35,7 @@ export class MyConn
 {	protected protocol: MyProtocol|undefined;
 
 	private isConnecting = false;
+	protected sqlLogger: SafeSqlLogger | undefined;
 	protected savepointEnum = 0;
 	private curXaId = '';
 	private curXaIdAppendConn = false;
@@ -46,6 +49,7 @@ export class MyConn
 	(	private dsn: Dsn,
 		private maxConns: number,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
+		private logger: Logger,
 		private getConnFunc: GetConnFunc,
 		private returnConnFunc: ReturnConnFunc,
 		private onBeforeCommit?: OnBeforeCommit,
@@ -101,9 +105,9 @@ export class MyConn
 		if (!this.protocol)
 		{	this.isConnecting = true;
 			try
-			{	const protocol = await this.getConnFunc(this.dsn);
+			{	const protocol = await this.getConnFunc(this.dsn, this.sqlLogger);
 				if (!this.isConnecting) // end() called
-				{	this.returnConnFunc(this.dsn, protocol, '');
+				{	this.returnConnFunc(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
@@ -115,6 +119,10 @@ export class MyConn
 	}
 
 	end()
+	{	this.doEnd(false);
+	}
+
+	protected doEnd(withDisposeSqlLogger: boolean)
 	{	const {protocol, curXaId, isXaPrepared} = this;
 		this.isConnecting = false;
 		this.savepointEnum = 0;
@@ -125,7 +133,7 @@ export class MyConn
 		this.preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '');
+		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
@@ -359,7 +367,7 @@ export class MyConn
 					}
 				}
 				catch (e)
-				{	this.end();
+				{	this.doEnd(false);
 					protocol.logger.error(e);
 					throw new ServerDisconnectedError(e.message);
 				}
@@ -406,7 +414,7 @@ export class MyConn
 				}
 				catch (e2)
 				{	protocol.logger.error(e2);
-					this.end();
+					this.doEnd(false);
 					protocol.logger.error(e);
 					throw new ServerDisconnectedError(e.message);
 				}
@@ -419,6 +427,11 @@ export class MyConn
 			this.isXaPrepared = false;
 			this.pendingTrxSql.length = 0;
 		}
+	}
+
+	setSqlLogger(sqlLogger?: SqlLogger|true)
+	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWriter(Deno.stderr, !Deno.noColor) : sqlLogger, this.logger);
+		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
 	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
@@ -444,7 +457,7 @@ export class MyConn
 						sql = `XA START '${this.curXaId}'`;
 					}
 					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
-					{	this.end();
+					{	this.doEnd(false);
 						continue;
 					}
 				}
@@ -494,7 +507,7 @@ export class MyConn
 				}
 			}
 
-			this.end();
+			this.doEnd(false);
 			// redo
 		}
 	}
@@ -649,5 +662,9 @@ export class MyConnInternal extends MyConn
 			this.pendingTrxSql.push(sql);
 		}
 		return pointId;
+	}
+
+	endAndDisposeSqlLogger()
+	{	this.doEnd(true);
 	}
 }

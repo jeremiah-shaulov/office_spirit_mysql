@@ -16,11 +16,7 @@ export class MyProtocolReader
 
 	private origBuffer: Uint8Array;
 
-	protected constructor
-	(	protected conn: Deno.Conn,
-		protected decoder: TextDecoder,
-		useBuffer: Uint8Array|undefined
-	)
+	protected constructor(protected conn: Deno.Conn, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(INIT_BUFFER_LEN);
 		this.origBuffer = this.buffer;
 		this.dataView = new DataView(this.buffer.buffer);

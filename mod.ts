@@ -5,7 +5,7 @@ export {Dsn} from './private/dsn.ts';
 export {MyConn} from './private/my_conn.ts';
 export {ResultsetsPromise, Resultsets, Column} from './private/resultsets.ts';
 export type {ColumnValue, JsonNode, Params} from './private/resultsets.ts';
-export {Charset, MysqlType, ColumnFlags} from './private/constants.ts';
+export {Charset, MysqlType, ColumnFlags, ErrorCodes} from './private/constants.ts';
 export type {SqlSource} from './private/my_protocol_reader_writer.ts';
 export {SqlError, ServerDisconnectedError, BusyError, CanceledError, CanRetry} from './private/errors.ts';
 export type {SqlLogger} from './private/sql_logger.ts';

@@ -15,14 +15,14 @@ export class SqlLogToWriterBase implements SqlLogger
 	private prevDsn: Dsn | undefined;
 	private prevConnectionId = -1;
 	private continueAfterFlush: (() => void) | undefined;
-	private isShutDown = false;
+	private isDisposed = false;
 
 	constructor(protected writer: Deno.Writer)
 	{
 	}
 
 	protected write(dsn: Dsn, connectionId: number, data: Uint8Array|string)
-	{	if (this.isShutDown)
+	{	if (this.isDisposed)
 		{	throw new Error("This logger is shut down");
 		}
 		if (typeof(data) == 'string')
@@ -124,8 +124,8 @@ export class SqlLogToWriterBase implements SqlLogger
 	{	return;
 	}
 
-	async shutdown()
-	{	this.isShutDown = true;
+	async dispose()
+	{	this.isDisposed = true;
 		if (this.ongoing)
 		{	await this.ongoing;
 		}

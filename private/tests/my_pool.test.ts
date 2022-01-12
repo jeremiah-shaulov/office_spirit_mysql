@@ -1,4 +1,5 @@
 import {Dsn} from '../dsn.ts';
+import {ErrorCodes} from "../constants.ts";
 import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError} from '../errors.ts';
@@ -53,6 +54,7 @@ const TESTS =
 	testManyPlaceholders,
 	testManyPlaceholders2,
 	testTrx,
+	testRetryQueryTimes,
 	testLoadBigDump,
 ];
 
@@ -1441,6 +1443,71 @@ async function testTrx(dsnStr: string)
 			{	await conn.query("DROP DATABASE test58168");
 				await conn.query("DROP DATABASE test38743");
 				await conn.query("DROP DATABASE test2");
+			}
+		);
+	}
+	finally
+	{	await pool.shutdown();
+	}
+}
+
+async function testRetryQueryTimes(dsnStr: string)
+{	const pool = new MyPool(dsnStr);
+
+	try
+	{	pool.forConn
+		(	async conn =>
+			{	// Createa and use db
+				await conn.query("DROP DATABASE IF EXISTS test1");
+				await conn.query("CREATE DATABASE `test1`");
+				await conn.query("USE test1");
+
+				// CREATE TABLE
+				await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+
+				// INSERT
+				await conn.query("INSERT INTO t_log SET message = 'Message 1'");
+
+				// START TRANSACTION
+				await conn.startTrx();
+
+				// Lock record
+				await conn.query("UPDATE t_log SET message = 'Message *' WHERE id = 1");
+
+				// Parallel connection
+				const dsn2 = new Dsn(dsnStr);
+				dsn2.retryQueryTimes = 2;
+				await pool.forConn
+				(	async conn2 =>
+					{	await conn2.query("USE test1");
+						await conn2.query("SET innodb_lock_wait_timeout=0");
+						let nErrors = 0;
+						conn2.setSqlLogger
+						(	{	queryEnd(_dsn, _connectionId, result)
+								{	assert(result instanceof Error);
+									nErrors++;
+									return Promise.resolve();
+								}
+							}
+						);
+						let error;
+						try
+						{	await conn2.query("UPDATE t_log SET message = 'Message **' WHERE id = 1");
+						}
+						catch (e)
+						{	error = e;
+						}
+						assertEquals(error?.errorCode, ErrorCodes.ER_LOCK_WAIT_TIMEOUT);
+						assertEquals(nErrors, 3);
+					},
+					dsn2
+				);
+
+				// ROLLBACK
+				await conn.rollback();
+
+				// Drop database that i created
+				await conn.query("DROP DATABASE test1");
 			}
 		);
 	}

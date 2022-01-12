@@ -5,13 +5,11 @@ import {MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
 import {MyProtocol, OnLoadFile, Logger} from './my_protocol.ts';
 import {MySession, MySessionInternal} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
-import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWriter} from "./sql_log_to_writer.ts";
+import {SafeSqlLogger} from "./sql_logger.ts";
 import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
-const DEFAULT_RETRY_QUERY_TIMES = 0;
 const DEFAULT_CONNECTION_TIMEOUT = 5000;
 const DEFAULT_RECONNECT_INTERVAL_MSEC = 1000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
@@ -29,7 +27,6 @@ export interface MyPoolOptions
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
 	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
-	sqlLogger?: SqlLogger | true;
 	logger?: Logger;
 }
 
@@ -71,7 +68,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger} = options;
+			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -126,13 +123,11 @@ export class MyPool
 				}
 			}
 			this.xaTask.start();
-			// sqlLogger
-			this.xaTask.sqlLogger = sqlLogger===true ? new SqlLogToWriter(Deno.stderr, !Deno.noColor) : sqlLogger;
 			// logger
 			this.xaTask.logger = logger ?? console;
 		}
-		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger}} = this;
-		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, sqlLogger, logger};
+		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, logger}} = this;
+		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
 	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
@@ -145,8 +140,6 @@ export class MyPool
 		}
 		// close idle connections
 		await this.closeKeptAliveTimedOut(true);
-		// sqlLogger
-		await this.xaTask.sqlLogger?.shutdown?.();
 	}
 
 	haveSlots(): boolean
@@ -189,13 +182,13 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConnInternal(dsn, this.maxConns, undefined, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
+		const conn = new MyConnInternal(dsn, this.maxConns, undefined, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
 		try
 		{	this.nSessionsOrConns++;
 			return await callback(conn);
 		}
 		finally
-		{	conn.end();
+		{	conn.endAndDisposeSqlLogger();
 			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
 			{	this.onend?.();
 			}
@@ -208,7 +201,7 @@ export class MyPool
 		}
 	}
 
-	private async newConn(dsn: Dsn)
+	private async newConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	const unusedBuffer = this.unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
 		const reconnectInterval = dsn.reconnectInterval>0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
@@ -216,7 +209,7 @@ export class MyPool
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, this.xaTask.sqlLogger, this.xaTask.logger);
+			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, sqlLogger, this.xaTask.logger);
 			}
 			catch (e)
 			{	// with connectTill==0 must not retry
@@ -268,7 +261,7 @@ export class MyPool
 		}
 	}
 
-	private async getConn(dsn: Dsn)
+	private async getConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
 		while (this.nBusyAll >= this.maxConns)
 		{	await new Promise<void>(y => {this.haveSlotsCallbacks.push(y)});
@@ -289,7 +282,7 @@ export class MyPool
 			{	conns.nConnecting++;
 				this.nBusyAll++;
 				try
-				{	conn = await this.newConn(dsn);
+				{	conn = await this.newConn(dsn, sqlLogger);
 					conns.nConnecting--;
 					this.nBusyAll--;
 				}
@@ -306,6 +299,7 @@ export class MyPool
 			}
 			else
 			{	this.nIdleAll--;
+				conn.setSqlLogger(sqlLogger);
 			}
 			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
 			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
@@ -320,8 +314,8 @@ export class MyPool
 		}
 	}
 
-	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string)
-	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now()).then
+	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
 		(	protocolOrBuffer =>
 			{	const conns = this.connsPool.get(dsn.name);
 				if (!conns)
@@ -412,7 +406,6 @@ class XaTask
 {	managedXaDsns: Dsn[] = [];
 	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH;
 	xaInfoTables: XaInfoTable[] = [];
-	sqlLogger: SqlLogger | undefined;
 	logger: Logger = console;
 
 	private xaTaskTimer: number | undefined;

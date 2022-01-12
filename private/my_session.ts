@@ -1,8 +1,8 @@
 import {Dsn} from './dsn.ts';
-import {SqlError} from "./errors.ts";
 import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc} from './my_conn.ts';
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
+import {SqlLogger} from "./sql_logger.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 
 const xaIdGen = new XaIdGen;
@@ -12,6 +12,7 @@ export class MySession
 	private savepointEnum = 0;
 	private trxOptions: {readonly: boolean, xaId1: string} | undefined;
 	private curXaInfoTable: XaInfoTable | undefined;
+	private sqlLogger: SqlLogger | true | undefined;
 
 	constructor
 	(	private pool: MyPool,
@@ -45,7 +46,10 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.getConnFunc, this.returnConnFunc, undefined);
+		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.logger, this.getConnFunc, this.returnConnFunc, undefined);
+		if (this.sqlLogger)
+		{	conn.setSqlLogger(this.sqlLogger);
+		}
 		this.connsArr[this.connsArr.length] = conn;
 		return conn;
 	}
@@ -204,6 +208,13 @@ export class MySession
 			throw error;
 		}
 	}
+
+	setSqlLogger(sqlLogger?: SqlLogger|true)
+	{	this.sqlLogger = sqlLogger;
+		for (const conn of this.connsArr)
+		{	conn.setSqlLogger(sqlLogger);
+		}
+	}
 }
 
 /**	This library creates sessions as MySessionInternal object, but exposes them as MySession.
@@ -212,7 +223,7 @@ export class MySession
 export class MySessionInternal extends MySession
 {	endSession()
 	{	for (const conn of this.connsArr)
-		{	conn.end();
+		{	conn.endAndDisposeSqlLogger();
 		}
 	}
 }

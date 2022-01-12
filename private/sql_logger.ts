@@ -68,21 +68,21 @@ export interface SqlLogger
 	 **/
 	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
 
-	/**	I'll call this function when `MyPool.shutdown()` is called.
+	/**	I'll call this function at the end of `MyPool.forConn()` or `MyPool.session()`.
 	 **/
-	shutdown?: () => Promise<unknown>;
+	dispose?: () => Promise<unknown>;
 }
 
 export class SafeSqlLogger
-{	constructor(private dsn: Dsn, private connectionId: number, private underlying: SqlLogger, private logger: Logger)
+{	constructor(private dsn: Dsn, private underlying: SqlLogger, private logger: Logger)
 	{
 	}
 
-	connect()
+	connect(connectionId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.connect)
-			{	return underlying.connect(this.dsn, this.connectionId);
+			{	return underlying.connect(this.dsn, connectionId);
 			}
 		}
 		catch (e)
@@ -91,11 +91,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	resetConnection()
+	resetConnection(connectionId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.resetConnection)
-			{	return underlying.resetConnection(this.dsn, this.connectionId);
+			{	return underlying.resetConnection(this.dsn, connectionId);
 			}
 		}
 		catch (e)
@@ -104,11 +104,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	disconnect()
+	disconnect(connectionId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.disconnect)
-			{	return underlying.disconnect(this.dsn, this.connectionId);
+			{	return underlying.disconnect(this.dsn, connectionId);
 			}
 		}
 		catch (e)
@@ -117,11 +117,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	queryNew(isPrepare: boolean, previousResultNotRead: boolean)
+	queryNew(connectionId: number, isPrepare: boolean, previousResultNotRead: boolean)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.queryNew)
-			{	return underlying.queryNew(this.dsn, this.connectionId, isPrepare, previousResultNotRead);
+			{	return underlying.queryNew(this.dsn, connectionId, isPrepare, previousResultNotRead);
 			}
 		}
 		catch (e)
@@ -130,11 +130,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	querySql(data: Uint8Array, noBackslashEscapes: boolean)
+	querySql(connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.querySql)
-			{	return underlying.querySql(this.dsn, this.connectionId, data, noBackslashEscapes);
+			{	return underlying.querySql(this.dsn, connectionId, data, noBackslashEscapes);
 			}
 		}
 		catch (e)
@@ -143,11 +143,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	queryStart()
+	queryStart(connectionId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.queryStart)
-			{	return underlying.queryStart(this.dsn, this.connectionId);
+			{	return underlying.queryStart(this.dsn, connectionId);
 			}
 		}
 		catch (e)
@@ -156,11 +156,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	queryEnd(result: Resultsets<unknown>|Error, stmtId?: number)
+	queryEnd(connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.queryEnd)
-			{	return underlying.queryEnd(this.dsn, this.connectionId, result, stmtId);
+			{	return underlying.queryEnd(this.dsn, connectionId, result, stmtId);
 			}
 		}
 		catch (e)
@@ -169,11 +169,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	execNew(stmtId: number)
+	execNew(connectionId: number, stmtId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.execNew)
-			{	return underlying.execNew(this.dsn, this.connectionId, stmtId);
+			{	return underlying.execNew(this.dsn, connectionId, stmtId);
 			}
 		}
 		catch (e)
@@ -182,11 +182,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	execParam(nParam: number, data: Uint8Array|number|bigint|Date)
+	execParam(connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.execParam)
-			{	return underlying.execParam(this.dsn, this.connectionId, nParam, data);
+			{	return underlying.execParam(this.dsn, connectionId, nParam, data);
 			}
 		}
 		catch (e)
@@ -195,11 +195,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	execStart()
+	execStart(connectionId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.execStart)
-			{	return underlying.execStart(this.dsn, this.connectionId);
+			{	return underlying.execStart(this.dsn, connectionId);
 			}
 		}
 		catch (e)
@@ -208,11 +208,11 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	execEnd(result: Resultsets<unknown>|Error|undefined)
+	execEnd(connectionId: number, result: Resultsets<unknown>|Error|undefined)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.execEnd)
-			{	return underlying.execEnd(this.dsn, this.connectionId, result);
+			{	return underlying.execEnd(this.dsn, connectionId, result);
 			}
 		}
 		catch (e)
@@ -221,11 +221,24 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	deallocatePrepare(stmtId: number)
+	deallocatePrepare(connectionId: number, stmtId: number)
 	{	try
 		{	const {underlying} = this;
 			if (underlying.deallocatePrepare)
-			{	return underlying.deallocatePrepare(this.dsn, this.connectionId, stmtId);
+			{	return underlying.deallocatePrepare(this.dsn, connectionId, stmtId);
+			}
+		}
+		catch (e)
+		{	this.logger.error(e);
+		}
+		return Promise.resolve();
+	}
+
+	dispose()
+	{	try
+		{	const {underlying} = this;
+			if (underlying.dispose)
+			{	return underlying.dispose();
 			}
 		}
 		catch (e)
