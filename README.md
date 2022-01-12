@@ -1369,6 +1369,8 @@ console.log(`Result: ${result}`);
 
 ![image](./readme-assets/sql-logger-1.png)
 
+The default logger truncates long queries to maximum 10,000 bytes, and long query parameters to 3,000 bytes.
+
 This library allows you to provide your own custom logger.
 This can be any object that implements `SqlLogger` interface:
 
@@ -1453,7 +1455,7 @@ conn.setSqlLogger(true);
 
 // Is the same as:
 
-conn.setSqlLogger(new SqlLogToWriter(Deno.stderr, !Deno.noColor));
+conn.setSqlLogger(new SqlLogToWriter(Deno.stderr, !Deno.noColor, 10_000, 3_000));
 ```
 
 Here is how to subclass `SqlLogToWriter` to log to a file:

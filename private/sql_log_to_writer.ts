@@ -6,6 +6,9 @@ import {SqlLogToWriterBase} from "./sql_log_to_writer_base.ts";
 import {SqlWordsList} from "./sql_words_list.ts";
 import {Colors} from './deps.ts';
 
+const DEFAULT_QUERY_MAX_BYTES = 10_000;
+const DEFAULT_PARAM_MAX_BYTES = 3_000;
+
 const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
@@ -40,11 +43,12 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	private nQuery = 0;
 	private nQueries = 0;
 	private prevNParam = -1;
+	private curQueryLen = 0;
 
 	private msgOk = 'OK';
 	private msgError = 'ERROR:';
 
-	constructor(protected writer: Deno.Writer, protected withColor=false)
+	constructor(writer: Deno.Writer, protected withColor=false, protected queryMaxBytes=DEFAULT_QUERY_MAX_BYTES, protected paramMaxBytes=DEFAULT_PARAM_MAX_BYTES)
 	{	super(writer);
 		if (withColor)
 		{	this.msgOk = Colors.green('OK');
@@ -79,6 +83,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		{	this.nQuery++;
 			this.nQueries = Math.max(this.nQuery, this.nQueries);
 		}
+		this.curQueryLen = 0;
 		if (isPrepare)
 		{	return this.write(dsn, connectionId, 'PREPARE FROM: ');
 		}
@@ -86,7 +91,8 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	}
 
 	querySql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
-	{	if (this.withColor)
+	{	data = this.countExceeding(data);
+		if (this.withColor)
 		{	return this.writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
 		}
 		else
@@ -95,7 +101,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	}
 
 	queryStart(dsn: Dsn, connectionId: number)
-	{	return this.write(dsn, connectionId, '\n');
+	{	return this.write(dsn, connectionId, this.curQueryLen>=this.queryMaxBytes ? '…\n' : '\n');
 	}
 
 	queryEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number)
@@ -112,9 +118,13 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
 	{	const str = `${this.prevNParam==nParam ? '' : '\n'}\tBIND param_${nParam}=`;
+		if (nParam != this.prevNParam)
+		{	this.curQueryLen = 0;
+		}
 		this.prevNParam = nParam;
 		if (data instanceof Uint8Array)
-		{	await this.write(dsn, connectionId, str);
+		{	data = this.countExceeding(data);
+			await this.write(dsn, connectionId, str);
 			await this.writeSqlString(dsn, connectionId, data);
 		}
 		else
@@ -132,6 +142,16 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
 	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
+	}
+
+	private countExceeding(data: Uint8Array)
+	{	this.curQueryLen += data.length;
+		const exceedingNegative = this.queryMaxBytes - this.curQueryLen;
+		if (exceedingNegative < 0)
+		{	data = data.subarray(0, exceedingNegative); // negative index (from the end of the array)
+			this.curQueryLen = this.queryMaxBytes;
+		}
+		return data;
 	}
 
 	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId?: number)
