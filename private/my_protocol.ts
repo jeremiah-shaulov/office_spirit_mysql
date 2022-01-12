@@ -85,8 +85,8 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private curLastColumnReader: Deno.Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	static async inst(dsn: Dsn, retryQueryTimes: number, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SqlLogger, logger?: Logger): Promise<MyProtocol>
-	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements} = dsn;
+	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SqlLogger, logger?: Logger): Promise<MyProtocol>
+	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
 		}

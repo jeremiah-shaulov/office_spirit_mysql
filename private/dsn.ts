@@ -18,6 +18,7 @@ type Any = any;
 	`foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
 	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
 	`multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky;
+	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or "lock wait timeout" in both modes;
  **/
 export class Dsn
 {	#hostname: string;
@@ -37,6 +38,7 @@ export class Dsn
 	#ignoreSpace: boolean;
 	/** SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky */
 	#multiStatements: boolean;
+	#retryQueryTimes: number;
 	#initSql: string;
 	#name: string;
 
@@ -158,6 +160,14 @@ export class Dsn
 		this.updateName();
 	}
 
+	get retryQueryTimes()
+	{	return this.#retryQueryTimes;
+	}
+	set retryQueryTimes(value: number)
+	{	this.#retryQueryTimes = value>=0 ? value : NaN;
+		this.updateName();
+	}
+
 	get initSql()
 	{	return this.#initSql;
 	}
@@ -200,6 +210,7 @@ export class Dsn
 		const foundRows = url.searchParams.get('foundRows');
 		const ignoreSpace = url.searchParams.get('ignoreSpace');
 		const multiStatements = url.searchParams.get('multiStatements');
+		const retryQueryTimes = url.searchParams.get('retryQueryTimes');
 		this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) || NaN : NaN;
 		this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -208,6 +219,7 @@ export class Dsn
 		this.#foundRows = foundRows != null;
 		this.#ignoreSpace = ignoreSpace != null;
 		this.#multiStatements = multiStatements != null;
+		this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
 		// initSql
 		this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 		this.#name = '';
@@ -225,7 +237,8 @@ export class Dsn
 			(!isNaN(this.#maxColumnLen) ? '&maxColumnLen='+this.#maxColumnLen : '') +
 			(this.#foundRows ? '&foundRows' : '') +
 			(this.#ignoreSpace ? '&ignoreSpace' : '') +
-			(this.#multiStatements ? '&multiStatements' : '')
+			(this.#multiStatements ? '&multiStatements' : '') +
+			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '')
 		);
 		this.#name =
 		(	'mysql://' +
