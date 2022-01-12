@@ -839,7 +839,8 @@ L:		while (true)
 				{	await sqlLogger.queryEnd(this.connectionId, e);
 				}
 				if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
-				{	nRetry--;
+				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
+					nRetry--;
 					continue;
 				}
 				this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
@@ -970,7 +971,8 @@ L:		while (true)
 			}
 			catch (e)
 			{	if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
-				{	nRetry--;
+				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
+					nRetry--;
 					preStmtId = -1;
 					prequery = undefined;
 					continue;
