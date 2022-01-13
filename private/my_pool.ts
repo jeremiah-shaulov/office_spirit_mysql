@@ -543,9 +543,7 @@ class XaTask
 					{	let promise = Promise.resolve();
 						for (const {conn, xaId, time, pid, connectionId, commit} of items)
 						{	promise = promise.then
-							(	() =>
-								{	conn.queryVoid((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'");
-								}
+							(	() => conn.queryVoid((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'")
 							).then
 							(	() =>
 								{	this.logger.warn(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL process ID ${connectionId} was dead. Transaction started before ${Math.floor(Date.now()/1000) - time} sec by OS process ${pid}.`);

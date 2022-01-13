@@ -3,6 +3,7 @@ import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc} fro
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
 import {SqlLogger} from "./sql_logger.ts";
+import {SqlLogToWriter} from "./sql_log_to_writer.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 
 const xaIdGen = new XaIdGen;
@@ -264,7 +265,10 @@ export class MySession
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = sqlLogger;
+	{	if (sqlLogger === true)
+		{	sqlLogger = new SqlLogToWriter(Deno.stderr, !Deno.noColor); // want to pass the same object instance to each conn
+		}
+		this.sqlLogger = sqlLogger;
 		for (const conn of this.connsArr)
 		{	conn.setSqlLogger(sqlLogger);
 		}

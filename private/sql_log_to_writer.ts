@@ -39,7 +39,7 @@ const RESET_COLOR = '\x1B[0m';
 const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
-{	private since = 0;
+{	private since = new Map<number, number>();
 
 	private msgOk = 'OK';
 	private msgError = 'ERROR:';
@@ -71,7 +71,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	queryNew(dsn: Dsn, connectionId: number, isPrepare: boolean, nQueryInBatch: number, _nQueriesInBatch: number)
 	{	if (nQueryInBatch == 0)
-		{	this.since = Date.now();
+		{	this.since.set(connectionId, Date.now());
 		}
 		if (isPrepare)
 		{	return this.write(dsn, connectionId, 'PREPARE FROM: ');
@@ -102,7 +102,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	execNew(dsn: Dsn, connectionId: number, stmtId: number, nQueryInBatch: number, _nQueriesInBatch: number)
 	{	if (nQueryInBatch == 0)
-		{	this.since = Date.now();
+		{	this.since.set(connectionId, Date.now());
 		}
 		return this.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
 	}
@@ -163,7 +163,8 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 
 	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
 	{	if (nQueryInBatch+1 == nQueriesInBatch)
-		{	let str = `\t${(Date.now()-this.since) / 1000} sec`;
+		{	let str = `\t${(Date.now()-Number(this.since.get(connectionId))) / 1000} sec`;
+			this.since.delete(connectionId);
 			if (nQueriesInBatch != 1)
 			{	str += ` (${nQueriesInBatch} queries)`;
 			}
