@@ -40,10 +40,6 @@ const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT 
 
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 {	private since = 0;
-	private nQuery = 0;
-	private nQueries = 0;
-	private prevNParam = -1;
-	private curQueryLen = 0;
 
 	private msgOk = 'OK';
 	private msgError = 'ERROR:';
@@ -57,7 +53,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	}
 
 	protected nextConnBanner(dsn: Dsn, connectionId: number): Uint8Array|string|undefined
-	{	const msg = `/* ${dsn.hostname} #${connectionId} */\n\n`;
+	{	const msg = `\n/* ${dsn.hostname} #${connectionId} */\n\n`;
 		return this.withColor ? COLOR_SQL_COMMENT+msg+RESET_COLOR : msg;
 	}
 
@@ -73,92 +69,103 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	{	return this.write(dsn, connectionId, 'DISCONNECT\n\n');
 	}
 
-	queryNew(dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean)
-	{	if (!previousResultNotRead)
+	queryNew(dsn: Dsn, connectionId: number, isPrepare: boolean, nQueryInBatch: number, _nQueriesInBatch: number)
+	{	if (nQueryInBatch == 0)
 		{	this.since = Date.now();
-			this.nQuery = 1;
-			this.nQueries = 1;
 		}
-		else
-		{	this.nQuery++;
-			this.nQueries = Math.max(this.nQuery, this.nQueries);
-		}
-		this.curQueryLen = 0;
 		if (isPrepare)
 		{	return this.write(dsn, connectionId, 'PREPARE FROM: ');
 		}
 		return Promise.resolve();
 	}
 
-	querySql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
-	{	data = this.countExceeding(data);
+	async querySql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean, curDataLen: number)
+	{	const {addData, withEllipsis} = this.countExceeding(data, curDataLen);
 		if (this.withColor)
-		{	return this.writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
+		{	await this.writeColoredSql(dsn, connectionId, addData, noBackslashEscapes);
 		}
 		else
-		{	return this.write(dsn, connectionId, data);
+		{	await this.write(dsn, connectionId, addData);
+		}
+		if (withEllipsis)
+		{	await this.write(dsn, connectionId, '…');
 		}
 	}
 
-	queryStart(dsn: Dsn, connectionId: number)
-	{	return this.write(dsn, connectionId, this.curQueryLen>=this.queryMaxBytes ? '…\n' : '\n');
+	queryStart(dsn: Dsn, connectionId: number, _nQueryInBatch: number, _nQueriesInBatch: number)
+	{	return this.write(dsn, connectionId, '\n');
 	}
 
-	queryEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number)
-	{	return this.logResult(dsn, connectionId, result, stmtId);
+	queryEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
+	{	return this.logResult(dsn, connectionId, result, stmtId, nQueryInBatch, nQueriesInBatch);
 	}
 
-	execNew(dsn: Dsn, connectionId: number, stmtId: number)
-	{	this.since = Date.now();
-		this.nQuery = 1;
-		this.nQueries = 1;
-		this.prevNParam = -1;
+	execNew(dsn: Dsn, connectionId: number, stmtId: number, nQueryInBatch: number, _nQueriesInBatch: number)
+	{	if (nQueryInBatch == 0)
+		{	this.since = Date.now();
+		}
 		return this.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
 	}
 
-	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date)
-	{	const str = `${this.prevNParam==nParam ? '' : '\n'}\tBIND param_${nParam}=`;
-		if (nParam != this.prevNParam)
-		{	this.curQueryLen = 0;
+	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date, curDataLen: number)
+	{	let str = '';
+		if (!(data instanceof Uint8Array))
+		{	str = `\n\tBIND param_${nParam}=`;
 		}
-		this.prevNParam = nParam;
+		else if (data.length == curDataLen)
+		{	str = `\n\tBIND param_${nParam}='`;
+		}
 		if (data instanceof Uint8Array)
-		{	data = this.countExceeding(data);
-			await this.write(dsn, connectionId, str);
-			await this.writeSqlString(dsn, connectionId, data);
+		{	if (str)
+			{	await this.write(dsn, connectionId, str);
+			}
+			const {addData, withEllipsis} = this.countExceeding(data, curDataLen);
+			await this.writeSqlString(dsn, connectionId, addData);
+			if (withEllipsis)
+			{	await this.write(dsn, connectionId, '…');
+			}
 		}
 		else
 		{	await this.write(dsn, connectionId, str + data);
 		}
 	}
 
-	execStart(dsn: Dsn, connectionId: number)
+	execParamEnd(dsn: Dsn, connectionId: number, _nParam: number, dataLen: number)
+	{	if (dataLen != -1)
+		{	return this.write(dsn, connectionId, "'");
+		}
+		else
+		{	return Promise.resolve();
+		}
+	}
+
+	execStart(dsn: Dsn, connectionId: number, _nQueryInBatch: number, _nQueriesInBatch: number)
 	{	return this.write(dsn, connectionId, '\n');
 	}
 
-	execEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined)
-	{	return this.logResult(dsn, connectionId, result);
+	execEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, nQueryInBatch: number, nQueriesInBatch: number)
+	{	return this.logResult(dsn, connectionId, result, -1, nQueryInBatch, nQueriesInBatch);
 	}
 
 	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
 	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
 	}
 
-	private countExceeding(data: Uint8Array)
-	{	this.curQueryLen += data.length;
-		const exceedingNegative = this.queryMaxBytes - this.curQueryLen;
+	private countExceeding(addData: Uint8Array, curDataLen: number)
+	{	let withEllipsis = false;
+		const exceedingNegative = this.queryMaxBytes - curDataLen;
 		if (exceedingNegative < 0)
-		{	data = data.subarray(0, exceedingNegative); // negative index (from the end of the array)
-			this.curQueryLen = this.queryMaxBytes;
+		{	withEllipsis = curDataLen-addData.length <= this.queryMaxBytes;
+			addData = addData.subarray(0, exceedingNegative); // negative index (from the end of the array)
 		}
-		return data;
+		return {addData, withEllipsis};
 	}
 
-	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId?: number)
-	{	if (--this.nQuery == 0)
+	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
+	{	if (nQueryInBatch+1 == nQueriesInBatch)
 		{	let str = `\t${(Date.now()-this.since) / 1000} sec`;
-			if (this.nQueries != 1)
-			{	str += ` (${this.nQueries} queries)`;
+			if (nQueriesInBatch != 1)
+			{	str += ` (${nQueriesInBatch} queries)`;
 			}
 			if (!result)
 			{	str += ` - ${this.msgOk}\n\n`;
@@ -167,10 +174,10 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			{	str += ` - ${this.msgError} ${result.message}\n\n`;
 			}
 			else if (result.columns.length != 0)
-			{	str += ` - ${this.msgOk} (${!stmtId ? '' : 'stmt_id='+stmtId+', '}${result.columns.length} columns)\n\n`;
+			{	str += ` - ${this.msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.columns.length} columns)\n\n`;
 			}
 			else
-			{	str += ` - ${this.msgOk} (${!stmtId ? '' : 'stmt_id='+stmtId+', '}${result.affectedRows} affected, ${result.foundRows} found, last_id ${result.lastInsertId})\n\n`;
+			{	str += ` - ${this.msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.affectedRows} affected, ${result.foundRows} found, last_id ${result.lastInsertId})\n\n`;
 			}
 			return this.write(dsn, connectionId, str);
 		}

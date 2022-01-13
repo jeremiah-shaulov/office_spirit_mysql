@@ -2,7 +2,6 @@ import {debugAssert} from "./debug_assert.ts";
 import {reallocAppend} from "./realloc_append.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
-import {Resultsets} from "./resultsets.ts";
 import {writeAll} from "./deps.ts";
 
 const MAX_BUFFER_SIZE = 1*1024*1024;
@@ -80,30 +79,39 @@ export class SqlLogToWriterBase implements SqlLogger
 				// buf
 				while (true)
 				{	let buf = byConn.get(connectionId);
-					if (buf)
-					{	if (connectionId!=this.prevConnectionId || dsn!=this.prevDsn)
-						{	this.prevDsn = dsn;
-							this.prevConnectionId = connectionId;
-							let banner = this.nextConnBanner(dsn, connectionId);
-							if (banner)
-							{	if (typeof(banner) == 'string')
-								{	banner = encoder.encode(banner);
-								}
-								await writeAll(this.writer, banner);
+					if (!buf)
+					{	break; // must not happen
+					}
+					if (connectionId!=this.prevConnectionId || dsn!=this.prevDsn)
+					{	this.prevDsn = dsn;
+						this.prevConnectionId = connectionId;
+						let banner = this.nextConnBanner(dsn, connectionId);
+						if (banner)
+						{	if (typeof(banner) == 'string')
+							{	banner = encoder.encode(banner);
 							}
+							await writeAll(this.writer, banner);
+							buf = byConn.get(connectionId)!;
 						}
-						const n = await this.writer.write(buf);
-						buf = byConn.get(connectionId);
-						if (!buf || n==buf.length)
-						{	byConn.delete(connectionId);
-							if (byConn.size == 0)
-							{	this.pending.delete(dsn);
-							}
-							break;
-						}
-						buf = buf.subarray(n);
+					}
+					if (buf.byteOffset != 0)
+					{	// in this case `reallocAppend()` can `copyWithin()` while `this.writer.write()` is working, so i'll do this now
+						const newBuf = new Uint8Array(buf.buffer);
+						newBuf.copyWithin(0, buf.byteOffset, buf.byteOffset+buf.length);
+						buf = newBuf.subarray(0, buf.length);
 						byConn.set(connectionId, buf);
 					}
+					const n = await this.writer.write(buf);
+					buf = byConn.get(connectionId);
+					if (!buf || n==buf.length)
+					{	byConn.delete(connectionId);
+						if (byConn.size == 0)
+						{	this.pending.delete(dsn);
+						}
+						break;
+					}
+					buf = buf.subarray(n);
+					byConn.set(connectionId, buf);
 				}
 			}
 		}
@@ -129,53 +137,5 @@ export class SqlLogToWriterBase implements SqlLogger
 		if (this.ongoing)
 		{	await this.ongoing;
 		}
-	}
-
-	connect(_dsn: Dsn, _connectionId: number)
-	{	return Promise.resolve();
-	}
-
-	resetConnection(_dsn: Dsn, _connectionId: number)
-	{	return Promise.resolve();
-	}
-
-	disconnect(_dsn: Dsn, _connectionId: number)
-	{	return Promise.resolve();
-	}
-
-	queryNew(_dsn: Dsn, _connectionId: number, _isPrepare: boolean, _previousResultNotRead: boolean)
-	{	return Promise.resolve();
-	}
-
-	querySql(_dsn: Dsn, _connectionId: number, _data: Uint8Array, _noBackslashEscapes: boolean)
-	{	return Promise.resolve();
-	}
-
-	queryStart(_dsn: Dsn, _connectionId: number)
-	{	return Promise.resolve();
-	}
-
-	queryEnd(_dsn: Dsn, _connectionId: number, _result: Resultsets<unknown>|Error, _stmtId?: number)
-	{	return Promise.resolve();
-	}
-
-	execNew(_dsn: Dsn, _connectionId: number, _stmtId: number)
-	{	return Promise.resolve();
-	}
-
-	execParam(_dsn: Dsn, _connectionId: number, _nParam: number, _data: Uint8Array|number|bigint|Date)
-	{	return Promise.resolve();
-	}
-
-	execStart(_dsn: Dsn, _connectionId: number)
-	{	return Promise.resolve();
-	}
-
-	execEnd(_dsn: Dsn, _connectionId: number, _result: Resultsets<unknown>|Error|undefined)
-	{	return Promise.resolve();
-	}
-
-	deallocatePrepare(_dsn: Dsn, _connectionId: number, _stmtId: number)
-	{	return Promise.resolve();
 	}
 }
