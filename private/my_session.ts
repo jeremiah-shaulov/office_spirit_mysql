@@ -51,13 +51,17 @@ export class MySession
 		{	conn.setSqlLogger(this.sqlLogger);
 		}
 		this.connsArr[this.connsArr.length] = conn;
+		for (let i=1; i<=this.savepointEnum; i++)
+		{	conn.sessionSavepoint(i);
+		}
 		return conn;
 	}
 
-	/**	If there're active transactions, they will be properly (2-phase if needed) committed.
+	/**	Commit current transaction (if any), and start new.
+		If there're active transactions, they will be properly (2-phase if needed) committed.
 		Then new transaction will be started on all connections in this session.
 		If then you'll ask a new connection, it will join the transaction.
-		If error occures, this function does rollback, and throws the Error.
+		If commit fails, this function does rollback, and throws the Error.
 	 **/
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
 	{	// 1. Commit
@@ -67,7 +71,7 @@ export class MySession
 		// 2. options
 		let readonly = !!options?.readonly;
 		const xa = !!options?.xa;
-		// 3. trxOptions
+		// 3. set this.trxOptions, this.curXaInfoTable, this.savepointEnum
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
 		if (xa)
@@ -87,62 +91,109 @@ export class MySession
 		const trxOptions = {readonly, xaId1};
 		this.trxOptions = trxOptions;
 		this.curXaInfoTable = curXaInfoTable;
+		this.savepointEnum = 0;
 		// 4. Start transaction
-		if (this.connsArr.length)
-		{	const promises = [];
-			for (const conn of this.connsArr)
-			{	promises[promises.length] = conn.startTrx(trxOptions);
-			}
-			await this.doAll(promises, true);
+		for (const conn of this.connsArr)
+		{	conn.startTrx(trxOptions); // this must return resolved promise
 		}
 	}
 
+	/**	Create session-level savepoint, and return it's ID number.
+		Then you can call `session.rollback(pointId)`.
+		This is lazy operation. The corresponding command will be sent to the server later.
+		Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
+		Using `MySession.savepoint()` doesn't interfere with `MyConn.savepoint()`, so it's possible to use both.
+	 **/
 	savepoint()
 	{	const pointId = ++this.savepointEnum;
-		const promises = [];
 		for (const conn of this.connsArr)
-		{	promises[promises.length] = conn.doSavepoint(pointId, `SAVEPOINT s${pointId}`);
+		{	conn.sessionSavepoint(pointId);
 		}
-		return this.doAll(promises);
 	}
 
-	rollback(toPointId?: number)
-	{	this.trxOptions = undefined;
-		this.curXaInfoTable = undefined;
+	/**	Rollback all the active transactions in this session.
+		If `toPointId` is not given or undefined - rolls back the whole transaction.
+		If `toPointId` is a number returned from `savepoint()` call, rolls back all the transactions to that point.
+		If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (also works with XAs).
+		If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
+		If `toPointId` was `0`, the transaction will be restarted after the disconnect if rollback failed.
+	 **/
+	async rollback(toPointId?: number)
+	{	let wantRestartXa;
+		if (typeof(toPointId)!='number' || toPointId===0)
+		{	if (toPointId === 0)
+			{	wantRestartXa = this.trxOptions;
+				toPointId = undefined;
+			}
+			this.trxOptions = undefined;
+			this.curXaInfoTable = undefined;
+			this.savepointEnum = 0;
+		}
 		const promises = [];
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.rollback(toPointId);
 		}
-		return this.doAll(promises);
+		try
+		{	await this.doAll(promises);
+		}
+		catch (e)
+		{	if (wantRestartXa)
+			{	await this.startTrx(wantRestartXa); // this must return resolved promise, and not throw exceptions
+			}
+			throw e;
+		}
 	}
 
-	commit()
+	/**	Commit all the active transactions in this session.
+		If the session transaction was started with `{xa: true}`, will do 2-phase commit.
+		If failed will rollback. If failed and `andChain` was true, will rollback and restart the same transaction (also XA).
+		If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
+	 **/
+	commit(andChain=false)
 	{	if (this.trxOptions && this.curXaInfoTable && this.connsArr.length)
 		{	return this.pool.forConn
-			(	infoTableConn => this.doCommit(infoTableConn),
+			(	infoTableConn => this.doCommit(andChain, infoTableConn),
 				this.curXaInfoTable.dsn
 			);
 		}
 		else
-		{	return this.doCommit();
+		{	return this.doCommit(andChain);
 		}
 	}
 
-	private async doCommit(infoTableConn?: MyConn)
+	private async doCommit(andChain: boolean, infoTableConn?: MyConn)
 	{	const {trxOptions, curXaInfoTable} = this;
 		this.trxOptions = undefined;
 		this.curXaInfoTable = undefined;
+		this.savepointEnum = 0;
 		if (this.connsArr.length)
 		{	// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
 			if (infoTableConn)
-			{	await infoTableConn.connect();
-				if (!infoTableConn.autocommit)
-				{	await infoTableConn.queryVoid("SET autocommit=1");
+			{	try
+				{	await infoTableConn.connect();
+					if (!infoTableConn.autocommit)
+					{	await infoTableConn.queryVoid("SET autocommit=1");
+					}
+				}
+				catch (e)
+				{	this.logger.error(e);
+					infoTableConn = undefined;
 				}
 			}
 			// 2. Call onBeforeCommit
 			if (this.onBeforeCommit)
-			{	await this.onBeforeCommit(this.conns);
+			{	try
+				{	await this.onBeforeCommit(this.conns);
+				}
+				catch (e)
+				{	try
+					{	await this.rollback(andChain ? 0 : undefined);
+					}
+					catch (e2)
+					{	this.logger.error(e2);
+					}
+					throw e;
+				}
 			}
 			// 3. Prepare commit
 			const promises = [];
@@ -152,17 +203,16 @@ export class MySession
 				}
 			}
 			if (promises.length)
-			{	await this.doAll(promises, true);
+			{	await this.doAll(promises, true, andChain);
 			}
 			// 4. Log to XA info table
-			let recordAdded = false;
 			if (trxOptions && curXaInfoTable && infoTableConn)
 			{	try
 				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
-					recordAdded = true;
 				}
 				catch (e)
 				{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsnStr}`, e);
+					infoTableConn = undefined;
 				}
 			}
 			// 5. Commit
@@ -172,7 +222,7 @@ export class MySession
 			}
 			await this.doAll(promises);
 			// 6. Remove record from XA info table
-			if (recordAdded && trxOptions && curXaInfoTable && infoTableConn)
+			if (trxOptions && curXaInfoTable && infoTableConn)
 			{	try
 				{	await infoTableConn.queryVoid(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 				}
@@ -180,10 +230,14 @@ export class MySession
 				{	this.logger.error(e);
 				}
 			}
+			// 7. andChain
+			if (andChain)
+			{	await this.startTrx({readonly: trxOptions?.readonly, xa: !!trxOptions?.xaId1});
+			}
 		}
 	}
 
-	private async doAll(promises: Promise<unknown>[], rollbackOnError=false)
+	private async doAll(promises: Promise<unknown>[], rollbackOnError=false, rollbackAndChain=false)
 	{	const result = await Promise.allSettled(promises);
 		let error;
 		for (const r of result)
@@ -199,7 +253,7 @@ export class MySession
 		if (error)
 		{	if (rollbackOnError)
 			{	try
-				{	await this.rollback();
+				{	await this.rollback(rollbackAndChain ? 0 : undefined);
 				}
 				catch (e2)
 				{	this.logger.debug(e2);

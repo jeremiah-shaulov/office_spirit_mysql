@@ -1072,243 +1072,6 @@ await pool.shutdown();
 - `Resultsets.nextResultset(): Promise<boolean>` - Advances to the next resultset of this query, if there is one. Returns true if moved to the next resultset.
 - `Resultsets.discard(): Promise<void>` - Reads and discards all the rows in all the resultsets of this query.
 
-## Transactions
-
-`MyConn` class has the following functions to work with transactions:
-
-```ts
-/**	Start transaction.
-	To start regular transaction, call `startTrx()` without parameters.
-	To start READONLY transaction, pass `{readonly: true}`.
-	To start distributed transaction, pass `{xaId: '...'}`.
-	If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
-	If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
- **/
-function MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
-
-/**	Creates transaction savepoint, and returns Id number of this new savepoint.
-	Then you can call `conn.rollback(pointId)`.
- **/
-function MyConn.savepoint(): Promise<number>;
-
-/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
-	Else does nothing.
-	If this function succeeded, the transaction will be saved on the server till you call `commit()`.
-	The saved transaction can survive server restart and unexpected halt.
-	You need to commit it as soon as possible, to release all the locks that it holds.
-	Usually, you want to prepare transactions on all servers, and immediately commit them, if `prepareCommit()` succeeded, or rollback them, if it failed.
-	If you create cross-server session with `pool.session()`, you can start and commit transaction on session level, and in this case no need to explicitly prepare the commit (`session.commit()` will do it implicitly).
- **/
-function MyConn.prepareCommit(): Promise<void>;
-
-/**	Rollback to a savepoint, or all.
-	If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
-	If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
-	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
-	If rollback fails, will disconnect from server and throw ServerDisconnectedError.
- **/
-function MyConn.rollback(toPointId?: number): Promise<void>;
-
-/**	Commit.
-	If the current transaction started with `{xa: true}`, i'll throw error, because you need to call `prepareCommit()` first.
-	If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
- **/
-function MyConn.commit(): Promise<void>;
-```
-
-To start a regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or rollback the whole transaction, or commit.
-
-```ts
-// To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
-// deno run --allow-env --allow-net /tmp/example19.ts
-
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
-
-const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
-
-await pool.forConn
-(	async conn =>
-	{	// CREATE DATABASE
-		await conn.query("DROP DATABASE IF EXISTS test1");
-		await conn.query("CREATE DATABASE `test1`");
-
-		// USE
-		await conn.query("USE test1");
-
-		// CREATE TABLE
-		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
-
-		// Start transaction
-		await conn.startTrx();
-
-		// Insert a row
-		await conn.query("INSERT INTO t_log SET a = 123");
-
-		// Ensure that the row is present
-		console.log(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first()); // prints: 123
-
-		// Rollback
-		await conn.rollback();
-
-		// The inserted row not persisted
-		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
-
-		// Drop database that i created
-		await conn.query("DROP DATABASE test1");
-	}
-);
-
-await pool.shutdown();
-```
-
-It's also possible to start a READONLY transaction:
-
-```ts
-await conn.startTrx({readonly: true});
-```
-
-Or a distributed transaction:
-
-```ts
-await conn.startTrx({xaId: Math.random()+''});
-// OR
-await conn.startTrx({xaId1: Math.random()+'-'});
-```
-
-If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and `conn.connectionId`.
-
-## Distributed (aka global) transactions
-
-Distributed transactions feature offers atomic operations across several servers.
-
-We can start transactions on multiple servers.
-Then we'll want to avoid the situation when some of them succeeded to commit, and some failed.
-Distributed transactions have special PREPARE COMMIT operation. If this operation succeeds, it's likely that COMMIT will then succeed as well.
-So the strategy is to PREPARE COMMIT on all servers, and then to COMMIT in case of success, or to ROLLBACK if PREPARE COMMIT failed on one of the servers.
-
-PREPARE COMMIT saves the transaction on the server permanently till COMMIT or ROLLBACK.
-Such saved transaction can survive server restart or unexpected halt.
-Transactions lock all table rows that they touched, so it's important to COMMIT or ROLLBACK them as soon as possible.
-If your application prepared some commit, and stumbled on an exception, or somebody terminated the application, or restarted the server on which it ran,
-such transaction becomes dangling. Dangling transactions can block database server and cause application failure.
-
-[Read more about distributed transactions](https://dev.mysql.com/doc/refman/8.0/en/xa.html).
-
-Some kind of transactions manager is needed when working with distributed transactions.
-
-This library provides transactions manager that you can use, or you can use your own one.
-
-When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
-
-- create session (`pool.session()`), and call `MySession.startTrx({xa: true})` on session object
-- specify `managedXaDsns` in pool options
-- optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
-
-Let's consider the following situation.
-We have 2 databases on 2 servers. But in dev environment and in this example they both will reside on the same server.
-In both databases we have table called `t_log`, and we want to replicate inserts to this table.
-We will also have 4 tables dedicated to the transactions manager: `test1.t_xa_info_1`, `test1.t_xa_info_2`, `test2.t_xa_info_1`, `test2.t_xa_info_2`.
-
-MySQL user for the application will be called `app`, and the manager user will be `manager`, and it will have permission to execute `XA RECOVER` as well as permission to work with info tables.
-
-```sql
-CREATE DATABASE test1;
-CREATE DATABASE test2;
-
-CREATE TABLE test1.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
-CREATE TABLE test2.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
-
--- XA Info tables
-CREATE TABLE test1.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
-CREATE TABLE test1.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
-CREATE TABLE test2.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
-CREATE TABLE test2.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
-
--- CREATE USER app
-CREATE USER app@localhost IDENTIFIED BY 'app';
-GRANT ALL ON test1.* TO app@localhost;
-GRANT ALL ON test2.* TO app@localhost;
-
--- CREATE USER manager
-CREATE USER manager@localhost IDENTIFIED BY 'manager';
-GRANT ALL ON test1.* TO manager@localhost;
-GRANT ALL ON test2.* TO manager@localhost;
-GRANT XA_RECOVER_ADMIN ON *.* TO manager@localhost;
-```
-
-Transactions manager tables are not required, but they will improve the management quality.
-There can be any number of such tables, and they can reside on one of the hosts where you issue queries (`test1`), or on several or all of them (`test1`, `test2`), or even on different host(s).
-For each transaction the manager will pick one random info table.
-Having multiple info tables distributes (balances) load between them.
-Single table under heavy load can be bottleneck.
-
-Transactions manager tables must have one column called `xa_id`, as defined above.
-If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
-
-```ts
-// To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
-// deno run --allow-env --allow-net /tmp/example20.ts
-
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
-
-const dsn1 = new Dsn('mysql://app:app@localhost/test1');
-const dsn2 = new Dsn('mysql://app:app@localhost/test2');
-
-const pool = new MyPool
-(	{	managedXaDsns:
-		[	'mysql://manager:manager@localhost/test1',
-			'mysql://manager:manager@localhost/test2',
-		],
-		xaInfoTables:
-		[	{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_1'},
-			{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_2'},
-			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_1'},
-			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_2'},
-		]
-	}
-);
-
-try
-{	await pool.session
-	(	async session =>
-		{	// Start distributed transaction
-			await session.startTrx({xa: true});
-
-			// Get connection objects (actual connection will be established on first query)
-			const conn1 = session.conn(dsn1);
-			const conn2 = session.conn(dsn2);
-
-			// Query
-			await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
-			await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
-
-			// 2-phase commit
-			await session.commit();
-		}
-	);
-}
-finally
-{	await pool.shutdown();
-}
-```
-
-When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
-This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, ID of chosen info table, and MySQL connection ID.
-
-When you call `session.commit()`, the 2-phase commit takes place on all the connections in this session.
-After the 1st phase succeeded, current XA ID is inserted to the chosen info table (in parallel connection in autocommit mode).
-And after successful 2nd phase, this record is deleted from the info table.
-
-Transactions manager periodically monitors `managedXaDsns` for dangling transactions - those whose MySQL connection is dead.
-If a dangling transaction found, it's either committed or rolled back.
-If a corresponding record is found in the corresponding info table, the transaction will be committed.
-If no record found, or there were no info tables, the transaction will be rolled back.
-If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
-
 ## SQL logging
 
 You can use different API functions to execute queries (`conn.query*()`, `conn.forQuery*()`, etc.), and some queries are generated internally.
@@ -1326,8 +1089,8 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
-// deno run --allow-env --allow-net /tmp/example21.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
+// deno run --allow-env --allow-net /tmp/example19.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
 
@@ -1464,12 +1227,14 @@ Here is how to subclass `SqlLogToWriter` to log to a file:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
-// deno run --allow-env --allow-net /tmp/example22.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
+// deno run --allow-env --allow-net --allow-write /tmp/example20.ts
 
 import {MyPool, SqlLogToWriter} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+const LOG_FILE = '/tmp/sql.log';
 
 class SqlLogToFile extends SqlLogToWriter
 {	protected closer: Deno.Closer;
@@ -1496,7 +1261,7 @@ try
 {	pool.forConn
 	(	async conn =>
 		{	// Enable SQL logger
-			conn.setSqlLogger(await SqlLogToFile.inst('/tmp/sql.log', !Deno.noColor));
+			conn.setSqlLogger(await SqlLogToFile.inst(LOG_FILE, !Deno.noColor));
 
 			// CREATE DATABASE
 			await conn.query("DROP DATABASE IF EXISTS test1");
@@ -1525,5 +1290,292 @@ finally
 console.log(`Result: ${result}`);
 ```
 
+To view the color-highlighted file we can do:
+
+```ts
+less -r /tmp/sql.log
+```
+
 You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/main/private/sql_log_to_writer.ts) how `SqlLogToWriter` class is implemented,
 and you can override it's public and protected methods to customize it's behavior.
+
+## Transactions
+
+`MyConn` class has the following functions to work with transactions:
+
+```ts
+/**	Commit current transaction (if any), and start new.
+	This is lazy operation. The corresponding command will be sent to the server later (however commit of the current transaction will happen immediately).
+	To start regular transaction, call `startTrx()` without parameters.
+	To start READONLY transaction, pass `{readonly: true}`.
+	To start distributed transaction, pass `{xaId: '...'}`.
+	If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
+	If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
+ **/
+function MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
+
+/**	Creates transaction savepoint, and returns ID number of this new savepoint.
+	Then you can call `conn.rollback(pointId)`.
+	This is lazy operation. The corresponding command will be sent to the server later.
+	Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
+ **/
+function MyConn.savepoint(): number;
+
+/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
+	Else does nothing.
+	If this function succeeds, the transaction will be saved on the server till you call `commit()`.
+	The saved transaction can survive server restart and unexpected halt.
+	You need to commit it as soon as possible, to release all the locks that it holds.
+	Usually, you want to prepare transactions on all servers, and immediately commit them if `prepareCommit()` succeeded, or rollback them if it failed.
+ **/
+function MyConn.prepareCommit(): Promise<void>;
+
+/**	Rollback to a savepoint, or all.
+	If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
+	If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
+	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
+	If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
+	If `toPointId` was `0` (not for XAs), the transaction will be restarted after the disconnect if rollback failed.
+ **/
+function MyConn.rollback(toPointId?: number): Promise<void>;
+
+/**	Commit.
+	If the current transaction is XA, and you didn't call `prepareCommit()` i'll throw error.
+	With `andChain` parameter will commit and then restart the same transaction (doesn't work with XAs).
+	If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
+ **/
+function MyConn.commit(andChain=false): Promise<void>;
+```
+
+To start a regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or rollback the whole transaction, or commit.
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
+// deno run --allow-env --allow-net /tmp/example21.ts
+
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
+
+const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+await pool.forConn
+(	async conn =>
+	{	// CREATE DATABASE
+		await conn.query("DROP DATABASE IF EXISTS test1");
+		await conn.query("CREATE DATABASE `test1`");
+
+		// USE
+		await conn.query("USE test1");
+
+		// CREATE TABLE
+		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
+
+		// Start transaction
+		await conn.startTrx();
+
+		// Insert a row
+		await conn.query("INSERT INTO t_log SET a = 123");
+
+		// Ensure that the row is present
+		console.log(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first()); // prints: 123
+
+		// Rollback
+		await conn.rollback();
+
+		// The inserted row not persisted
+		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
+
+		// Drop database that i created
+		await conn.query("DROP DATABASE test1");
+	}
+);
+
+await pool.shutdown();
+```
+
+It's also possible to start a READONLY transaction:
+
+```ts
+await conn.startTrx({readonly: true});
+```
+
+Or a distributed transaction:
+
+```ts
+await conn.startTrx({xaId: Math.random()+''});
+// OR
+await conn.startTrx({xaId1: Math.random()+'-'});
+```
+
+If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and `conn.connectionId` (the latter may be not known at this point if there's no connection to the server yet, so it will be appended later).
+
+Transaction-related functions are also present in `MySession` object.
+If you start a stransaction on the session level, all the connections in this session will have this transaction, and when you ask new connections, the current transaction with all the savepoints will be started there automatically.
+
+```ts
+/**	Commit current transaction (if any), and start new.
+	If there're active transactions, they will be properly (2-phase if needed) committed.
+	Then new transaction will be started on all connections in this session.
+	If then you'll ask a new connection, it will join the transaction.
+	If commit fails, this function does rollback, and throws the Error.
+ **/
+function MySession.startTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<void>;
+
+/**	Create session-level savepoint, and return it's ID number.
+	Then you can call `session.rollback(pointId)`.
+	This is lazy operation. The corresponding command will be sent to the server later.
+	Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
+	Using `MySession.savepoint()` doesn't interfere with `MyConn.savepoint()`, so it's possible to use both.
+ **/
+function MySession.savepoint(): number;
+
+/**	Rollback all the active transactions in this session.
+	If `toPointId` is not given or undefined - rolls back the whole transaction.
+	If `toPointId` is a number returned from `savepoint()` call, rolls back all the transactions to that point.
+	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (also works with XAs).
+	If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
+	If `toPointId` was `0`, the transaction will be restarted after the disconnect if rollback failed.
+ **/
+function MySession.rollback(toPointId?: number): Promise<void>;
+
+/**	Commit all the active transactions in this session.
+	If the session transaction was started with `{xa: true}`, will do 2-phase commit.
+	If failed will rollback. If failed and `andChain` was true, will rollback and restart the same transaction (also XA).
+	If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
+ **/
+function MySession.commit(andChain=false): Promise<void>;
+```
+
+## Distributed (aka global) transactions
+
+Distributed transactions feature offers atomic operations across several servers.
+
+We can start transactions on multiple servers.
+Then we'll want to avoid the situation when some of them succeeded to commit, and some failed.
+Distributed transactions have special PREPARE COMMIT operation. If this operation succeeds, it's likely that COMMIT will then succeed as well.
+So the strategy is to PREPARE COMMIT on all servers, and then to COMMIT in case of success, or to ROLLBACK if PREPARE COMMIT failed on one of the servers.
+
+PREPARE COMMIT saves the transaction on the server permanently till COMMIT or ROLLBACK.
+Such saved transaction can survive server restart or unexpected halt.
+Transactions lock all table rows that they touched, so it's important to COMMIT or ROLLBACK them as soon as possible.
+If your application prepared some commit, and stumbled on an exception, or somebody terminated the application, or restarted the server on which it ran,
+such transaction becomes dangling. Dangling transactions can block database server and cause application failure.
+
+[Read more about distributed transactions](https://dev.mysql.com/doc/refman/8.0/en/xa.html).
+
+Some kind of transactions manager is needed when working with distributed transactions.
+
+This library provides transactions manager that you can use, or you can use your own one.
+
+When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
+
+- create session (`pool.session()`), and call `MySession.startTrx({xa: true})` on session object
+- specify `managedXaDsns` in pool options
+- optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
+
+Let's consider the following situation.
+We have 2 databases on 2 servers. But in dev environment and in this example they both will reside on the same server.
+In both databases we have table called `t_log`, and we want to replicate inserts to this table.
+We will also have 4 tables dedicated to the transactions manager: `test1.t_xa_info_1`, `test1.t_xa_info_2`, `test2.t_xa_info_1`, `test2.t_xa_info_2`.
+
+MySQL user for the application will be called `app`, and the manager user will be `manager`, and it will have permission to execute `XA RECOVER` as well as permission to work with info tables.
+
+```sql
+CREATE DATABASE test1;
+CREATE DATABASE test2;
+
+CREATE TABLE test1.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
+CREATE TABLE test2.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
+
+-- XA Info tables
+CREATE TABLE test1.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test1.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test2.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
+CREATE TABLE test2.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
+
+-- CREATE USER app
+CREATE USER app@localhost IDENTIFIED BY 'app';
+GRANT ALL ON test1.* TO app@localhost;
+GRANT ALL ON test2.* TO app@localhost;
+
+-- CREATE USER manager
+CREATE USER manager@localhost IDENTIFIED BY 'manager';
+GRANT ALL ON test1.* TO manager@localhost;
+GRANT ALL ON test2.* TO manager@localhost;
+GRANT XA_RECOVER_ADMIN ON *.* TO manager@localhost;
+```
+
+Transactions manager tables are not required, but they will improve the management quality.
+There can be any number of such tables, and they can reside on one of the hosts where you issue queries (`test1`), or on several or all of them (`test1`, `test2`), or even on different host(s).
+For each transaction the manager will pick one random info table.
+Having multiple info tables distributes (balances) load between them.
+Single table under heavy load can be bottleneck.
+
+Transactions manager tables must have one column called `xa_id`, as defined above.
+If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
+
+```ts
+// To download and run this example:
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
+// deno run --allow-env --allow-net /tmp/example22.ts
+
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.6.0/mod.ts';
+
+const dsn1 = new Dsn('mysql://app:app@localhost/test1');
+const dsn2 = new Dsn('mysql://app:app@localhost/test2');
+
+const pool = new MyPool
+(	{	managedXaDsns:
+		[	'mysql://manager:manager@localhost/test1',
+			'mysql://manager:manager@localhost/test2',
+		],
+		xaInfoTables:
+		[	{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_1'},
+			{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_2'},
+			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_1'},
+			{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_2'},
+		]
+	}
+);
+
+try
+{	await pool.session
+	(	async session =>
+		{	// Enable SQL logger
+			session.setSqlLogger(true);
+
+			// Start distributed transaction
+			await session.startTrx({xa: true});
+
+			// Get connection objects (actual connection will be established on first query)
+			const conn1 = session.conn(dsn1);
+			const conn2 = session.conn(dsn2);
+
+			// Query
+			await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
+			await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
+
+			// 2-phase commit
+			await session.commit();
+		}
+	);
+}
+finally
+{	await pool.shutdown();
+}
+```
+
+When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
+This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, ID of chosen info table, and MySQL connection ID.
+
+When you call `session.commit()`, the 2-phase commit takes place on all the connections in this session.
+After the 1st phase succeeded, current XA ID is inserted to the chosen info table (in parallel connection in autocommit mode).
+And after successful 2nd phase, this record is deleted from the info table.
+
+Transactions manager periodically monitors `managedXaDsns` for dangling transactions - those whose MySQL connection is dead.
+If a dangling transaction found, it's either committed or rolled back.
+If a corresponding record is found in the corresponding info table, the transaction will be committed.
+If no record found, or there were no info tables, the transaction will be rolled back.
+If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
