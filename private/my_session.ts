@@ -1,5 +1,5 @@
 import {Dsn} from './dsn.ts';
-import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc} from './my_conn.ts';
+import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
 import {SqlLogger} from "./sql_logger.ts";
@@ -110,6 +110,7 @@ export class MySession
 		for (const conn of this.connsArr)
 		{	conn.sessionSavepoint(pointId);
 		}
+		return SAVEPOINT_ENUM_SESSION_FROM + pointId;
 	}
 
 	/**	Rollback all the active transactions in this session.
@@ -120,28 +121,53 @@ export class MySession
 		If `toPointId` was `0`, the transaction will be restarted after the disconnect if rollback failed.
 	 **/
 	async rollback(toPointId?: number)
-	{	let wantRestartXa;
-		if (typeof(toPointId)!='number' || toPointId===0)
-		{	if (toPointId === 0)
-			{	wantRestartXa = this.trxOptions;
-				toPointId = undefined;
-			}
-			this.trxOptions = undefined;
+	{	let wantRestartXa = false;
+		if (typeof(toPointId) != 'number')
+		{	this.trxOptions = undefined;
 			this.curXaInfoTable = undefined;
 			this.savepointEnum = 0;
+		}
+		else if (toPointId === 0)
+		{	if (this.trxOptions?.xaId1)
+			{	wantRestartXa = true;
+				toPointId = undefined;
+				this.trxOptions = undefined;
+				this.curXaInfoTable = undefined;
+			}
+			this.savepointEnum = 0;
+		}
+		else if (toPointId <= SAVEPOINT_ENUM_SESSION_FROM)
+		{	throw new Error(`No such SAVEPOINT: ${toPointId}`);
+		}
+		else
+		{	this.savepointEnum = toPointId - (SAVEPOINT_ENUM_SESSION_FROM + 1);
 		}
 		const promises = [];
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.rollback(toPointId);
 		}
+		let error;
 		try
 		{	await this.doAll(promises);
 		}
 		catch (e)
-		{	if (wantRestartXa)
-			{	await this.startTrx(wantRestartXa); // this must return resolved promise, and not throw exceptions
+		{	error = e;
+		}
+		if (wantRestartXa)
+		{	try
+			{	await this.startTrx(wantRestartXa ? {xa: true} : undefined); // this must return resolved promise, and not throw exceptions
 			}
-			throw e;
+			catch (e)
+			{	if (!error)
+				{	error = e;
+				}
+				else
+				{	this.logger.error(e);
+				}
+			}
+		}
+		if (error)
+		{	throw error;
 		}
 	}
 

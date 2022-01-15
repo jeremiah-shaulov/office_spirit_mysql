@@ -13,6 +13,8 @@ export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Prom
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
 export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
+export const SAVEPOINT_ENUM_SESSION_FROM = 0x4000_0000;
+
 const C_COMMA = ','.charCodeAt(0);
 const C_AT = '@'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
@@ -331,12 +333,16 @@ export class MyConn
 	 **/
 	async rollback(toPointId?: number)
 	{	const {protocol, curXaId} = this;
-		if (typeof(toPointId)=='number' && toPointId>0)
+		if (typeof(toPointId)=='number' && toPointId!==0)
 		{	// Rollback to a savepoint, and leave the transaction started
+			const isOfSession = toPointId >= SAVEPOINT_ENUM_SESSION_FROM;
+			if (isOfSession)
+			{	toPointId -= SAVEPOINT_ENUM_SESSION_FROM;
+			}
 			const {pendingTrxSql} = this;
 			for (let i=pendingTrxSql.length-1; i>=0; i--)
 			{	const sql = pendingTrxSql[i];
-				if (!sql.startsWith('SAVEPOINT p'))
+				if (!sql.startsWith(isOfSession ? 'SAVEPOINT s' : 'SAVEPOINT p'))
 				{	break;
 				}
 				if (Number(sql.slice(11)) == toPointId)
@@ -345,10 +351,10 @@ export class MyConn
 				}
 			}
 			if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	await this.doQuery(`ROLLBACK TO p${toPointId}`); // doQuery() will also flush this.pendingTrxSql
+			{	await this.doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId); // doQuery() will also flush this.pendingTrxSql
 			}
 			else
-			{	throw new Error(`No such SAVEPOINT: ${toPointId}`);
+			{	throw new Error(`No such SAVEPOINT: ${isOfSession ? SAVEPOINT_ENUM_SESSION_FROM+toPointId : toPointId}`);
 			}
 		}
 		else
