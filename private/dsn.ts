@@ -108,7 +108,7 @@ export class Dsn
 	{	return this.#reconnectInterval;
 	}
 	set reconnectInterval(value: number)
-	{	this.#reconnectInterval = Math.max(0, value) || NaN;
+	{	this.#reconnectInterval = Math.max(0, value);
 		this.updateName();
 	}
 
@@ -212,7 +212,7 @@ export class Dsn
 		const multiStatements = url.searchParams.get('multiStatements');
 		const retryQueryTimes = url.searchParams.get('retryQueryTimes');
 		this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
-		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) || NaN : NaN;
+		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 		this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
 		this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
 		this.#maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;

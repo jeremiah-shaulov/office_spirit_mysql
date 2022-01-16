@@ -30,17 +30,20 @@ Deno.test
 		assertEquals(dsn.password, '');
 		assertEquals(dsn.schema, '');
 		assertEquals(dsn.pipe, '');
+		assertEquals(isNaN(dsn.connectionTimeout), true);
+		assertEquals(isNaN(dsn.reconnectInterval), true);
 		assertEquals(isNaN(dsn.keepAliveTimeout), true);
 		assertEquals(isNaN(dsn.keepAliveMax), true);
 		assertEquals(isNaN(dsn.maxColumnLen), true);
 		assertEquals(dsn.foundRows, false);
 		assertEquals(dsn.ignoreSpace, false);
 		assertEquals(dsn.multiStatements, false);
+		assertEquals(isNaN(dsn.retryQueryTimes), true);
 		assertEquals(dsn.initSql, '');
 		assertEquals(dsn+'', 'mysql://[::1]:3307/');
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: '::1', port: 3307});
 
-		dsnName = 'mysql://johnny@[::1]/?keepAliveTimeout=123#SET group_concat_max_len=65000';
+		dsnName = 'mysql://johnny@[::1]/?connectionTimeout=123&reconnectInterval=234&keepAliveTimeout=345&retryQueryTimes=456#SET group_concat_max_len=65000';
 		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, '::1');
 		assertEquals(dsn.port, 3306);
@@ -48,17 +51,20 @@ Deno.test
 		assertEquals(dsn.password, '');
 		assertEquals(dsn.schema, '');
 		assertEquals(dsn.pipe, '');
-		assertEquals(dsn.keepAliveTimeout, 123);
+		assertEquals(dsn.connectionTimeout, 123);
+		assertEquals(dsn.reconnectInterval, 234);
+		assertEquals(dsn.keepAliveTimeout, 345);
 		assertEquals(isNaN(dsn.keepAliveMax), true);
 		assertEquals(isNaN(dsn.maxColumnLen), true);
 		assertEquals(dsn.foundRows, false);
 		assertEquals(dsn.ignoreSpace, false);
 		assertEquals(dsn.multiStatements, false);
+		assertEquals(dsn.retryQueryTimes, 456);
 		assertEquals(dsn.initSql, 'SET group_concat_max_len=65000');
-		assertEquals(dsn+'', 'mysql://johnny@[::1]/?keepAliveTimeout=123#'+encodeURIComponent('SET group_concat_max_len=65000'));
+		assertEquals(dsn+'', 'mysql://johnny@[::1]/?connectionTimeout=123&reconnectInterval=234&keepAliveTimeout=345&retryQueryTimes=456#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: '::1', port: 3306});
 
-		dsnName = 'mysql://johnny:hello@localhost/information_schema?keepAliveTimeout=-123#SET group_concat_max_len=65000';
+		dsnName = 'mysql://johnny:hello@localhost/information_schema?connectionTimeout=-123&reconnectInterval=-234&keepAliveTimeout=-345&retryQueryTimes=-456#SET group_concat_max_len=65000';
 		dsn = new Dsn(dsnName);
 		assertEquals(dsn.hostname, 'localhost');
 		assertEquals(dsn.port, 3306);
@@ -66,14 +72,17 @@ Deno.test
 		assertEquals(dsn.password, 'hello');
 		assertEquals(dsn.schema, 'information_schema');
 		assertEquals(dsn.pipe, '');
+		assertEquals(dsn.connectionTimeout, 0);
+		assertEquals(dsn.reconnectInterval, 0);
 		assertEquals(dsn.keepAliveTimeout, 0);
 		assertEquals(isNaN(dsn.keepAliveMax), true);
 		assertEquals(isNaN(dsn.maxColumnLen), true);
 		assertEquals(dsn.foundRows, false);
 		assertEquals(dsn.ignoreSpace, false);
 		assertEquals(dsn.multiStatements, false);
+		assertEquals(dsn.retryQueryTimes, 0);
 		assertEquals(dsn.initSql, 'SET group_concat_max_len=65000');
-		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?keepAliveTimeout=0#'+encodeURIComponent('SET group_concat_max_len=65000'));
+		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?connectionTimeout=0&reconnectInterval=0&keepAliveTimeout=0&retryQueryTimes=0#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
 
 		dsnName = 'mysql://johnny:hello@localhost/information_schema?keepAliveMax=1234.1&maxColumnLen=1000&foundRows&ignoreSpace# SET group_concat_max_len=65000  ';
@@ -84,12 +93,15 @@ Deno.test
 		assertEquals(dsn.password, 'hello');
 		assertEquals(dsn.schema, 'information_schema');
 		assertEquals(dsn.pipe, '');
+		assertEquals(isNaN(dsn.connectionTimeout), true);
+		assertEquals(isNaN(dsn.reconnectInterval), true);
 		assertEquals(isNaN(dsn.keepAliveTimeout), true);
 		assertEquals(dsn.keepAliveMax, 1234);
 		assertEquals(dsn.maxColumnLen, 1000);
 		assertEquals(dsn.foundRows, true);
 		assertEquals(dsn.ignoreSpace, true);
 		assertEquals(dsn.multiStatements, false);
+		assertEquals(isNaN(dsn.retryQueryTimes), true);
 		assertEquals(dsn.initSql, 'SET group_concat_max_len=65000');
 		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?keepAliveMax=1234&maxColumnLen=1000&foundRows&ignoreSpace#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
@@ -102,12 +114,15 @@ Deno.test
 		assertEquals(dsn.password, 'hello');
 		assertEquals(dsn.schema, 'information_schema');
 		assertEquals(dsn.pipe, '/var/run/my.sock');
+		assertEquals(isNaN(dsn.connectionTimeout), true);
+		assertEquals(isNaN(dsn.reconnectInterval), true);
 		assertEquals(isNaN(dsn.keepAliveTimeout), true);
 		assertEquals(isNaN(dsn.keepAliveMax), true);
 		assertEquals(isNaN(dsn.maxColumnLen), true);
 		assertEquals(dsn.foundRows, false);
 		assertEquals(dsn.ignoreSpace, false);
 		assertEquals(dsn.multiStatements, true);
+		assertEquals(isNaN(dsn.retryQueryTimes), true);
 		assertEquals(dsn.initSql, '');
 		assertEquals(dsn+'', 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements');
 		assertEquals(dsn.addr, {transport: 'unix', path: '/var/run/my.sock'});
@@ -168,6 +183,26 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/?multiStatements');
 		dsn.schema = 'def';
 		assertEquals(dsn.schema, 'def');
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.connectionTimeout = 3;
+		assertEquals(dsn.connectionTimeout, 3);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?connectionTimeout=3&multiStatements');
+		dsn.connectionTimeout = -3;
+		assertEquals(dsn.connectionTimeout, 0);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?connectionTimeout=0&multiStatements');
+		dsn.connectionTimeout = NaN;
+		assertEquals(dsn.connectionTimeout, NaN);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
+
+		dsn.reconnectInterval = 3;
+		assertEquals(dsn.reconnectInterval, 3);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?reconnectInterval=3&multiStatements');
+		dsn.reconnectInterval = -3;
+		assertEquals(dsn.reconnectInterval, 0);
+		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?reconnectInterval=0&multiStatements');
+		dsn.reconnectInterval = NaN;
+		assertEquals(dsn.reconnectInterval, NaN);
 		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def?multiStatements');
 
 		dsn.keepAliveTimeout = 3;
