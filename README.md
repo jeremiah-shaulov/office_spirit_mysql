@@ -201,6 +201,7 @@ If your query didn't return rows (query like `INSERT`), then these methods work 
 and `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
 
 If there're rows, you need to iterate them to the end, before you can execute another query.
+Executing another query while there're unread resultsets throws `BusyError`.
 You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 
 ```ts
