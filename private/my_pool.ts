@@ -12,7 +12,7 @@ const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
 const DEFAULT_MAX_CONNS_WAIT_QUEUE = 50;
 const DEFAULT_CONNECTION_TIMEOUT_MSEC = 5000;
-const DEFAULT_RECONNECT_INTERVAL_MSEC = 1000;
+const DEFAULT_RECONNECT_INTERVAL_MSEC = 500;
 const DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH_MSEC = 1000;
@@ -170,10 +170,10 @@ export class MyPool
 			{	return false;
 			}
 			const iterTill = Math.min(till, now + reconnectInterval);
-			const promise_yes = new Promise<void>(y => {this.haveSlotsCallbacks.push({y, till: iterTill})});
+			const promiseYes = new Promise<void>(y => {this.haveSlotsCallbacks.push({y, till: iterTill})});
 			let hTimer;
-			const promise_no = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
-			await Promise.race([promise_yes, promise_no]);
+			const promiseNo = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
+			await Promise.race([promiseYes, promiseNo]);
 			clearTimeout(hTimer);
 		}
 		return true;
@@ -245,15 +245,12 @@ export class MyPool
 				{	throw e;
 				}
 				if (this.curRetryingPromise)
-				{	if
-					(	true !== await Promise.race
-						(	[	this.curRetryingPromise, // `this.curRetryingPromise` resolves to `true`
-								new Promise(y => {setTimeout(y, connectTill-now)})
-							]
-						)
-					)
+				{	let hTimer;
+					const promiseNo = new Promise(y => {hTimer = setTimeout(y, connectTill-now)});
+					if (true !== await Promise.race([this.curRetryingPromise, promiseNo])) // `this.curRetryingPromise` resolves to `true`
 					{	throw e;
 					}
+					clearTimeout(hTimer);
 				}
 				else
 				{	const wait = Math.min(reconnectInterval, connectTill-now);

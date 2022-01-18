@@ -776,9 +776,7 @@ L:		while (true)
 		{	if ((e instanceof SqlError) && e.message=='Unknown command')
 			{	this.logger.warn(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
 			}
-			else
-			{	throw e;
-			}
+			throw e;
 		}
 		if (schema)
 		{	await this.readPacket();

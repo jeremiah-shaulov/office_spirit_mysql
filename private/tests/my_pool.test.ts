@@ -7,6 +7,13 @@ import {withDocker} from "./with_docker.ts";
 import {writeAll, readAll, copy} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
 
+/*	Option 1. Run tests using already existing and running database server:
+		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=private/tests/coverage/profile private/tests
+
+	Option 2. Use docker to download and run various database servers during testing:
+		rm -r private/tests/coverage/profile; WITH_DOCKER=1 deno test --fail-fast --unstable --allow-all --coverage=private/tests/coverage/profile private/tests
+ */
+
 const {TESTS_DSN, WITH_DOCKER} = Deno.env.toObject();
 
 const encoder = new TextEncoder;
@@ -948,7 +955,9 @@ async function testInitSql(dsnStr: string)
 		await pool.forConn
 		(	async conn =>
 			{	await conn.connect();
-				assertEquals(conn.connectionId, connectionId);
+				if (isResetConnectioSupported(conn.serverVersion))
+				{	assertEquals(conn.connectionId, connectionId);
+				}
 
 				let value = await conn.queryCol("SELECT @myvar1").first();
 				if (value instanceof Uint8Array)
@@ -956,9 +965,7 @@ async function testInitSql(dsnStr: string)
 				}
 				assertEquals(value, 'all');
 
-				if (isResetConnectioSupported(conn.serverVersion))
-				{	assertEquals(await conn.queryCol("SELECT @myvar2").first(), null);
-				}
+				assertEquals(await conn.queryCol("SELECT @myvar2").first(), null);
 			}
 		);
 	}
