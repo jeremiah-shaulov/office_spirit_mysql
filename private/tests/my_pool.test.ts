@@ -1677,7 +1677,7 @@ async function testMaxConns(dsnStr: string)
 					await conn2.connect();
 
 					let error;
-					let since = Date.now();
+					const since = Date.now();
 					try
 					{	const conn3 = session.conn(undefined, true);
 						await conn3.connect();
