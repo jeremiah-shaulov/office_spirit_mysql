@@ -86,6 +86,10 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private curLastColumnReader: Deno.Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
+	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
+	{	super(conn, decoder, useBuffer);
+	}
+
 	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger?: Logger): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
 		if (username.length > 256) // must fit packet
@@ -98,7 +102,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	throw new SqlError('Schema name is too long');
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
-		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer);
+		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer, dsn);
 		protocol.initSchema = schema;
 		protocol.initSql = initSql;
 		if (maxColumnLen > 0)
@@ -1889,7 +1893,7 @@ L:		while (true)
 			const buffer = this.recycleBuffer();
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.conn, this.decoder, buffer);
+				const protocol = new MyProtocol(this.conn, this.decoder, buffer, this.dsn);
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;

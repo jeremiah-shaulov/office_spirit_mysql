@@ -43,6 +43,7 @@ class SqlSelectGenerator
 
 const TESTS =
 [	testBasic,
+	testNoDsn,
 	testPrepared,
 	testVariousColumnTypes,
 	testSqlError,
@@ -55,6 +56,7 @@ const TESTS =
 	testManyPlaceholders2,
 	testTrx,
 	testRetryQueryTimes,
+	testMaxConns,
 	testLoadBigDump,
 ];
 
@@ -450,9 +452,37 @@ async function testBasic(dsnStr: string)
 	}
 }
 
+async function testNoDsn(_dsnStr: string)
+{	let pool = new MyPool;
+	let error;
+	try
+	{	await pool.forConn(() => Promise.resolve());
+	}
+	catch (e)
+	{	error = e;
+	}
+	finally
+	{	await pool.shutdown();
+	}
+	assertEquals(error?.message, 'DSN not provided, and also default DSN was not specified');
+
+	pool = new MyPool('');
+	error = undefined;
+	try
+	{	await pool.forConn(() => Promise.resolve());
+	}
+	catch (e)
+	{	error = e;
+	}
+	finally
+	{	await pool.shutdown();
+	}
+	assertEquals(error?.message, 'DSN not provided, and also default DSN was not specified');
+}
+
 async function testPrepared(dsnStr: string)
 {	const N_ROWS = 3;
-	const pool = new MyPool(dsnStr);
+	const pool = new MyPool;
 
 	try
 	{	pool.forConn
@@ -530,7 +560,8 @@ async function testPrepared(dsnStr: string)
 
 				// Drop database that i created
 				await conn.query("DROP DATABASE test1");
-			}
+			},
+			dsnStr
 		);
 	}
 	finally
@@ -1610,6 +1641,69 @@ async function testRetryQueryTimes(dsnStr: string)
 
 				// Drop database that i created
 				await conn.query("DROP DATABASE test1");
+			}
+		);
+	}
+	finally
+	{	await pool.shutdown();
+	}
+}
+
+async function testMaxConns(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.connectionTimeout = 0;
+	const pool = new MyPool(dsn);
+
+	const maxConns = 2;
+	pool.options({maxConns, maxConnsWaitQueue: 1});
+
+	try
+	{	pool.session
+		(	async session =>
+			{	const conn1 = session.conn(undefined, true);
+				await conn1.connect();
+
+				const conn2 = session.conn(undefined, true);
+				await conn2.connect();
+
+				// with connectionTimeout==0, maxConnsWaitQueue==1
+				let error;
+				let since = Date.now();
+				try
+				{	const conn3 = session.conn(undefined, true);
+					await conn3.connect();
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
+				assertEquals(Date.now()-since < 400, true);
+
+				// with connectionTimeout==401, maxConnsWaitQueue==1
+				dsn.connectionTimeout = 401;
+				since = Date.now();
+				try
+				{	const conn3 = session.conn(undefined, true);
+					await conn3.connect();
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
+				assertEquals(Date.now()-since > 400, true);
+
+				// with connectionTimeout==401, maxConnsWaitQueue==0
+				pool.options({maxConnsWaitQueue: 0});
+				since = Date.now();
+				try
+				{	const conn3 = session.conn(undefined, true);
+					await conn3.connect();
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
+				assertEquals(Date.now()-since < 400, true);
 			}
 		);
 	}

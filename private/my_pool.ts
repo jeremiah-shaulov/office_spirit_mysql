@@ -10,18 +10,22 @@ import {crc32} from "./deps.ts";
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS = 250;
-const DEFAULT_CONNECTION_TIMEOUT = 5000;
+const DEFAULT_MAX_CONNS_WAIT_QUEUE = 50;
+const DEFAULT_CONNECTION_TIMEOUT_MSEC = 5000;
 const DEFAULT_RECONNECT_INTERVAL_MSEC = 1000;
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
-const KEEPALIVE_CHECK_EACH = 1000;
-const DEFAULT_DANGLING_XA_CHECK_EACH = 6000;
+const KEEPALIVE_CHECK_EACH_MSEC = 1000;
+const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
 
 export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
 export interface MyPoolOptions
 {	dsn?: Dsn | string;
 	maxConns?: number;
+	/**	Like backlog. When there're `maxConns` connections, next connections will wait.
+	 **/
+	maxConnsWaitQueue?: number;
 	onLoadFile?: OnLoadFile;
 	onBeforeCommit?: OnBeforeCommit;
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
@@ -44,12 +48,14 @@ export class MyPool
 	private nSessionsOrConns = 0;
 	private hTimer: number | undefined;
 	private xaTask: XaTask;
-	private haveSlotsCallbacks: (() => void)[] = [];
+	private haveSlotsCallbacks: {y: () => void, till: number}[] = [];
+	private curRetryingPromise: Promise<true> | undefined;
 	private isShutDown = false;
 	private onend: (() => void) | undefined;
 
 	private dsn: Dsn | undefined;
 	private maxConns = DEFAULT_MAX_CONNS;
+	private maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
 	private onLoadFile: OnLoadFile|undefined;
 	private onBeforeCommit: OnBeforeCommit|undefined;
 
@@ -68,7 +74,7 @@ export class MyPool
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
+			const {dsn, maxConns, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -79,6 +85,10 @@ export class MyPool
 			// maxConns
 			if (typeof(maxConns) == 'number')
 			{	this.maxConns = maxConns>0 ? maxConns : DEFAULT_MAX_CONNS;
+			}
+			// maxConnsWaitQueue
+			if (typeof(maxConnsWaitQueue) == 'number')
+			{	this.maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
 			}
 			// onLoadFile
 			this.onLoadFile = onLoadFile;
@@ -107,7 +117,7 @@ export class MyPool
 			}
 			// xaCheckEach
 			if (typeof(xaCheckEach)=='number')
-			{	this.xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH;
+			{	this.xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 			}
 			// xaInfoTables
 			if (xaInfoTables)
@@ -126,8 +136,8 @@ export class MyPool
 			// logger
 			this.xaTask.logger = logger ?? console;
 		}
-		const {dsn, maxConns, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, logger}} = this;
-		return {dsn, maxConns, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
+		const {dsn, maxConns, maxConnsWaitQueue, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, logger}} = this;
+		return {dsn, maxConns, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
 	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
@@ -142,14 +152,31 @@ export class MyPool
 		await this.closeKeptAliveTimedOut(true);
 	}
 
-	haveSlots(): boolean
+	haveSlots()
 	{	return this.nBusyAll < this.maxConns;
 	}
 
-	async waitHaveSlots(): Promise<void>
-	{	while (this.nBusyAll >= this.maxConns)
-		{	await new Promise<void>(y => {this.haveSlotsCallbacks.push(y)});
+	private async waitHaveSlots(till: number, reconnectInterval: number)
+	{	if (!(reconnectInterval >= 0))
+		{	reconnectInterval = DEFAULT_RECONNECT_INTERVAL_MSEC;
 		}
+		while (this.nBusyAll >= this.maxConns)
+		{	this.closeHaveSlotsTimedOut();
+			const now = Date.now();
+			if (now >= till) // with connectionTimeout==0 must not retry
+			{	return false;
+			}
+			if (this.haveSlotsCallbacks.length >= this.maxConnsWaitQueue)
+			{	return false;
+			}
+			const iterTill = Math.min(till, now + reconnectInterval);
+			const promise_yes = new Promise<void>(y => {this.haveSlotsCallbacks.push({y, till: iterTill})});
+			let hTimer;
+			const promise_no = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
+			await Promise.race([promise_yes, promise_no]);
+			clearTimeout(hTimer);
+		}
+		return true;
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
@@ -203,8 +230,8 @@ export class MyPool
 
 	private async newConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	const unusedBuffer = this.unusedBuffers.pop();
-		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT;
-		const reconnectInterval = dsn.reconnectInterval>0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
+		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
+		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
 		let now = Date.now();
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
@@ -212,14 +239,37 @@ export class MyPool
 			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, sqlLogger, this.xaTask.logger);
 			}
 			catch (e)
-			{	// with connectTill==0 must not retry
+			{	// with connectionTimeout==0 must not retry
 				now = Date.now();
-				if (now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
+				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
 				{	throw e;
 				}
-				const wait = Math.min(reconnectInterval, connectTill-now);
-				this.xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
-				await new Promise(y => setTimeout(y, wait));
+				if (this.curRetryingPromise)
+				{	if
+					(	true !== await Promise.race
+						(	[	this.curRetryingPromise, // `this.curRetryingPromise` resolves to `true`
+								new Promise(y => {setTimeout(y, connectTill-now)})
+							]
+						)
+					)
+					{	throw e;
+					}
+				}
+				else
+				{	const wait = Math.min(reconnectInterval, connectTill-now);
+					this.xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
+					this.curRetryingPromise = new Promise
+					(	y =>
+						setTimeout
+						(	() =>
+							{	this.curRetryingPromise = undefined;
+								y(true);
+							},
+							wait
+						)
+					);
+					await this.curRetryingPromise;
+				}
 			}
 		}
 	}
@@ -241,7 +291,7 @@ export class MyPool
 
 	private decNBusyAll()
 	{	const nBusyAll = --this.nBusyAll;
-		let n = this.haveSlotsCallbacks.length;
+		const n = this.haveSlotsCallbacks.length;
 		if (n == 0)
 		{	if (nBusyAll == 0)
 			{	if (this.nIdleAll == 0)
@@ -254,8 +304,8 @@ export class MyPool
 			}
 		}
 		else if (nBusyAll < this.maxConns)
-		{	while (n-- > 0)
-			{	this.haveSlotsCallbacks[n]();
+		{	for (let i=0; i<n; i++)
+			{	this.haveSlotsCallbacks[i].y();
 			}
 			this.haveSlotsCallbacks.length = 0;
 		}
@@ -263,10 +313,23 @@ export class MyPool
 
 	private async getConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
-		while (this.nBusyAll >= this.maxConns)
-		{	await new Promise<void>(y => {this.haveSlotsCallbacks.push(y)});
+		// 1. Wait for a free slot
+		if (this.nBusyAll >= this.maxConns)
+		{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
+			const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
+			const till = Date.now() + connectionTimeout;
+			while (true)
+			{	if (Date.now()>=till || !await this.waitHaveSlots(till, reconnectInterval))
+				{	throw new Error(`All the ${this.maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
+				}
+				// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
+				if (this.nBusyAll < this.maxConns)
+				{	break;
+				}
+			}
 		}
-		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT;
+		// 2. Connect
+		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
 		let conns = this.connsPool.get(dsn.name);
 		if (!conns)
@@ -304,7 +367,7 @@ export class MyPool
 			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
 			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
 			if (this.hTimer == undefined)
-			{	this.hTimer = setInterval(() => {this.closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH);
+			{	this.hTimer = setInterval(() => {this.closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
 				this.xaTask.start();
 			}
 			busy.push(conn);
@@ -317,13 +380,22 @@ export class MyPool
 	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
 		(	protocolOrBuffer =>
-			{	const conns = this.connsPool.get(dsn.name);
-				if (!conns)
-				{	// assume: returnConn() already called for this connection
-					return;
+			{	let conns = this.connsPool.get(dsn.name);
+				let i = -1;
+				if (conns)
+				{	i = conns.busy.indexOf(conn);
 				}
-				const i = conns.busy.indexOf(conn);
 				if (i == -1)
+				{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.name)` was not found, because the `dsn.name` changed
+					for (const conns2 of this.connsPool.values())
+					{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
+						if (i != -1)
+						{	conns = conns2;
+							break;
+						}
+					}
+				}
+				if (!conns || i==-1)
 				{	// assume: returnConn() already called for this connection
 					return;
 				}
@@ -368,7 +440,22 @@ export class MyPool
 		if (closeAllIdle)
 		{	promises[promises.length] = this.xaTask.stop();
 		}
+		this.closeHaveSlotsTimedOut();
 		return Promise.all(promises);
+	}
+
+	private closeHaveSlotsTimedOut()
+	{	const now = Date.now();
+		const {haveSlotsCallbacks} = this;
+		let n = haveSlotsCallbacks.length;
+		for (let i=n-1; i>=0; i--)
+		{	if (now >= haveSlotsCallbacks[i].till)
+			{	const {y} = haveSlotsCallbacks[i];
+				haveSlotsCallbacks[i] = haveSlotsCallbacks[--n];
+				y();
+			}
+		}
+		haveSlotsCallbacks.length = n;
 	}
 
 	private closeExceedingIdleConns(idle: MyProtocol[])
@@ -404,7 +491,7 @@ export class MyPool
 
 class XaTask
 {	managedXaDsns: Dsn[] = [];
-	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH;
+	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 	xaInfoTables: XaInfoTable[] = [];
 	logger: Logger = console;
 
