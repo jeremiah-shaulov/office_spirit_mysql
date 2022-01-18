@@ -41,7 +41,7 @@ class MyPoolConns
 }
 
 export class MyPool
-{	private connsPool = new Map<string, MyPoolConns>();
+{	private connsPool = new Map<number, MyPoolConns>();
 	private unusedBuffers: Uint8Array[] = [];
 	private nIdleAll = 0;
 	private nBusyAll = 0;
@@ -328,10 +328,10 @@ export class MyPool
 		// 2. Connect
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
-		let conns = this.connsPool.get(dsn.name);
+		let conns = this.connsPool.get(dsn.hash);
 		if (!conns)
 		{	conns = new MyPoolConns;
-			this.connsPool.set(dsn.name, conns);
+			this.connsPool.set(dsn.hash, conns);
 		}
 		const {idle, busy} = conns;
 		const now = Date.now();
@@ -377,13 +377,13 @@ export class MyPool
 	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
 		(	protocolOrBuffer =>
-			{	let conns = this.connsPool.get(dsn.name);
+			{	let conns = this.connsPool.get(dsn.hash);
 				let i = -1;
 				if (conns)
 				{	i = conns.busy.indexOf(conn);
 				}
 				if (i == -1)
-				{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.name)` was not found, because the `dsn.name` changed
+				{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
 					for (const conns2 of this.connsPool.values())
 					{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
 						if (i != -1)
@@ -415,7 +415,7 @@ export class MyPool
 	{	const {connsPool} = this;
 		const now = Date.now();
 		const promises = [];
-		for (const [dsn, {idle, busy, nConnecting}] of connsPool)
+		for (const [dsnHash, {idle, busy, nConnecting}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
@@ -426,7 +426,7 @@ export class MyPool
 			}
 			//
 			if (busy.length+idle.length+nConnecting == 0)
-			{	connsPool.delete(dsn);
+			{	connsPool.delete(dsnHash);
 			}
 		}
 		if (this.nBusyAll+this.nIdleAll == 0)

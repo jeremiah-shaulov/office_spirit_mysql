@@ -1,3 +1,5 @@
+import {crc32} from "./deps.ts";
+
 const wantUrlDecodeUsername = new URL('http://ф@localhost/').username.charAt(0) == '%';
 const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(0) == '%';
 const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(0) == '%';
@@ -41,6 +43,7 @@ export class Dsn
 	#retryQueryTimes: number;
 	#initSql: string;
 	#name: string;
+	#hash: number;
 
 	get hostname()
 	{	return this.#hostname;
@@ -50,7 +53,7 @@ export class Dsn
 		{	value = value.slice(1, -1);
 		}
 		this.#hostname = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get port()
@@ -58,7 +61,7 @@ export class Dsn
 	}
 	set port(value: number)
 	{	this.#port = !value || !isFinite(value) ? 3306 : value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get username()
@@ -66,7 +69,7 @@ export class Dsn
 	}
 	set username(value: string)
 	{	this.#username = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get password()
@@ -74,7 +77,7 @@ export class Dsn
 	}
 	set password(value: string)
 	{	this.#password = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get schema()
@@ -82,7 +85,7 @@ export class Dsn
 	}
 	set schema(value: string)
 	{	this.#schema = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get pipe()
@@ -93,7 +96,7 @@ export class Dsn
 		{	value = '/'+value;
 		}
 		this.#pipe = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get connectionTimeout()
@@ -101,7 +104,7 @@ export class Dsn
 	}
 	set connectionTimeout(value: number)
 	{	this.#connectionTimeout = Math.max(0, value);
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get reconnectInterval()
@@ -109,7 +112,7 @@ export class Dsn
 	}
 	set reconnectInterval(value: number)
 	{	this.#reconnectInterval = Math.max(0, value);
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get keepAliveTimeout()
@@ -117,7 +120,7 @@ export class Dsn
 	}
 	set keepAliveTimeout(value: number)
 	{	this.#keepAliveTimeout = Math.max(0, value);
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get keepAliveMax()
@@ -125,7 +128,7 @@ export class Dsn
 	}
 	set keepAliveMax(value: number)
 	{	this.#keepAliveMax = Math.max(0, value);
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get maxColumnLen()
@@ -133,7 +136,7 @@ export class Dsn
 	}
 	set maxColumnLen(value: number)
 	{	this.#maxColumnLen = Math.max(1, value);
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get foundRows()
@@ -141,7 +144,7 @@ export class Dsn
 	}
 	set foundRows(value: boolean)
 	{	this.#foundRows = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get ignoreSpace()
@@ -149,7 +152,7 @@ export class Dsn
 	}
 	set ignoreSpace(value: boolean)
 	{	this.#ignoreSpace = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get multiStatements()
@@ -157,7 +160,7 @@ export class Dsn
 	}
 	set multiStatements(value: boolean)
 	{	this.#multiStatements = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get retryQueryTimes()
@@ -165,7 +168,7 @@ export class Dsn
 	}
 	set retryQueryTimes(value: number)
 	{	this.#retryQueryTimes = value>=0 ? value : NaN;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get initSql()
@@ -173,11 +176,15 @@ export class Dsn
 	}
 	set initSql(value: string)
 	{	this.#initSql = value;
-		this.updateName();
+		this.updateNameAndHash();
 	}
 
 	get name()
 	{	return this.#name;
+	}
+
+	get hash()
+	{	return this.#hash;
 	}
 
 	constructor(dsn: string)
@@ -223,12 +230,13 @@ export class Dsn
 		// initSql
 		this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 		this.#name = '';
-		this.updateName();
+		this.#hash = 0;
+		this.updateNameAndHash();
 	}
 
 	/**	Normalized name.
 	 **/
-	private updateName()
+	private updateNameAndHash()
 	{	const params =
 		(	(!isNaN(this.#connectionTimeout) ? '&connectionTimeout='+this.#connectionTimeout : '') +
 			(!isNaN(this.#reconnectInterval) ? '&reconnectInterval='+this.#reconnectInterval : '') +
@@ -250,6 +258,7 @@ export class Dsn
 			(!params ? '' : '?'+params.slice(1)) +
 			(!this.#initSql ? '' : '#'+encodeURIComponent(this.#initSql))
 		);
+		this.#hash = crc32(this.#name);
 	}
 
 	get addr(): Deno.ConnectOptions | {transport: 'unix', path: string}
