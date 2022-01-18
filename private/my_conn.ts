@@ -46,18 +46,15 @@ export class MyConn
 	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 	private preparedStmtsForParams: number[] = [];
 
-	readonly dsnStr: string; // dsn is private to ensure that it will not be modified from outside
-
 	constructor
-	(	private dsn: Dsn,
+	(	readonly dsn: Dsn,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
 		private logger: Logger,
 		private getConnFunc: GetConnFunc,
 		private returnConnFunc: ReturnConnFunc,
 		private onBeforeCommit?: OnBeforeCommit,
 	)
-	{	this.dsnStr = dsn.name;
-		if (trxOptions)
+	{	if (trxOptions)
 		{	this.startTrx(trxOptions);
 		}
 	}

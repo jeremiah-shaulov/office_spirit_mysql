@@ -41,7 +41,7 @@ export class MySession
 		if (!fresh)
 		{	const dsnStr = typeof(dsn)=='string' ? dsn : dsn.name;
 			for (const conn of this.connsArr)
-			{	if (conn.dsnStr == dsnStr)
+			{	if (conn.dsn.name == dsnStr)
 				{	return conn;
 				}
 			}
@@ -237,7 +237,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
 				}
 				catch (e)
-				{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsnStr}`, e);
+				{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
 					infoTableConn = undefined;
 				}
 			}
