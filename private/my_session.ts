@@ -18,7 +18,6 @@ export class MySession
 	constructor
 	(	private pool: MyPool,
 		private dsn: Dsn|undefined,
-		private maxConns: number,
 		private xaInfoTables: XaInfoTable[] = [],
 		private logger: Logger,
 		private getConnFunc: GetConnFunc,
@@ -47,7 +46,7 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.maxConns, this.trxOptions, this.logger, this.getConnFunc, this.returnConnFunc, undefined);
+		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.trxOptions, this.logger, this.getConnFunc, this.returnConnFunc, undefined);
 		if (this.sqlLogger)
 		{	conn.setSqlLogger(this.sqlLogger);
 		}

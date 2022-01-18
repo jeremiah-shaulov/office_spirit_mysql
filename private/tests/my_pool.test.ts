@@ -1658,64 +1658,41 @@ async function testRetryQueryTimes(dsnStr: string)
 
 async function testMaxConns(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
-	dsn.connectionTimeout = 0;
-	const pool = new MyPool(dsn);
-
 	const maxConns = 2;
-	pool.options({maxConns, maxConnsWaitQueue: 1});
 
-	try
-	{	pool.session
-		(	async session =>
-			{	const conn1 = session.conn(undefined, true);
-				await conn1.connect();
+	for (const [connectionTimeout, maxConnsWaitQueue] of [[0, 1], [401, 1], [0, 0], [401, 0]])
+	{	dsn.connectionTimeout = connectionTimeout;
+		dsn.maxConns = maxConns;
+		const pool = new MyPool(dsn);
 
-				const conn2 = session.conn(undefined, true);
-				await conn2.connect();
+		pool.options({maxConnsWaitQueue});
 
-				// with connectionTimeout==0, maxConnsWaitQueue==1
-				let error;
-				let since = Date.now();
-				try
-				{	const conn3 = session.conn(undefined, true);
-					await conn3.connect();
-				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
-				assertEquals(Date.now()-since < 400, true);
+		try
+		{	pool.session
+			(	async session =>
+				{	const conn1 = session.conn(undefined, true);
+					await conn1.connect();
 
-				// with connectionTimeout==401, maxConnsWaitQueue==1
-				dsn.connectionTimeout = 401;
-				since = Date.now();
-				try
-				{	const conn3 = session.conn(undefined, true);
-					await conn3.connect();
-				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
-				assertEquals(Date.now()-since > 400, true);
+					const conn2 = session.conn(undefined, true);
+					await conn2.connect();
 
-				// with connectionTimeout==401, maxConnsWaitQueue==0
-				pool.options({maxConnsWaitQueue: 0});
-				since = Date.now();
-				try
-				{	const conn3 = session.conn(undefined, true);
-					await conn3.connect();
+					let error;
+					let since = Date.now();
+					try
+					{	const conn3 = session.conn(undefined, true);
+						await conn3.connect();
+					}
+					catch (e)
+					{	error = e;
+					}
+					assertEquals(error?.message, `All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
+					assertEquals(Date.now()-since > 400, connectionTimeout==401 && maxConnsWaitQueue!=0);
 				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.message, `All the ${maxConns} free slots are occupied in this pool: ${dsn.hostname}`);
-				assertEquals(Date.now()-since < 400, true);
-			}
-		);
-	}
-	finally
-	{	await pool.shutdown();
+			);
+		}
+		finally
+		{	await pool.shutdown();
+		}
 	}
 }
 

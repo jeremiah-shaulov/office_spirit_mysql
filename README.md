@@ -58,7 +58,6 @@ Or you can specify more options:
 ```ts
 interface MyPoolOptions
 {	dsn?: Dsn | string;
-	maxConns?: number;
 	maxConnsWaitQueue?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
 	onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>;
@@ -75,7 +74,6 @@ interface MyPoolOptions
 }
 ```
 - `dsn` - Default Data Source Name for this pool.
-- `maxConns` - (number, default `250`) Limit the number of simultaneous connections in this pool. When reached `pool.haveSlots()` returns false, and new connection requests will wait.
 - `maxConnsWaitQueue` - (number, default 50) When `maxConns` exceeded, new connection requests will enter waiting queue (like backlog). This is the queue maximum size.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
 - `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
@@ -98,6 +96,7 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 - `reconnectInterval` (number, default `500`) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`.
 - `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
+- `maxConns` - (number, default `250`) Limit number of simultaneous connections to this DSN in pool
 - `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
 - `foundRows` (boolean, default `false`) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
 - `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))

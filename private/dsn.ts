@@ -16,6 +16,7 @@ type Any = any;
 	`reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
 	`keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
 	`keepAliveMax` (number) - how many times at most to recycle each connection;
+	`maxConns` (number) - limit number of simultaneous connections to this DSN in pool
 	`maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
 	`foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
 	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
@@ -33,6 +34,7 @@ export class Dsn
 	#reconnectInterval: number;
 	#keepAliveTimeout: number;
 	#keepAliveMax: number;
+	#maxConns: number;
 	#maxColumnLen: number;
 	/** Use "found rows" instead of "affected rows" */
 	#foundRows: boolean;
@@ -131,6 +133,14 @@ export class Dsn
 		this.updateNameAndHash();
 	}
 
+	get maxConns()
+	{	return this.#maxConns;
+	}
+	set maxConns(value: number)
+	{	this.#maxConns = Math.max(1, value);
+		this.updateNameAndHash();
+	}
+
 	get maxColumnLen()
 	{	return this.#maxColumnLen;
 	}
@@ -213,6 +223,7 @@ export class Dsn
 		const reconnectInterval = url.searchParams.get('reconnectInterval');
 		const keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
 		const keepAliveMax = url.searchParams.get('keepAliveMax');
+		const maxConns = url.searchParams.get('maxConns');
 		const maxColumnLen = url.searchParams.get('maxColumnLen');
 		const foundRows = url.searchParams.get('foundRows');
 		const ignoreSpace = url.searchParams.get('ignoreSpace');
@@ -222,6 +233,7 @@ export class Dsn
 		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 		this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
 		this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
+		this.#maxConns = maxConns ? Math.max(1, Number(maxConns)) : NaN;
 		this.#maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
 		this.#foundRows = foundRows != null;
 		this.#ignoreSpace = ignoreSpace != null;
@@ -242,6 +254,7 @@ export class Dsn
 			(!isNaN(this.#reconnectInterval) ? '&reconnectInterval='+this.#reconnectInterval : '') +
 			(!isNaN(this.#keepAliveTimeout) ? '&keepAliveTimeout='+this.#keepAliveTimeout : '') +
 			(!isNaN(this.#keepAliveMax) ? '&keepAliveMax='+this.#keepAliveMax : '') +
+			(!isNaN(this.#maxConns) ? '&maxConns='+this.#maxConns : '') +
 			(!isNaN(this.#maxColumnLen) ? '&maxColumnLen='+this.#maxColumnLen : '') +
 			(this.#foundRows ? '&foundRows' : '') +
 			(this.#ignoreSpace ? '&ignoreSpace' : '') +

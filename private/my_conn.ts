@@ -13,6 +13,7 @@ export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Prom
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
 export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
 
+export const DEFAULT_MAX_CONNS = 250;
 export const SAVEPOINT_ENUM_SESSION_FROM = 0x4000_0000;
 
 const C_COMMA = ','.charCodeAt(0);
@@ -49,7 +50,6 @@ export class MyConn
 
 	constructor
 	(	private dsn: Dsn,
-		private maxConns: number,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
 		private logger: Logger,
 		private getConnFunc: GetConnFunc,
@@ -447,7 +447,7 @@ export class MyConn
 	}
 
 	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
-	{	let nRetriesRemaining = this.maxConns;
+	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
 		while (true)
 		{	if (!this.protocol)
