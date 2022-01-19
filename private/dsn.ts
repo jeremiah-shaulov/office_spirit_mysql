@@ -263,7 +263,7 @@ export class Dsn
 		);
 		this.#name =
 		(	'mysql://' +
-			(!this.#username ? '' : !this.#password ? this.#username+'@' : this.#username+':'+this.#password+'@') +
+			(!this.#username ? '' : !this.#password ? this.#username+'@' : this.#username+':hidden@') +
 			(this.#hostname.indexOf(':')==-1 ? this.#hostname : '['+this.#hostname+']') +
 			(this.#port==3306 ? '' : ':'+this.#port) +
 			this.#pipe +

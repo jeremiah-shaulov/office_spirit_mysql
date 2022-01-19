@@ -11,7 +11,7 @@ import {SqlLogToWriter} from "./sql_log_to_writer.ts";
 
 export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
-export type OnBeforeCommit = (conns: Iterable<MyConn>) => Promise<void>;
+export type OnBeforeCommit = (conns: readonly MyConn[]) => Promise<void>;
 
 export const DEFAULT_MAX_CONNS = 250;
 export const SAVEPOINT_ENUM_SESSION_FROM = 0x4000_0000;

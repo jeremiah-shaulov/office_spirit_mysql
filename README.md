@@ -60,7 +60,7 @@ interface MyPoolOptions
 {	dsn?: Dsn | string;
 	maxConnsWaitQueue?: number;
 	onLoadFile?: (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
-	onBeforeCommit?: (conns: Iterable<MyConn>) => Promise<void>;
+	onBeforeCommit?: (conns: readonly MyConn[]) => Promise<void>;
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
 	xaCheckEach?: number;
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];

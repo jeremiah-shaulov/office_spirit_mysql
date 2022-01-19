@@ -82,7 +82,7 @@ Deno.test
 		assertEquals(dsn.multiStatements, false);
 		assertEquals(dsn.retryQueryTimes, 0);
 		assertEquals(dsn.initSql, 'SET group_concat_max_len=65000');
-		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?connectionTimeout=0&reconnectInterval=0&keepAliveTimeout=0&retryQueryTimes=0#'+encodeURIComponent('SET group_concat_max_len=65000'));
+		assertEquals(dsn+'', 'mysql://johnny:hidden@localhost/information_schema?connectionTimeout=0&reconnectInterval=0&keepAliveTimeout=0&retryQueryTimes=0#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
 
 		dsnName = 'mysql://johnny:hello@localhost/information_schema?connectionTimeout=0&keepAliveMax=1234.1&maxColumnLen=1000&foundRows&ignoreSpace# SET group_concat_max_len=65000  ';
@@ -103,7 +103,7 @@ Deno.test
 		assertEquals(dsn.multiStatements, false);
 		assertEquals(isNaN(dsn.retryQueryTimes), true);
 		assertEquals(dsn.initSql, 'SET group_concat_max_len=65000');
-		assertEquals(dsn+'', 'mysql://johnny:hello@localhost/information_schema?connectionTimeout=0&keepAliveMax=1234&maxColumnLen=1000&foundRows&ignoreSpace#'+encodeURIComponent('SET group_concat_max_len=65000'));
+		assertEquals(dsn+'', 'mysql://johnny:hidden@localhost/information_schema?connectionTimeout=0&keepAliveMax=1234&maxColumnLen=1000&foundRows&ignoreSpace#'+encodeURIComponent('SET group_concat_max_len=65000'));
 		assertEquals(dsn.addr, {transport: 'tcp', hostname: 'localhost', port: 3306});
 
 		dsnName = 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements';
@@ -124,38 +124,38 @@ Deno.test
 		assertEquals(dsn.multiStatements, true);
 		assertEquals(isNaN(dsn.retryQueryTimes), true);
 		assertEquals(dsn.initSql, '');
-		assertEquals(dsn+'', 'mysql://johnny:hello@www.example.com:22/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@www.example.com:22/var/run/my.sock/information_schema?multiStatements');
 		assertEquals(dsn.addr, {transport: 'unix', path: '/var/run/my.sock'});
 
 		dsn.hostname = '[::1:2:3]';
 		assertEquals(dsn.hostname, '::1:2:3');
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:22/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]:22/var/run/my.sock/information_schema?multiStatements');
 
 		dsn.port = 23;
 		assertEquals(dsn.port, 23);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:23/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]:23/var/run/my.sock/information_schema?multiStatements');
 		dsn.port = 0;
 		assertEquals(dsn.port, 3306);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 		dsn.port = 3305;
 		assertEquals(dsn.port, 3305);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:3305/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]:3305/var/run/my.sock/information_schema?multiStatements');
 		dsn.port = 3306;
 		assertEquals(dsn.port, 3306);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 		dsn.port = 3307;
 		assertEquals(dsn.port, 3307);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]:3307/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]:3307/var/run/my.sock/information_schema?multiStatements');
 		dsn.port = -Infinity;
 		assertEquals(dsn.port, 3306);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 		dsn = new Dsn('mysql://johnny:hello@[::1:2:3]:0/var/run/my.sock/information_schema?multiStatements');
 		assertEquals(dsn.port, 3306);
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 
 		dsn.username = 'johnny';
 		assertEquals(dsn.username, 'johnny');
-		assertEquals(dsn+'', 'mysql://johnny:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://johnny:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 		dsn.username = '';
 		assertEquals(dsn.username, '');
 		assertEquals(dsn+'', 'mysql://[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
@@ -163,7 +163,7 @@ Deno.test
 		dsn.username = 'root';
 		assertEquals(dsn.username, 'root');
 		assertEquals(dsn.password, 'hello');
-		assertEquals(dsn+'', 'mysql://root:hello@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
+		assertEquals(dsn+'', 'mysql://root:hidden@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
 		dsn.password = '';
 		assertEquals(dsn.password, '');
 		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/var/run/my.sock/information_schema?multiStatements');
