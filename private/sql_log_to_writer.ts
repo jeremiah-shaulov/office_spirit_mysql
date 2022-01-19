@@ -84,6 +84,7 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		let curNFullLines = 0;
 		let limit = queryMaxBytes;
 		let nQueries = 1;
+
 		function countExceeding(data: Uint8Array)
 		{	// 1. Cut white space at the beginning
 			if (curDataLen == 0)
@@ -121,6 +122,17 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			}
 			return data;
 		}
+
+		function nextQuery()
+		{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
+			curNParam = -1;
+			curDataLen = 0;
+			curNFullLines = 0;
+			limit = queryMaxBytes;
+			nQueries++;
+			return that.write(dsn, connectionId, !withEllipsis ? '\n' : !withColor ? `…(${curDataLen} bytes)\n` : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
+		}
+
 		return Promise.resolve
 		(	{	async appendToQuery(data: Uint8Array)
 				{	limit = queryMaxBytes;
@@ -172,20 +184,9 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 					}
 				},
 
-				nextQuery()
-				{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
-					curNParam = -1;
-					curDataLen = 0;
-					curNFullLines = 0;
-					limit = queryMaxBytes;
-					nQueries++;
-					return that.write(dsn, connectionId, !withEllipsis ? '\n' : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
-				},
+				nextQuery,
 
-				start()
-				{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
-					return that.write(dsn, connectionId, !withEllipsis ? '\n' : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
-				},
+				start: nextQuery,
 
 				end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
 				{	let str = `\t${(Date.now()-since) / 1000} sec`;
