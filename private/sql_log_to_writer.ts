@@ -8,6 +8,7 @@ import {Colors} from './deps.ts';
 
 const DEFAULT_QUERY_MAX_BYTES = 10_000;
 const DEFAULT_PARAM_MAX_BYTES = 3_000;
+const DEFAULT_MAX_LINES = 100;
 
 const C_APOS = "'".charCodeAt(0);
 const C_QUOT = '"'.charCodeAt(0);
@@ -39,12 +40,16 @@ const RESET_COLOR = '\x1B[0m';
 const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
 export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
-{	private since = new Map<number, number>();
-
-	private msgOk = 'OK';
+{	private msgOk = 'OK';
 	private msgError = 'ERROR:';
 
-	constructor(writer: Deno.Writer, protected withColor=false, protected queryMaxBytes=DEFAULT_QUERY_MAX_BYTES, protected paramMaxBytes=DEFAULT_PARAM_MAX_BYTES)
+	constructor
+	(	writer: Deno.Writer,
+		protected withColor = false,
+		protected queryMaxBytes = DEFAULT_QUERY_MAX_BYTES,
+		protected paramMaxBytes = DEFAULT_PARAM_MAX_BYTES,
+		protected maxLines = DEFAULT_MAX_LINES,
+	)
 	{	super(writer);
 		if (withColor)
 		{	this.msgOk = Colors.green('OK');
@@ -69,120 +74,144 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 	{	return this.write(dsn, connectionId, 'DISCONNECT\n\n');
 	}
 
-	queryNew(dsn: Dsn, connectionId: number, isPrepare: boolean, nQueryInBatch: number, _nQueriesInBatch: number)
-	{	if (nQueryInBatch == 0)
-		{	this.since.set(connectionId, Date.now());
-		}
-		if (isPrepare)
-		{	return this.write(dsn, connectionId, 'PREPARE FROM: ');
-		}
-		return Promise.resolve();
-	}
-
-	async querySql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean, curDataLen: number)
-	{	const {addData, withEllipsis} = this.countExceeding(data, curDataLen);
-		if (this.withColor)
-		{	await this.writeColoredSql(dsn, connectionId, addData, noBackslashEscapes);
-		}
-		else
-		{	await this.write(dsn, connectionId, addData);
-		}
-		if (withEllipsis)
-		{	await this.write(dsn, connectionId, '…');
-		}
-	}
-
-	queryStart(dsn: Dsn, connectionId: number, _nQueryInBatch: number, _nQueriesInBatch: number)
-	{	return this.write(dsn, connectionId, '\n');
-	}
-
-	queryEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	return this.logResult(dsn, connectionId, result, stmtId, nQueryInBatch, nQueriesInBatch);
-	}
-
-	execNew(dsn: Dsn, connectionId: number, stmtId: number, nQueryInBatch: number, _nQueriesInBatch: number)
-	{	if (nQueryInBatch == 0)
-		{	this.since.set(connectionId, Date.now());
-		}
-		return this.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
-	}
-
-	async execParam(dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date, curDataLen: number)
-	{	let str = '';
-		if (!(data instanceof Uint8Array))
-		{	str = `\n\tBIND param_${nParam}=`;
-		}
-		else if (data.length == curDataLen)
-		{	str = `\n\tBIND param_${nParam}='`;
-		}
-		if (data instanceof Uint8Array)
-		{	if (str)
-			{	await this.write(dsn, connectionId, str);
+	query(dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean)
+	{	// deno-lint-ignore no-this-alias
+		const that = this;
+		const {queryMaxBytes, paramMaxBytes, maxLines, withColor, msgOk, msgError} = this;
+		const since = Date.now();
+		let curNParam = -1;
+		let curDataLen = 0;
+		let curNFullLines = 0;
+		let limit = queryMaxBytes;
+		let nQueries = 1;
+		function countExceeding(data: Uint8Array)
+		{	// 1. Cut white space at the beginning
+			if (curDataLen == 0)
+			{	let nSpaces = 0;
+				for (const iEnd=data.length; nSpaces<iEnd; nSpaces++)
+				{	const c = data[nSpaces];
+					if (c!=C_SPACE && c!=C_TAB && c!=C_CR && c!=C_LF)
+					{	break;
+					}
+				}
+				if (nSpaces > 0)
+				{	data = data.subarray(nSpaces);
+				}
 			}
-			const {addData, withEllipsis} = this.countExceeding(data, curDataLen);
-			await this.writeSqlString(dsn, connectionId, addData);
-			if (withEllipsis)
-			{	await this.write(dsn, connectionId, '…');
+			// 2. Count bytes
+			curDataLen += data.length;
+			// 3. Count lines
+			if (curNFullLines < maxLines)
+			{	for (let i=0, iEnd=data.length; i<iEnd; i++)
+				{	const c = data[i];
+					if (c==C_CR || c==C_LF)
+					{	if (++curNFullLines >= maxLines)
+						{	return data.subarray(0, i);
+						}
+						if (c==C_CR && data[i+1]===C_LF)
+						{	i++;
+						}
+					}
+				}
 			}
+			// 4. Limit the data
+			const exceedingNegative = limit - curDataLen;
+			if (exceedingNegative < 0)
+			{	data = data.subarray(0, exceedingNegative); // negative index (from the end of the array)
+			}
+			return data;
 		}
-		else
-		{	await this.write(dsn, connectionId, str + data);
-		}
-	}
+		return Promise.resolve
+		(	{	async appendToQuery(data: Uint8Array)
+				{	limit = queryMaxBytes;
+					if (isPrepare)
+					{	await that.write(dsn, connectionId, 'PREPARE FROM: ');
+						isPrepare = false;
+					}
+					data = countExceeding(data);
+					if (withColor)
+					{	await that.writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
+					}
+					else
+					{	await that.write(dsn, connectionId, data);
+					}
+				},
 
-	execParamEnd(dsn: Dsn, connectionId: number, _nParam: number, dataLen: number)
-	{	if (dataLen != -1)
-		{	return this.write(dsn, connectionId, "'");
-		}
-		else
-		{	return Promise.resolve();
-		}
-	}
+				setStmtId(stmtId: number)
+				{	return that.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
+				},
 
-	execStart(dsn: Dsn, connectionId: number, _nQueryInBatch: number, _nQueriesInBatch: number)
-	{	return this.write(dsn, connectionId, '\n');
-	}
+				async appendToParam(nParam: number, data: Uint8Array|number|bigint|Date)
+				{	let str = '';
+					if (!(data instanceof Uint8Array))
+					{	str = `\n\tBIND param_${nParam}=`;
+						curDataLen = -1;
+					}
+					else if (nParam != curNParam)
+					{	str = `\n\tBIND param_${nParam}='`;
+						curNParam = nParam;
+						curDataLen = 0;
+						curNFullLines = 0;
+						limit = paramMaxBytes;
+					}
+					if (data instanceof Uint8Array)
+					{	if (str)
+						{	await that.write(dsn, connectionId, str);
+						}
+						data = countExceeding(data);
+						await that.writeSqlString(dsn, connectionId, data);
+					}
+					else
+					{	await that.write(dsn, connectionId, str + data);
+					}
+				},
 
-	execEnd(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, nQueryInBatch: number, nQueriesInBatch: number)
-	{	return this.logResult(dsn, connectionId, result, -1, nQueryInBatch, nQueriesInBatch);
+				async paramEnd(_nParam: number)
+				{	if (curDataLen != -1)
+					{	await that.write(dsn, connectionId, "'");
+					}
+				},
+
+				nextQuery()
+				{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
+					curNParam = -1;
+					curDataLen = 0;
+					curNFullLines = 0;
+					limit = queryMaxBytes;
+					nQueries++;
+					return that.write(dsn, connectionId, !withEllipsis ? '\n' : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
+				},
+
+				start()
+				{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
+					return that.write(dsn, connectionId, !withEllipsis ? '\n' : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
+				},
+
+				end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
+				{	let str = `\t${(Date.now()-since) / 1000} sec`;
+					if (nQueries != 1)
+					{	str += ` (${nQueries} queries)`;
+					}
+					if (!result)
+					{	str += ` - ${msgOk}\n\n`;
+					}
+					else if (!(result instanceof Resultsets))
+					{	str += ` - ${msgError} ${result.message}\n\n`;
+					}
+					else if (result.columns.length != 0)
+					{	str += ` - ${msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.columns.length} columns)\n\n`;
+					}
+					else
+					{	str += ` - ${msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.affectedRows} affected, ${result.foundRows} found, last_id ${result.lastInsertId})\n\n`;
+					}
+					return that.write(dsn, connectionId, str);
+				},
+			}
+		);
 	}
 
 	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
 	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
-	}
-
-	private countExceeding(addData: Uint8Array, curDataLen: number)
-	{	let withEllipsis = false;
-		const exceedingNegative = this.queryMaxBytes - curDataLen;
-		if (exceedingNegative < 0)
-		{	withEllipsis = curDataLen-addData.length <= this.queryMaxBytes;
-			addData = addData.subarray(0, exceedingNegative); // negative index (from the end of the array)
-		}
-		return {addData, withEllipsis};
-	}
-
-	private logResult(dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	if (nQueryInBatch+1 == nQueriesInBatch)
-		{	let str = `\t${(Date.now()-Number(this.since.get(connectionId))) / 1000} sec`;
-			this.since.delete(connectionId);
-			if (nQueriesInBatch != 1)
-			{	str += ` (${nQueriesInBatch} queries)`;
-			}
-			if (!result)
-			{	str += ` - ${this.msgOk}\n\n`;
-			}
-			else if (!(result instanceof Resultsets))
-			{	str += ` - ${this.msgError} ${result.message}\n\n`;
-			}
-			else if (result.columns.length != 0)
-			{	str += ` - ${this.msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.columns.length} columns)\n\n`;
-			}
-			else
-			{	str += ` - ${this.msgOk} (${stmtId==-1 ? '' : 'stmt_id='+stmtId+', '}${result.affectedRows} affected, ${result.foundRows} found, last_id ${result.lastInsertId})\n\n`;
-			}
-			return this.write(dsn, connectionId, str);
-		}
-		return Promise.resolve();
 	}
 
 	private async writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)

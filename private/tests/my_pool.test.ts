@@ -1623,10 +1623,15 @@ async function testRetryQueryTimes(dsnStr: string)
 						await conn2.query("SET innodb_lock_wait_timeout=0");
 						let nErrors = 0;
 						conn2.setSqlLogger
-						(	{	queryEnd(_dsn, _connectionId, result)
-								{	assert(result instanceof Error);
-									nErrors++;
-									return Promise.resolve();
+						(	{	query()
+								{	return Promise.resolve
+									(	{	end(result: Resultsets<unknown>|Error|undefined)
+											{	assert(result instanceof Error);
+												nErrors++;
+												return Promise.resolve();
+											}
+										}
+									);
 								}
 							}
 						);

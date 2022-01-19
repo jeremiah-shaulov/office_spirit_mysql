@@ -16,58 +16,11 @@ export interface SqlLogger
 	disconnect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Started to send a new query to the server.
-		`isPrepare` means that this is query preparation operation, and following `queryEnd()` will receive `stmtId` that server returned.
-		`nQueriesInBatch > 0` means that i'm sending queries batch without reading results. `queryEnd()` of previous query will be called later, but before the `queryEnd()` of this query.
-		In other words, i can call the sequence of `queryNew()`, `querySql()`, `queryStart()` several times, and then call `queryEnd()` corresponding number of times.
+		`isPrepare` means that this is query preparation operation (the query is not executed, but stored on the server).
+		This function can return object that implements `SqlLoggerQuery` for further logging the query process.
+		Query SQL (if any) will be handed to the methods of `SqlLoggerQuery`.
 	 **/
-	queryNew?: (dsn: Dsn, connectionId: number, isPrepare: boolean, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
-
-	/**	After `queryNew()` called, i can call `querySql()` one or several times (in case of error even 0 times).
-		Each call to `querySql()` appends more bytes to current SQL query.
-		`data` is SQL query serialized to bytes (you can use `TextDecoder` to restore the original SQL string).
-		The query SQL always comes as bytes, no matter what you passed to `conn.query()` function (bytes, string, `Deno.Reader`, etc).
-		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
-	 **/
-	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean, curDataLen: number) => Promise<unknown>;
-
-	/**	After `queryNew()` and one or more `querySql()` called, i call `queryStart()`.
-		At this point the query is sent to the server.
-	 **/
-	queryStart?: (dsn: Dsn, connectionId: number, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
-
-	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
-		The query can either complete with success or with error.
-		If this was query preparation, the `stmtId` will be the numeric ID of this prepared statement.
-		Otherwise `stmtId` is `-1`.
-	 **/
-	queryEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
-
-	/**	Started executing a prepared statement.
-	 **/
-	execNew?: (dsn: Dsn, connectionId: number, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
-
-	/**	After `execNew()` called, i can call `execParam()` zero or more times to bind parameter values.
-		I can call `execParam()` for the same parameter several times - each time appends data to the parameter.
-		If i don't call `execParam()` for some parameter, this means that it's value is NULL.
-		Strings and `Deno.Reader`s always come as `Uint8Array`.
-		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
-	 **/
-	execParam?: (dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date, curDataLen: number) => Promise<unknown>;
-
-	/**	Finished with this parameter.
-	 **/
-	execParamEnd?: (dsn: Dsn, connectionId: number, nParam: number, dataLen: number) => Promise<unknown>;
-
-	/**	After `execNew()` and zero or more `execParam()` and `execParamEnd()` called, i call `execStart()`.
-		At this point the query parameters are sent to the server.
-	 **/
-	execStart?: (dsn: Dsn, connectionId: number, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
-
-	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
-		The query can either complete with success or with error.
-		`result` can be undefined for internal queries.
-	 **/
-	execEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined, nQueryInBatch: number, nQueriesInBatch: number) => Promise<unknown>;
+	query?: (dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean) => Promise<SqlLoggerQuery | undefined>;
 
 	/**	Prepared query deallocated (unprepared).
 	 **/
@@ -78,6 +31,44 @@ export interface SqlLogger
 	dispose?: () => Promise<unknown>;
 }
 
+/**	1. First one of `appendToQuery()` or `setStmtId()` is called.
+	To start writing a regular query, `appendToQuery()` is called one or multiple times.
+	To write a prepared query, `setStmtId()` is called (once).
+	2. Then, in case of prepared query, a sequence of `appendToParam()` (one or multiple times) and `paramEnd()` can be called.
+	3. Then, if writing queries batch, `nextQuery()` is called, and the process repeats from the beginning.
+	4. Then, after all the queries in batch are written, `start()` is called. At this point queries are sent to the database server.
+	5. Then, when the server responds, `end()` is called.
+ **/
+export interface SqlLoggerQuery
+{	appendToQuery?: (data: Uint8Array) => Promise<unknown>;
+
+	setStmtId?: (stmtId: number) => Promise<unknown>;
+
+	appendToParam?: (nParam: number, data: Uint8Array|number|bigint|Date) => Promise<unknown>;
+
+	paramEnd?: (nParam: number) => Promise<unknown>;
+
+	nextQuery?: () => Promise<unknown>;
+
+	start?: () => Promise<unknown>;
+
+	/**	If this was query preparation (`SqlLogger.query(_, _, true)`), `stmtId` will be the statement ID that the server returned.
+		Else `stmtId` will be `-1`.
+	 **/
+	end?: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
+}
+
+export interface SafeSqlLoggerQuery
+{	appendToQuery: (data: Uint8Array) => Promise<unknown>;
+	setStmtId: (stmtId: number) => Promise<unknown>;
+	paramStart: (nParam: number) => void;
+	appendToParam: (data: Uint8Array|number|bigint|Date) => Promise<unknown>;
+	paramEnd: () => Promise<unknown>;
+	nextQuery: () => Promise<unknown>;
+	start: () => Promise<unknown>;
+	end: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
+}
+
 export class SafeSqlLogger
 {	constructor(private dsn: Dsn, private underlying: SqlLogger, private logger: Logger)
 	{
@@ -85,10 +76,7 @@ export class SafeSqlLogger
 
 	connect(connectionId: number)
 	{	try
-		{	const {underlying} = this;
-			if (underlying.connect)
-			{	return underlying.connect(this.dsn, connectionId);
-			}
+		{	return this.underlying.connect?.(this.dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
 		{	this.logger.error(e);
@@ -98,10 +86,7 @@ export class SafeSqlLogger
 
 	resetConnection(connectionId: number)
 	{	try
-		{	const {underlying} = this;
-			if (underlying.resetConnection)
-			{	return underlying.resetConnection(this.dsn, connectionId);
-			}
+		{	return this.underlying.resetConnection?.(this.dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
 		{	this.logger.error(e);
@@ -111,10 +96,7 @@ export class SafeSqlLogger
 
 	disconnect(connectionId: number)
 	{	try
-		{	const {underlying} = this;
-			if (underlying.disconnect)
-			{	return underlying.disconnect(this.dsn, connectionId);
-			}
+		{	return this.underlying.disconnect?.(this.dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
 		{	this.logger.error(e);
@@ -122,129 +104,98 @@ export class SafeSqlLogger
 		return Promise.resolve();
 	}
 
-	queryNew(connectionId: number, isPrepare: boolean, nQueryInBatch: number, nQueriesInBatch: number)
+	async query(connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean): Promise<SafeSqlLoggerQuery| undefined>
 	{	try
-		{	const {underlying} = this;
-			if (underlying.queryNew)
-			{	return underlying.queryNew(this.dsn, connectionId, isPrepare, nQueryInBatch, nQueriesInBatch);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+		{	const underlyingQuery = await this.underlying.query?.(this.dsn, connectionId, isPrepare, noBackslashEscapes);
+			if (underlyingQuery)
+			{	const {logger} = this;
+				let curNParam = -1;
+				const query =
+				{	appendToQuery(data: Uint8Array)
+					{	try
+						{	return underlyingQuery.appendToQuery?.(data) ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	querySql(connectionId: number, data: Uint8Array, noBackslashEscapes: boolean, curDataLen: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.querySql)
-			{	return underlying.querySql(this.dsn, connectionId, data, noBackslashEscapes, curDataLen);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					setStmtId(stmtId: number)
+					{	try
+						{	return underlyingQuery.setStmtId?.(stmtId) ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	queryStart(connectionId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.queryStart)
-			{	return underlying.queryStart(this.dsn, connectionId, nQueryInBatch, nQueriesInBatch);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					paramStart(nParam: number)
+					{	curNParam = nParam;
+					},
 
-	queryEnd(connectionId: number, result: Resultsets<unknown>|Error, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.queryEnd)
-			{	return underlying.queryEnd(this.dsn, connectionId, result, stmtId, nQueryInBatch, nQueriesInBatch);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					appendToParam(data: Uint8Array|number|bigint|Date)
+					{	try
+						{	return underlyingQuery.appendToParam?.(curNParam, data) ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	execNew(connectionId: number, stmtId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.execNew)
-			{	return underlying.execNew(this.dsn, connectionId, stmtId, nQueryInBatch, nQueriesInBatch);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					paramEnd()
+					{	try
+						{	return underlyingQuery.paramEnd?.(curNParam) ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	execParam(connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date, curDataLen: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.execParam)
-			{	return underlying.execParam(this.dsn, connectionId, nParam, data, curDataLen);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					nextQuery()
+					{	try
+						{	return underlyingQuery.nextQuery?.() ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	execParamEnd(connectionId: number, nParam: number, dataLen: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.execParamEnd)
-			{	return underlying.execParamEnd(this.dsn, connectionId, nParam, dataLen);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
-	}
+					start()
+					{	try
+						{	return underlyingQuery.start?.() ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					},
 
-	execStart(connectionId: number, nQueryInBatch: number, nQueriesInBatch: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.execStart)
-			{	return underlying.execStart(this.dsn, connectionId, nQueryInBatch, nQueriesInBatch);
+					end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
+					{	try
+						{	return underlyingQuery.end?.(result, stmtId) ?? Promise.resolve();
+						}
+						catch (e)
+						{	logger.error(e);
+						}
+						return Promise.resolve();
+					}
+				};
+				return query;
 			}
 		}
 		catch (e)
 		{	this.logger.error(e);
 		}
-		return Promise.resolve();
-	}
-
-	execEnd(connectionId: number, result: Resultsets<unknown>|Error|undefined, nQueryInBatch: number, nQueriesInBatch: number)
-	{	try
-		{	const {underlying} = this;
-			if (underlying.execEnd)
-			{	return underlying.execEnd(this.dsn, connectionId, result, nQueryInBatch, nQueriesInBatch);
-			}
-		}
-		catch (e)
-		{	this.logger.error(e);
-		}
-		return Promise.resolve();
 	}
 
 	deallocatePrepare(connectionId: number, stmtId: number)
 	{	try
-		{	const {underlying} = this;
-			if (underlying.deallocatePrepare)
-			{	return underlying.deallocatePrepare(this.dsn, connectionId, stmtId);
-			}
+		{	return this.underlying.deallocatePrepare?.(this.dsn, connectionId, stmtId) || Promise.resolve();
 		}
 		catch (e)
 		{	this.logger.error(e);
@@ -254,10 +205,7 @@ export class SafeSqlLogger
 
 	dispose()
 	{	try
-		{	const {underlying} = this;
-			if (underlying.dispose)
-			{	return underlying.dispose();
-			}
+		{	return this.underlying.dispose?.() || Promise.resolve();
 		}
 		catch (e)
 		{	this.logger.error(e);

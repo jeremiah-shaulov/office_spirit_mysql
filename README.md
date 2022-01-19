@@ -1141,6 +1141,7 @@ console.log(`Result: ${result}`);
 ![image](./readme-assets/sql-logger-1.png)
 
 The default logger truncates long queries to maximum 10,000 bytes, and long query parameters to 3,000 bytes.
+Also it shows not more than 100 lines of query SQL.
 
 This library allows you to provide your own custom logger.
 This can be any object that implements `SqlLogger` interface:
@@ -1160,53 +1161,11 @@ interface SqlLogger
 	disconnect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
 	/**	Started to send a new query to the server.
-		`isPrepare` means that this is query preparation operation, and following `queryEnd()` will receive `stmtId` that server returned.
-		`previousResultNotRead` means that i'm sending queries batch without reading results. `queryEnd()` of previous query will be called later, but before the `queryEnd()` of this query.
-		In other words, i can call the sequence of `queryNew()`, `querySql()`, `queryStart()` several times, and then call `queryEnd()` corresponding number of times.
+		`isPrepare` means that this is query preparation operation (the query is not executed, but stored on the server).
+		This function can return object that implements `SqlLoggerQuery` for further logging the query process.
+		Query SQL (if any) will be handed to the methods of `SqlLoggerQuery`.
 	 **/
-	queryNew?: (dsn: Dsn, connectionId: number, isPrepare: boolean, previousResultNotRead: boolean) => Promise<unknown>;
-
-	/**	After `queryNew()` called, i can call `querySql()` one or several times (in case of error even 0 times).
-		Each call to `querySql()` appends more bytes to current SQL query.
-		`data` is SQL query serialized to bytes (you can use `TextDecoder` to restore the original SQL string).
-		The query SQL always comes as bytes, no matter what you passed to `conn.query()` function (bytes, string, `Deno.Reader`, etc).
-		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
-	 **/
-	querySql?: (dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean) => Promise<unknown>;
-
-	/**	After `queryNew()` and one or more `querySql()` called, i call `queryStart()`.
-		At this point the query is sent to the server.
-	 **/
-	queryStart?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
-
-	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
-		The query can either complete with success or with error.
-		If this was query preparation, the `stmtId` will be the numeric ID of this prepared statement.
-	 **/
-	queryEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error, stmtId?: number) => Promise<unknown>;
-
-	/**	Started executing a prepared statement.
-	 **/
-	execNew?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
-
-	/**	After `execNew()` called, i can call `execParam()` zero or more times to bind parameter values.
-		I can call `execParam()` for the same parameter several times - each time appends data to the parameter.
-		If i don't call `execParam()` for some parameter, this means that it's value is NULL.
-		Strings and `Deno.Reader`s always come as `Uint8Array`.
-		Since `data` is a pointer to internal buffer (that is changing all the time), you need to use the `data` immediately (without await), or to copy it to another variable.
-	 **/
-	execParam?: (dsn: Dsn, connectionId: number, nParam: number, data: Uint8Array|number|bigint|Date) => Promise<unknown>;
-
-	/**	After `execNew()` and zero or more `execParam()` called, i call `execStart()`.
-		At this point the query parameters are sent to the server.
-	 **/
-	execStart?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
-
-	/**	Query completed (it's result status is read from the server, but rows, if any, are not yet read).
-		The query can either complete with success or with error.
-		`result` can be undefined for internal queries.
-	 **/
-	execEnd?: (dsn: Dsn, connectionId: number, result: Resultsets<unknown>|Error|undefined) => Promise<unknown>;
+	query?: (dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean) => Promise<SqlLoggerQuery | undefined>;
 
 	/**	Prepared query deallocated (unprepared).
 	 **/
@@ -1215,6 +1174,33 @@ interface SqlLogger
 	/**	I'll call this function at the end of `MyPool.forConn()` or `MyPool.session()`.
 	 **/
 	dispose?: () => Promise<unknown>;
+}
+
+/**	1. First one of `appendToQuery()` or `setStmtId()` is called.
+	To start writing a regular query, `appendToQuery()` is called one or multiple times.
+	To write a prepared query, `setStmtId()` is called (once).
+	2. Then, in case of prepared query, a sequence of `appendToParam()` (one or multiple times) and `paramEnd()` can be called.
+	3. Then, if writing queries batch, `nextQuery()` is called, and the process repeats from the beginning.
+	4. Then, after all the queries in batch are written, `start()` is called. At this point queries are sent to the database server.
+	5. Then, when the server responds, `end()` is called.
+ **/
+interface SqlLoggerQuery
+{	appendToQuery?: (data: Uint8Array) => Promise<unknown>;
+
+	setStmtId?: (stmtId: number) => Promise<unknown>;
+
+	appendToParam?: (nParam: number, data: Uint8Array|number|bigint|Date) => Promise<unknown>;
+
+	paramEnd?: (nParam: number) => Promise<unknown>;
+
+	nextQuery?: () => Promise<unknown>;
+
+	start?: () => Promise<unknown>;
+
+	/**	If this was query preparation (`SqlLogger.query(_, _, true)`), `stmtId` will be the statement ID that the server returned.
+		Else `stmtId` will be `-1`.
+	 **/
+	end?: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
 }
 ```
 This library provides a base class called `SqlLogToWriter` that you can use to implement a logger that logs to any `Deno.Writer`.
@@ -1226,7 +1212,7 @@ conn.setSqlLogger(true);
 
 // Is the same as:
 
-conn.setSqlLogger(new SqlLogToWriter(Deno.stderr, !Deno.noColor, 10_000, 3_000));
+conn.setSqlLogger(new SqlLogToWriter(Deno.stderr, !Deno.noColor, 10_000, 3_000, 100));
 ```
 
 Here is how to subclass `SqlLogToWriter` to log to a file:
