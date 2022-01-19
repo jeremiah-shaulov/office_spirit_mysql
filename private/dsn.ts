@@ -197,53 +197,76 @@ export class Dsn
 	{	return this.#hash;
 	}
 
-	constructor(dsn: string)
-	{	if (!dsn)
-		{	throw new Error(`No DSN string provided`);
+	constructor(dsn: string|Dsn)
+	{	if (typeof(dsn) != 'string')
+		{	this.#hostname = dsn.#hostname;
+			this.#port = dsn.#port;
+			this.#username = dsn.#username;
+			this.#password = dsn.#password;
+			this.#schema = dsn.#schema;
+			this.#pipe = dsn.#pipe;
+			this.#connectionTimeout = dsn.#connectionTimeout;
+			this.#reconnectInterval = dsn.#reconnectInterval;
+			this.#keepAliveTimeout = dsn.#keepAliveTimeout;
+			this.#keepAliveMax = dsn.#keepAliveMax;
+			this.#maxConns = dsn.#maxConns;
+			this.#maxColumnLen = dsn.#maxColumnLen;
+			this.#foundRows = dsn.#foundRows;
+			this.#ignoreSpace = dsn.#ignoreSpace;
+			this.#multiStatements = dsn.#multiStatements;
+			this.#retryQueryTimes = dsn.#retryQueryTimes;
+			this.#initSql = dsn.#initSql;
+			this.#name = dsn.#name;
+			this.#hash = dsn.#hash;
 		}
-		let pos = dsn.indexOf(':');
-		if (pos!=5 || dsn.slice(0, pos).toLowerCase()!='mysql')
-		{	throw new Error(`Protocol not supported: ${dsn}`);
+		else
+		{	if (!dsn)
+			{	throw new Error(`No DSN string provided`);
+			}
+			let pos = dsn.indexOf(':');
+			if (pos!=5 || dsn.slice(0, pos).toLowerCase()!='mysql')
+			{	throw new Error(`Protocol not supported: ${dsn}`);
+			}
+			const url = new URL('http'+dsn.slice(5));
+			let {hostname, username, password, pathname} = url;
+			if (hostname.charAt(0)=='[' && hostname.slice(-1)==']') // IPv6, like [::1]:3306
+			{	hostname = hostname.slice(1, -1);
+			}
+			this.#hostname = hostname;
+			this.#port = !url.port ? 3306 : Number(url.port) || 3306;
+			this.#username = wantUrlDecodeUsername ? decodeURIComponent(username) : username;
+			this.#password = wantUrlDecodePassword ? decodeURIComponent(password) : password;
+			pathname = wantUrlDecodePathname ? decodeURIComponent(pathname) : pathname;
+			pos = pathname.lastIndexOf('/');
+			this.#pipe = pathname.slice(0, pos);
+			this.#schema = pathname.slice(pos + 1);
+			// params
+			const connectionTimeout = url.searchParams.get('connectionTimeout');
+			const reconnectInterval = url.searchParams.get('reconnectInterval');
+			const keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
+			const keepAliveMax = url.searchParams.get('keepAliveMax');
+			const maxConns = url.searchParams.get('maxConns');
+			const maxColumnLen = url.searchParams.get('maxColumnLen');
+			const foundRows = url.searchParams.get('foundRows');
+			const ignoreSpace = url.searchParams.get('ignoreSpace');
+			const multiStatements = url.searchParams.get('multiStatements');
+			const retryQueryTimes = url.searchParams.get('retryQueryTimes');
+			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
+			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
+			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
+			this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
+			this.#maxConns = maxConns ? Math.max(1, Number(maxConns)) : NaN;
+			this.#maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
+			this.#foundRows = foundRows != null;
+			this.#ignoreSpace = ignoreSpace != null;
+			this.#multiStatements = multiStatements != null;
+			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
+			// initSql
+			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
+			this.#name = '';
+			this.#hash = 0;
+			this.updateNameAndHash();
 		}
-		const url = new URL('http'+dsn.slice(5));
-		let {hostname, username, password, pathname} = url;
-		if (hostname.charAt(0)=='[' && hostname.slice(-1)==']') // IPv6, like [::1]:3306
-		{	hostname = hostname.slice(1, -1);
-		}
-		this.#hostname = hostname;
-		this.#port = !url.port ? 3306 : Number(url.port) || 3306;
-		this.#username = wantUrlDecodeUsername ? decodeURIComponent(username) : username;
-		this.#password = wantUrlDecodePassword ? decodeURIComponent(password) : password;
-		pathname = wantUrlDecodePathname ? decodeURIComponent(pathname) : pathname;
-		pos = pathname.lastIndexOf('/');
-		this.#pipe = pathname.slice(0, pos);
-		this.#schema = pathname.slice(pos + 1);
-		// params
-		const connectionTimeout = url.searchParams.get('connectionTimeout');
-		const reconnectInterval = url.searchParams.get('reconnectInterval');
-		const keepAliveTimeout = url.searchParams.get('keepAliveTimeout');
-		const keepAliveMax = url.searchParams.get('keepAliveMax');
-		const maxConns = url.searchParams.get('maxConns');
-		const maxColumnLen = url.searchParams.get('maxColumnLen');
-		const foundRows = url.searchParams.get('foundRows');
-		const ignoreSpace = url.searchParams.get('ignoreSpace');
-		const multiStatements = url.searchParams.get('multiStatements');
-		const retryQueryTimes = url.searchParams.get('retryQueryTimes');
-		this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
-		this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
-		this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
-		this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
-		this.#maxConns = maxConns ? Math.max(1, Number(maxConns)) : NaN;
-		this.#maxColumnLen = maxColumnLen ? Math.max(1, Number(maxColumnLen)) : NaN;
-		this.#foundRows = foundRows != null;
-		this.#ignoreSpace = ignoreSpace != null;
-		this.#multiStatements = multiStatements != null;
-		this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
-		// initSql
-		this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
-		this.#name = '';
-		this.#hash = 0;
-		this.updateNameAndHash();
 	}
 
 	/**	Normalized name.
