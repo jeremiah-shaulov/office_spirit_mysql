@@ -513,9 +513,9 @@ But with `correctDates` parameter set 2 equal dates are always printed, because 
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/main/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.2.ts~)' > /tmp/example8.2.ts
 // deno run --allow-env --allow-net /tmp/example8.2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.11.0/mod.ts';
+import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.11.0/mod.ts';
 
-const dsn = Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests';
+const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 dsn.correctDates = true; // THE DIFFERENCE IS HERE
 const pool = new MyPool(dsn);
 
