@@ -123,13 +123,12 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 			return data;
 		}
 
-		function nextQuery()
+		function start()
 		{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
 			curNParam = -1;
 			curDataLen = 0;
 			curNFullLines = 0;
 			limit = queryMaxBytes;
-			nQueries++;
 			return that.write(dsn, connectionId, !withEllipsis ? '\n' : !withColor ? `…(${curDataLen} bytes)\n` : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
 		}
 
@@ -153,14 +152,14 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 				{	return that.write(dsn, connectionId, `EXECUTE stmt_id=${stmtId}`);
 				},
 
-				async appendToParam(nParam: number, data: Uint8Array|number|bigint|Date)
+				async appendToParam(nParam: number, data: Uint8Array|number|bigint)
 				{	let str = '';
 					if (!(data instanceof Uint8Array))
 					{	str = `\n\tBIND param_${nParam}=`;
 						curDataLen = -1;
 					}
 					else if (nParam != curNParam)
-					{	str = `\n\tBIND param_${nParam}='`;
+					{	str = `\n\tBIND param_${nParam}=`;
 						curNParam = nParam;
 						curDataLen = 0;
 						curNFullLines = 0;
@@ -178,15 +177,16 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 					}
 				},
 
-				async paramEnd(_nParam: number)
-				{	if (curDataLen != -1)
-					{	await that.write(dsn, connectionId, "'");
-					}
+				paramEnd(_nParam: number)
+				{	return Promise.resolve();
 				},
 
-				nextQuery,
+				nextQuery()
+				{	nQueries++;
+					return start();
+				},
 
-				start: nextQuery,
+				start,
 
 				end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
 				{	let str = `\t${(Date.now()-since) / 1000} sec`;

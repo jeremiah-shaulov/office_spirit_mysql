@@ -44,7 +44,7 @@ export interface SqlLoggerQuery
 
 	setStmtId?: (stmtId: number) => Promise<unknown>;
 
-	appendToParam?: (nParam: number, data: Uint8Array|number|bigint|Date) => Promise<unknown>;
+	appendToParam?: (nParam: number, data: Uint8Array|number|bigint) => Promise<unknown>;
 
 	paramEnd?: (nParam: number) => Promise<unknown>;
 
@@ -62,7 +62,7 @@ export interface SafeSqlLoggerQuery
 {	appendToQuery: (data: Uint8Array) => Promise<unknown>;
 	setStmtId: (stmtId: number) => Promise<unknown>;
 	paramStart: (nParam: number) => void;
-	appendToParam: (data: Uint8Array|number|bigint|Date) => Promise<unknown>;
+	appendToParam: (data: Uint8Array|number|bigint) => Promise<unknown>;
 	paramEnd: () => Promise<unknown>;
 	nextQuery: () => Promise<unknown>;
 	start: () => Promise<unknown>;
@@ -135,7 +135,7 @@ export class SafeSqlLogger
 					{	curNParam = nParam;
 					},
 
-					appendToParam(data: Uint8Array|number|bigint|Date)
+					appendToParam(data: Uint8Array|number|bigint)
 					{	try
 						{	return underlyingQuery.appendToParam?.(curNParam, data) ?? Promise.resolve();
 						}

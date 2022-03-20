@@ -29,9 +29,9 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 	async first()
 	{	const resultsets = await this;
 		const it = resultsets[Symbol.asyncIterator]();
-		const {value, done} = await it.next();
+		const item = await it.next();
 		await resultsets.discard();
-		return done || value===undefined ? undefined : value; // void -> undefined
+		return item.done || item.value===undefined ? undefined : item.value; // void -> undefined
 	}
 
 	/**	Reads all rows in the first resultset, and calls the provided callback for each of them.

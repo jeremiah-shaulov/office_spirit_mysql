@@ -22,6 +22,8 @@ type Any = any;
 	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
 	`multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky;
 	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or "lock wait timeout" in both modes;
+	`datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
+	`correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
  **/
 export class Dsn
 {	#hostname: string;
@@ -43,6 +45,8 @@ export class Dsn
 	/** SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky */
 	#multiStatements: boolean;
 	#retryQueryTimes: number;
+	#datesAsString: boolean;
+	#correctDates: boolean;
 	#initSql: string;
 	#name: string;
 	#hash: number;
@@ -181,6 +185,22 @@ export class Dsn
 		this.updateNameAndHash();
 	}
 
+	get datesAsString()
+	{	return this.#datesAsString;
+	}
+	set datesAsString(value: boolean)
+	{	this.#datesAsString = value;
+		this.updateNameAndHash();
+	}
+
+	get correctDates()
+	{	return this.#correctDates;
+	}
+	set correctDates(value: boolean)
+	{	this.#correctDates = value;
+		this.updateNameAndHash();
+	}
+
 	get initSql()
 	{	return this.#initSql;
 	}
@@ -215,6 +235,8 @@ export class Dsn
 			this.#ignoreSpace = dsn.#ignoreSpace;
 			this.#multiStatements = dsn.#multiStatements;
 			this.#retryQueryTimes = dsn.#retryQueryTimes;
+			this.#datesAsString = dsn.#datesAsString;
+			this.#correctDates = dsn.#correctDates;
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
@@ -251,6 +273,8 @@ export class Dsn
 			const ignoreSpace = url.searchParams.get('ignoreSpace');
 			const multiStatements = url.searchParams.get('multiStatements');
 			const retryQueryTimes = url.searchParams.get('retryQueryTimes');
+			const datesAsString = url.searchParams.get('datesAsString');
+			const correctDates = url.searchParams.get('correctDates');
 			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -261,6 +285,8 @@ export class Dsn
 			this.#ignoreSpace = ignoreSpace != null;
 			this.#multiStatements = multiStatements != null;
 			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
+			this.#datesAsString = datesAsString != null;
+			this.#correctDates = correctDates != null;
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
@@ -282,7 +308,9 @@ export class Dsn
 			(this.#foundRows ? '&foundRows' : '') +
 			(this.#ignoreSpace ? '&ignoreSpace' : '') +
 			(this.#multiStatements ? '&multiStatements' : '') +
-			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '')
+			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '') +
+			(this.#datesAsString ? '&datesAsString' : '') +
+			(this.#correctDates ? '&correctDates' : '')
 		);
 		this.#name =
 		(	'mysql://' +

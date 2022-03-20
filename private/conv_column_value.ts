@@ -2,8 +2,15 @@ import {ColumnFlags, MysqlType} from './constants.ts';
 import type {ColumnValue} from './resultsets.ts';
 
 const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
+const DATE_LEN_NO_MILLIS = 'YYYY-MM-DD HH:MM:SS'.length;
+const DATE_LEN_WITH_MILLIS = 'YYYY-MM-DD HH:MM:SS.mmm'.length;
 const C_MINUS = '-'.charCodeAt(0);
 const C_ZERO = '0'.charCodeAt(0);
+const C_ONE = '1'.charCodeAt(0);
+const C_TWO = '2'.charCodeAt(0);
+const C_THREE = '3'.charCodeAt(0);
+const C_FOUR = '4'.charCodeAt(0);
+const C_FIVE = '5'.charCodeAt(0);
 const C_SPACE = ' '.charCodeAt(0);
 const C_COLON = ':'.charCodeAt(0);
 const C_DOT = '.'.charCodeAt(0);
@@ -13,7 +20,7 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder): ColumnValue
+export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder, datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
 {	switch (type)
 	{	case MysqlType.MYSQL_TYPE_NULL:
 			return null;
@@ -62,7 +69,10 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 		case MysqlType.MYSQL_TYPE_DATE:
 		case MysqlType.MYSQL_TYPE_DATETIME:
 		case MysqlType.MYSQL_TYPE_TIMESTAMP:
-			return dataToDate(value);
+			if (datesAsString)
+			{	return decoder.decode(value);
+			}
+			return dataToDate(value, tz.getTimezoneMsecOffsetFromSystem());
 
 		case MysqlType.MYSQL_TYPE_TIME:
 			return dataToTime(value);
@@ -167,7 +177,7 @@ function dataToTime(value: Uint8Array)
 	return isNegative ? -seconds : seconds;
 }
 
-function dataToDate(value: Uint8Array)
+function dataToDate(value: Uint8Array, timezoneMsecOffsetFromSystem: number)
 {	let pos = value.indexOf(C_MINUS, 1);
 	const year = dataToInt(value.subarray(0, pos));
 	pos++;
@@ -202,5 +212,139 @@ function dataToDate(value: Uint8Array)
 			}
 		}
 	}
-	return new Date(year, month-1, day, hour, minute, second, frac*1000);
+	let date = new Date(year, month-1, day, hour, minute, second, frac*1000);
+	if (timezoneMsecOffsetFromSystem != 0)
+	{	date = new Date(date.getTime() - timezoneMsecOffsetFromSystem);
+	}
+	return date;
+}
+
+export function dateToData(date: Date)
+{	let milli = date.getMilliseconds();
+	const data = new Uint8Array(milli==0 ? DATE_LEN_NO_MILLIS : DATE_LEN_WITH_MILLIS);
+
+	let year = date.getFullYear();
+	data[3] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	data[2] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	data[1] = C_ZERO + year % 10;
+	year = Math.floor(year / 10);
+	data[0] = C_ZERO + year;
+
+	data[4] = C_MINUS;
+
+	const month = date.getMonth() + 1;
+	if (month < 10)
+	{	data[5] = C_ZERO;
+		data[6] = C_ZERO + month;
+	}
+	else
+	{	data[5] = C_ONE;
+		data[6] = (C_ZERO - 10) + month;
+	}
+
+	data[7] = C_MINUS;
+
+	const day = date.getDate();
+	if (day < 10)
+	{	data[8] = C_ZERO;
+		data[9] = C_ZERO + day;
+	}
+	else if (day < 20)
+	{	data[8] = C_ONE;
+		data[9] = (C_ZERO - 10) + day;
+	}
+	else if (day < 30)
+	{	data[8] = C_TWO;
+		data[9] = (C_ZERO - 20) + day;
+	}
+	else
+	{	data[8] = C_THREE;
+		data[9] = (C_ZERO - 30) + day;
+	}
+
+	data[10] = C_SPACE;
+
+	const hour = date.getHours();
+	if (hour < 10)
+	{	data[11] = C_ZERO;
+		data[12] = C_ZERO + hour;
+	}
+	else if (hour < 20)
+	{	data[11] = C_ONE;
+		data[12] = (C_ZERO - 10) + hour;
+	}
+	else
+	{	data[11] = C_TWO;
+		data[12] = (C_ZERO - 20) + hour;
+	}
+
+	data[13] = C_COLON;
+
+	const minute = date.getMinutes();
+	if (minute < 10)
+	{	data[14] = C_ZERO;
+		data[15] = C_ZERO + minute;
+	}
+	else if (minute < 20)
+	{	data[14] = C_ONE;
+		data[15] = (C_ZERO - 10) + minute;
+	}
+	else if (minute < 30)
+	{	data[14] = C_TWO;
+		data[15] = (C_ZERO - 20) + minute;
+	}
+	else if (minute < 40)
+	{	data[14] = C_THREE;
+		data[15] = (C_ZERO - 30) + minute;
+	}
+	else if (minute < 50)
+	{	data[14] = C_FOUR;
+		data[15] = (C_ZERO - 40) + minute;
+	}
+	else
+	{	data[14] = C_FIVE;
+		data[15] = (C_ZERO - 50) + minute;
+	}
+
+	data[16] = C_COLON;
+
+	const second = date.getSeconds();
+	if (second < 10)
+	{	data[17] = C_ZERO;
+		data[18] = C_ZERO + second;
+	}
+	else if (second < 20)
+	{	data[17] = C_ONE;
+		data[18] = (C_ZERO - 10) + second;
+	}
+	else if (second < 30)
+	{	data[17] = C_TWO;
+		data[18] = (C_ZERO - 20) + second;
+	}
+	else if (second < 40)
+	{	data[17] = C_THREE;
+		data[18] = (C_ZERO - 30) + second;
+	}
+	else if (second < 50)
+	{	data[17] = C_FOUR;
+		data[18] = (C_ZERO - 40) + second;
+	}
+	else
+	{	data[17] = C_FIVE;
+		data[18] = (C_ZERO - 50) + second;
+	}
+
+	if (milli != 0)
+	{	data[19] = C_DOT;
+
+		data[22] = C_ZERO + milli % 10;
+		milli = Math.floor(milli / 10);
+		data[21] = C_ZERO + milli % 10;
+		milli = Math.floor(milli / 10);
+		data[20] = C_ZERO + milli;
+	}
+
+	return data;
 }

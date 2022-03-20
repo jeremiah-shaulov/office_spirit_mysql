@@ -7,8 +7,9 @@ import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsInternal} from './resultsets.ts';
 import type {Param, ColumnValue} from './resultsets.ts';
-import {convColumnValue} from './conv_column_value.ts';
+import {convColumnValue, dateToData} from './conv_column_value.ts';
 import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
+import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
@@ -72,6 +73,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private affectedRows: number|bigint = 0;
 	private lastInsertId: number|bigint = 0;
 	private statusInfo = '';
+	private timezoneMsecOffsetFromSystem = NaN;
 
 	private state = ProtocolState.IDLE;
 	private initSchema = '';
@@ -394,6 +396,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 											else if (name == 'character_set_results')
 											{	this.setCharacterSetResults(value);
 											}
+											else if (name == 'time_zone')
+											{	this.setTimeZone(value);
+											}
 											break;
 										}
 										case SessionTrack.SCHEMA:
@@ -472,6 +477,29 @@ export class MyProtocol extends MyProtocolReaderWriter
 					throw new Error(`Cannot use this value for character_set_results: ${value}. Options: utf8, utf8mb4, latin1, latin2, latin3, latin4, cp866, cp1250, cp1251, cp1256, cp1257, big5, gb2312, gb18030, greek, hebrew, sjis, koi8r, koi8u, eucjpms.`);
 			}
 		}
+	}
+
+	private setTimeZone(value: string)
+	{	this.timezoneMsecOffsetFromSystem = 0;
+		if (value != 'SYSTEM')
+		{	try
+			{	this.timezoneMsecOffsetFromSystem = getTimezoneMsecOffsetFromSystem(value);
+			}
+			catch (e)
+			{	this.logger.warn(e);
+			}
+		}
+	}
+
+	getTimezoneMsecOffsetFromSystem()
+	{	if (!this.dsn.correctDates)
+		{	return 0;
+		}
+		if (Number.isNaN(this.timezoneMsecOffsetFromSystem))
+		{	this.logger.warn(`Using system timezone to convert dates, that can lead to distortion if MySQL and Deno use different timezones. To respect MySQL timezone, execute "SET time_zone = '...'" statement as part of connection initialization. However this library can recognize such statement only if you're using MySQL 5.7+, and this doesn't work on MariaDB (at least up to 10.7).`);
+			this.timezoneMsecOffsetFromSystem = 0;
+		}
+		return this.timezoneMsecOffsetFromSystem;
 	}
 
 	authSendUint8Packet(value: number)
@@ -1267,19 +1295,24 @@ L:		while (true)
 						}
 					}
 					else if (param instanceof Date)
-					{	if (sqlLoggerQuery)
+					{	let date = param;
+						const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
+						if (timezoneMsecOffsetFromSystem != 0)
+						{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
+						}
+						if (sqlLoggerQuery)
 						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(param);
+							await sqlLoggerQuery.appendToParam(dateToData(date));
 							await sqlLoggerQuery.paramEnd();
 						}
-						const frac = param.getMilliseconds();
+						const frac = date.getMilliseconds();
 						this.writeUint8(frac ? 11 : 7); // length
-						this.writeUint16(param.getFullYear());
-						this.writeUint8(param.getMonth() + 1);
-						this.writeUint8(param.getDate());
-						this.writeUint8(param.getHours());
-						this.writeUint8(param.getMinutes());
-						this.writeUint8(param.getSeconds());
+						this.writeUint16(date.getFullYear());
+						this.writeUint8(date.getMonth() + 1);
+						this.writeUint8(date.getDate());
+						this.writeUint8(date.getHours());
+						this.writeUint8(date.getMinutes());
+						this.writeUint8(date.getSeconds());
 						if (frac)
 						{	this.writeUint32(frac * 1000);
 						}
@@ -1458,17 +1491,19 @@ L:		while (true)
 						else if (len>this.maxColumnLen || rowType==RowType.VOID)
 						{	this.readVoid(len) || this.readVoidAsync(len);
 						}
-						else if (len <= this.buffer.length)
-						{	const v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
-							value = convColumnValue(v, typeId, flags, this.decoder);
-						}
 						else
-						{	if (!buffer || buffer.length<len)
-							{	buffer = new Uint8Array(len);
+						{	let v;
+							if (len <= this.buffer.length)
+							{	v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
 							}
-							const v = buffer.subarray(0, len);
-							await this.readBytesToBuffer(v);
-							value = convColumnValue(v, typeId, flags, this.decoder);
+							else
+							{	if (!buffer || buffer.length<len)
+								{	buffer = new Uint8Array(len);
+								}
+								v = buffer.subarray(0, len);
+								await this.readBytesToBuffer(v);
+							}
+							value = convColumnValue(v, typeId, flags, this.decoder, this.dsn.datesAsString, this);
 						}
 					}
 					switch (rowType)
@@ -1574,10 +1609,25 @@ L:		while (true)
 										{	micro = this.readUint32() ?? await this.readUint32Async();
 										}
 									}
-									value = new Date(year, month-1, day, hour, minute, second, micro/1000);
+									if (!this.dsn.datesAsString)
+									{	value = new Date(year, month-1, day, hour, minute, second, micro/1000);
+										const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
+										if (timezoneMsecOffsetFromSystem != 0)
+										{	value = new Date(value.getTime() - timezoneMsecOffsetFromSystem);
+										}
+									}
+									else
+									{	value = `${year<10 ? '000'+year : year<100 ? '00'+year : year<1000 ? '0'+year : year}-${month<10 ? '0'+month : month}-${day<10 ? '0'+day : day}`;
+										if (len >= 7)
+										{	value += ` ${hour<10 ? '0'+hour : hour}:${minute<10 ? '0'+minute : minute}:${second<10 ? '0'+second : second}`;
+											if (len >= 11)
+											{	value += `.${micro<10 ? '00000'+micro : micro<100 ? '0000'+micro : micro<1000 ? '000'+micro : micro<10000 ? '00'+micro : micro<100000 ? '0'+micro : micro}`;
+											}
+										}
+									}
 								}
 								else
-								{	value = new Date(0);
+								{	value = this.dsn.datesAsString ? '0000-00-00 0:00:00' : new Date(0);
 								}
 								break;
 							}

@@ -207,6 +207,9 @@ async function testBasic(dsnStr: string)
 				await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
 				await conn.query("CREATE DATABASE `test2` /*!40100 CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci*/");
 
+				// Timezone
+				await conn.query("SET time_zone = 'SYSTEM'");
+
 				// Check schema change
 				await conn.query("USE test1");
 				assert(!conn.schema || conn.schema=='test1');
@@ -501,6 +504,9 @@ async function testPrepared(dsnStr: string)
 				// USE
 				await conn.query("USE test1");
 
+				// Timezone
+				await conn.query("SET time_zone = 'SYSTEM'");
+
 				// CREATE TABLE
 				await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");
 
@@ -584,7 +590,10 @@ async function testVariousColumnTypes(dsnStr: string)
 	try
 	{	pool.forConn
 		(	async conn =>
-			{	// CREATE TABLE
+			{	// Timezone
+				await conn.query("SET time_zone = 'SYSTEM'");
+
+				// CREATE TABLE
 				let res = await conn.query
 				(	`	DROP DATABASE IF EXISTS test1;
 						CREATE DATABASE test1 /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/;
