@@ -160,11 +160,11 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
 	{	if (this.hasMoreInternal)
-		{	if (!this.protocol)
-			{	throw new CanceledError(`Connection terminated`);
-			}
-			while (true)
-			{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+		{	while (true)
+			{	if (!this.protocol)
+				{	throw new CanceledError(`Connection terminated`);
+				}
+				const row: Row|undefined = await this.protocol.fetch(this.rowType);
 				if (row === undefined)
 				{	break;
 				}
