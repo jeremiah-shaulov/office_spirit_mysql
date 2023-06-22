@@ -1,17 +1,24 @@
 const decoder = new TextDecoder;
 
-async function system(cmd: string[])
-{	const h = Deno.run({cmd, stdout: 'piped'});
+async function system(cmd: string, args: string[])
+{	const h = new Deno.Command(cmd, {args, stdout: 'piped', stderr: 'inherit'}).spawn();
 	try
-	{	return decoder.decode(await h.output());
+	{	const output = await h.output();
+		return decoder.decode(output.stdout);
 	}
-	finally
-	{	h.close();
+	catch (e)
+	{	try
+		{	h.kill();
+		}
+		catch
+		{	// ok
+		}
+		throw e;
 	}
 }
 
 async function stopLeftRunning()
-{	const res = await system(['docker', 'container', 'ls', '--filter', 'name=^office_spirit_mysql_']);
+{	const res = await system('docker', ['container', 'ls', '--filter', 'name=^office_spirit_mysql_']);
 	const lines = res.split(/[\r\n]+/);
 	lines.shift(); // remove header line
 	for (const line of lines)
@@ -19,7 +26,7 @@ async function stopLeftRunning()
 		if (containerName)
 		{	try
 			{	console.log(`%cStopping container ${containerName}`, 'color:blue');
-				await system(['docker', 'stop', containerName]);
+				await system('docker', ['stop', containerName]);
 			}
 			catch (e)
 			{	console.error(e);
@@ -32,31 +39,31 @@ export async function withDocker(imageName: string, withPassword: boolean, withS
 {	await stopLeftRunning();
 	const containerName = `office_spirit_mysql_${Math.floor(Math.random() * 256)}`;
 	// Format command line
-	const cmd = ['docker', 'run', '--rm', '-p', '3306'];
+	const args = ['run', '--rm', '-p', '3306'];
 	let password = '';
 	let schema = '';
-	cmd.push('-e');
+	args.push('-e');
 	if (withPassword)
 	{	password = '@אя';
-		cmd.push(`MYSQL_ROOT_PASSWORD=${password}`);
+		args.push(`MYSQL_ROOT_PASSWORD=${password}`);
 	}
 	else
-	{	cmd.push(`MYSQL_ALLOW_EMPTY_PASSWORD=1`);
+	{	args.push(`MYSQL_ALLOW_EMPTY_PASSWORD=1`);
 	}
 	if (withSchema)
 	{	schema = 'tests';
-		cmd.push('-e');
-		cmd.push(`MYSQL_DATABASE=${schema}`);
+		args.push('-e');
+		args.push(`MYSQL_DATABASE=${schema}`);
 	}
-	cmd.push('--name');
-	cmd.push(containerName);
-	cmd.push(imageName);
+	args.push('--name');
+	args.push(containerName);
+	args.push(imageName);
 	for (const p of params)
-	{	cmd.push(p);
+	{	args.push(p);
 	}
 	// Run
 	console.log(`%cStarting ${imageName} %cpassword: ${withPassword ? 'yes' : 'no'}, ${params.join(' ')}`, 'color:blue', 'color:gray');
-	const hDb = Deno.run({cmd});
+	const hDb = new Deno.Command('docker', {args}).spawn();
 	// Work with it, and finally drop
 	try
 	{	// Find out port number
@@ -65,7 +72,7 @@ export async function withDocker(imageName: string, withPassword: boolean, withS
 		for (let i=0; i<15*60; i++)
 		{	await new Promise(y => setTimeout(y, 1000));
 			try
-			{	const portDesc = await system(['docker', 'port', containerName]);
+			{	const portDesc = await system('docker', ['port', containerName]);
 				const m = portDesc.match(/:(\d+)[\r\n]/);
 				if (m)
 				{	port = m[1];
@@ -86,11 +93,16 @@ export async function withDocker(imageName: string, withPassword: boolean, withS
 	finally
 	{	// Drop the container
 		try
-		{	await system(['docker', 'stop', containerName]);
+		{	await system('docker', ['stop', containerName]);
 		}
 		finally
 		{	console.log(`%cDone ${imageName}`, 'color:blue');
-			hDb.close();
+			try
+			{	hDb.kill();
+			}
+			catch
+			{	// ok
+			}
 		}
 	}
 }

@@ -14,7 +14,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		And if there're more resultsets, they will be skipped (discarded).
 	 **/
 	async all()
-	{	const resultsets = await this;
+	{	const resultsets: Resultsets<Row> = await this;
 		const rows = [];
 		for await (const row of resultsets)
 		{	rows[rows.length] = row;
@@ -27,7 +27,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		And if there're more rows or resultsets, they all will be skipped (discarded).
 	 **/
 	async first()
-	{	const resultsets = await this;
+	{	const resultsets: Resultsets<Row> = await this;
 		const it = resultsets[Symbol.asyncIterator]();
 		const item = await it.next();
 		await resultsets.discard();
@@ -38,7 +38,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		If there're more resultsets, they will be skipped (discarded).
 	 **/
 	async forEach<T>(callback: (row: Row) => T|Promise<T>): Promise<T|undefined>
-	{	const resultsets = await this;
+	{	const resultsets: Resultsets<Row> = await this;
 		let result: T|undefined;
 		for await (const row of resultsets)
 		{	result = await callback(row);

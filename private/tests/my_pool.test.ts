@@ -5,7 +5,7 @@ import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
 import {writeAll, readAll, copy} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.117.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.192.0/testing/asserts.ts";
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=private/tests/coverage/profile private/tests
@@ -74,7 +74,7 @@ if (TESTS_DSN)
 	}
 }
 else if (WITH_DOCKER)
-{	console.log("%cEnvironment variable WITH_DOCKER is set, so i'll download and run Docker images", 'color:blue', TESTS_DSN);
+{	console.log("%cEnvironment variable WITH_DOCKER is set, so i'll download and run Docker images", 'color:blue');
 
 	Deno.test
 	(	'All',

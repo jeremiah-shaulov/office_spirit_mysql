@@ -106,7 +106,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 			{	const publicKey = decoder.decode(packetData);
 				const stage1 = appendZeroByte(encoder.encode(password));
 				xor(stage1, this.scramble);
-				const encryptedPassword = RSA.encrypt(stage1, RSA.parseKey(publicKey));
+				const encryptedPassword = await new RSA(RSA.parseKey(publicKey)).encrypt(stage1);
 				await writer.authSendBytesPacket(encryptedPassword);
 				this.state = State.Done;
 				return false;
