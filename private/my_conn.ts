@@ -172,8 +172,8 @@ export class MyConn
 	{	return this.doQuery<void>(sql, params, RowType.VOID);
 	}
 
-	/**	@deprecated
-		Alias of queryVoid().
+	/**	Alias of queryVoid().
+		@deprecated
 	 **/
 	execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
 	{	return this.doQuery<void>(sql, params, RowType.VOID);

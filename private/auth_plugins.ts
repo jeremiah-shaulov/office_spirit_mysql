@@ -5,7 +5,7 @@ const encoder = new TextEncoder;
 const decoder = new TextDecoder;
 
 export class AuthPlugin
-{	constructor(public name: string, protected scramble: Uint8Array)
+{	protected constructor(public name: string, protected scramble: Uint8Array)
 	{
 	}
 
@@ -41,6 +41,14 @@ function xor(a: Uint8Array, b: Uint8Array)
 	{	a[i] ^= b[i];
 	}
 }
+
+/*function strToBytes(str: string)
+{	const bufView = new Uint8Array(str.length);
+	for (let i=0, iEnd=str.length; i<iEnd; i++)
+	{	bufView[i] = str.charCodeAt(i);
+	}
+	return bufView;
+}*/
 
 class AuthPluginMysqlNativePassword extends AuthPlugin
 {	async quickAuth(password: string)
@@ -106,6 +114,9 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 			{	const publicKey = decoder.decode(packetData);
 				const stage1 = appendZeroByte(encoder.encode(password));
 				xor(stage1, this.scramble);
+				// Maybe use `crypto.subtle` instead of `god_crypto.RSA`, and maybe not. The following 2 lines work, but i don't really like them.
+				//const publicKeyObj = await crypto.subtle.importKey('spki', strToBytes(atob(publicKey.slice(publicKey.indexOf('\n')+1, publicKey.lastIndexOf('\n', publicKey.length-2)+1))), {name: 'RSA-OAEP', hash: 'SHA-256'}, true, ['encrypt']);
+				//const encryptedPassword = new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
 				const encryptedPassword = await new RSA(RSA.parseKey(publicKey)).encrypt(stage1);
 				await writer.authSendBytesPacket(encryptedPassword);
 				this.state = State.Done;

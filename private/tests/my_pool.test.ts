@@ -8,10 +8,10 @@ import {writeAll, readAll, copy} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.192.0/testing/asserts.ts";
 
 /*	Option 1. Run tests using already existing and running database server:
-		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=private/tests/coverage/profile private/tests
+		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
 
 	Option 2. Use docker to download and run various database servers during testing:
-		rm -r private/tests/coverage/profile; WITH_DOCKER=1 deno test --fail-fast --unstable --allow-all --coverage=private/tests/coverage/profile private/tests
+		rm -r .vscode/coverage/profile; WITH_DOCKER=1 deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
  */
 
 const {TESTS_DSN, WITH_DOCKER} = Deno.env.toObject();

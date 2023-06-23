@@ -1496,7 +1496,7 @@ await conn.startTrx({xaId1: Math.random()+'-'});
 If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and `conn.connectionId` (the latter may be not known at this point if there's no connection to the server yet, so it will be appended later).
 
 Transaction-related functions are also present in `MySession` object.
-If you start a stransaction on the session level, all the connections in this session will have this transaction, and when you ask new connections, the current transaction with all the savepoints will be started there automatically.
+If you start a transaction on the session level, all the connections in this session will have this transaction, and when you ask new connections, the current transaction with all the savepoints will be started there automatically.
 
 ```ts
 /**	Commit current transaction (if any), and start new.
