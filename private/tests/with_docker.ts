@@ -1,20 +1,11 @@
 const decoder = new TextDecoder;
 
-async function system(cmd: string, args: string[])
-{	const h = new Deno.Command(cmd, {args, stdout: 'piped', stderr: 'inherit'}).spawn();
-	try
-	{	const output = await h.output();
-		return decoder.decode(output.stdout);
+async function system(cmd: string, args: string[], stderr: 'inherit'|'null'='inherit')
+{	const output = await new Deno.Command(cmd, {args, stdout: 'piped', stderr}).output();
+	if (!output.success)
+	{	throw new Error(`Command failed: ${cmd} ${JSON.stringify(args)}`);
 	}
-	catch (e)
-	{	try
-		{	h.kill();
-		}
-		catch
-		{	// ok
-		}
-		throw e;
-	}
+	return decoder.decode(output.stdout);
 }
 
 async function stopLeftRunning()
@@ -72,7 +63,7 @@ export async function withDocker(imageName: string, withPassword: boolean, withS
 		for (let i=0; i<15*60; i++)
 		{	await new Promise(y => setTimeout(y, 1000));
 			try
-			{	const portDesc = await system('docker', ['port', containerName]);
+			{	const portDesc = await system('docker', ['port', containerName], 'null');
 				const m = portDesc.match(/:(\d+)[\r\n]/);
 				if (m)
 				{	port = m[1];
