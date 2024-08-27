@@ -2,7 +2,7 @@ import {Dsn} from '../dsn.ts';
 import {ErrorCodes} from "../constants.ts";
 import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
-import {BusyError, CanceledError} from '../errors.ts';
+import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
 import {writeAll, readAll, copy} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
@@ -1216,7 +1216,7 @@ async function testTrx(dsnStr: string)
 		(	async conn =>
 			{	// Recover
 				try
-				{	for await (const row of await conn.query(`XA RECOVER`))
+				{	for await (const row of await conn.query(`XA RECOVER`).all())
 					{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
 						{	await conn.query(`XA ROLLBACK '${row.data}'`);
 							console.log('Rolled back dangling XA');
@@ -1226,8 +1226,11 @@ async function testTrx(dsnStr: string)
 						}
 					}
 				}
-				catch
-				{	// ok
+				catch (error)
+				{	if (!(error instanceof SqlError))
+					{	throw error;
+					}
+					// ok
 				}
 
 				// CREATE DATABASE
