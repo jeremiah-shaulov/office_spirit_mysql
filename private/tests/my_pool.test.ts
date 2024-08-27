@@ -1347,15 +1347,9 @@ async function testTrx(dsnStr: string)
 				{	error = e;
 				}
 				assertEquals(error?.message, `Please, prepare commit first`);
+				assertEquals((await conn.query("XA RECOVER").all()).length, 0);
 				await conn.prepareCommit();
-				error = undefined;
-				try
-				{	await conn.queryCol("SELECT Count(*) FROM t_log").first();
-				}
-				catch (e)
-				{	error = e;
-				}
-				assert(error);
+				assertEquals((await conn.query("XA RECOVER").all()).length, 1);
 				await conn.commit();
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				res = await conn.query("DELETE FROM t_log");

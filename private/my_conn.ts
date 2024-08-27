@@ -355,7 +355,7 @@ export class MyConn
 			}
 		}
 		else
-		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || this.isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
 			{	try
 				{	if (typeof(toPointId) == 'number')
 					{	await protocol.sendComQuery(`ROLLBACK AND CHAIN`);
@@ -394,12 +394,12 @@ export class MyConn
 		If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
 	 **/
 	async commit(andChain=false)
-	{	const {protocol, curXaId} = this;
+	{	const {protocol, curXaId, isXaPrepared} = this;
 		let error;
-		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
 		{	let sql;
 			if (curXaId)
-			{	if (!this.isXaPrepared)
+			{	if (!isXaPrepared)
 				{	throw new SqlError(`Please, prepare commit first`);
 				}
 				if (andChain)
