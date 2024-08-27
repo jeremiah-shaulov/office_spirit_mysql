@@ -5,7 +5,8 @@ import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
 import {writeAll, readAll, copy} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.192.0/testing/asserts.ts";
+import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -73,7 +74,17 @@ if (TESTS_DSN)
 	{	Deno.test(t.name, () => t(TESTS_DSN));
 	}
 }
-else if (WITH_DOCKER)
+else if (WITH_DOCKER === 'latest')
+{	console.log("%cEnvironment variable WITH_DOCKER is set to 'latest', so i'll download and run mysql:latest Docker image", 'color:blue');
+
+	Deno.test
+	(	'All',
+		async () =>
+		{	await withDocker('mysql:latest', true, true, ['--innodb-idle-flush-pct=0', '--local-infile'], tests);
+		}
+	);
+}
+else if (WITH_DOCKER === 'all')
 {	console.log("%cEnvironment variable WITH_DOCKER is set, so i'll download and run Docker images", 'color:blue');
 
 	Deno.test
@@ -99,7 +110,9 @@ else
 {	console.log('%cPlease, set one of environment variables: TESTS_DSN or WITH_DOCKER.', 'color:blue');
 	console.log('TESTS_DSN="mysql://..." deno test ...');
 	console.log('Or');
-	console.log('WITH_DOCKER=1 deno test ...');
+	console.log('WITH_DOCKER=latest deno test ...');
+	console.log('Or');
+	console.log('WITH_DOCKER=all deno test ...');
 }
 
 async function tests(dsnStr: string)

@@ -1,5 +1,6 @@
 import {reallocAppend} from '../realloc_append.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.192.0/testing/asserts.ts";
+import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 Deno.test
 (	'realloc_append',
