@@ -50,7 +50,7 @@ export class MyPool
 	private hTimer: number | undefined;
 	private xaTask: XaTask;
 	private curRetryingPromise: Promise<true> | undefined;
-	private isShutDown = false;
+	private isShuttingDown = false;
 	private onend: (() => void) | undefined;
 
 	private dsn: Dsn | undefined;
@@ -139,12 +139,17 @@ export class MyPool
 		Then new connections will be rejected, and this object will be unusable.
 	 **/
 	async shutdown()
-	{	this.isShutDown = true;
-		if (this.nSessionsOrConns!=0 || this.nBusyAll!=0)
-		{	await new Promise<void>(y => this.onend = y);
+	{	this.isShuttingDown = true;
+		try
+		{	if (this.nSessionsOrConns!=0 || this.nBusyAll!=0)
+			{	await new Promise<void>(y => this.onend = y);
+			}
+			// close idle connections
+			await this.closeKeptAliveTimedOut(true);
 		}
-		// close idle connections
-		await this.closeKeptAliveTimedOut(true);
+		finally
+		{	this.isShuttingDown = false;
+		}
 	}
 
 	private async waitHaveSlots(dsn: Dsn, till: number, haveSlotsCallbacks: HaveSlotsCallback[])
@@ -170,7 +175,7 @@ export class MyPool
 	}
 
 	async session<T>(callback: (session: MySession) => Promise<T>)
-	{	if (this.isShutDown)
+	{	if (this.isShuttingDown)
 		{	throw new Error(`Connections pool is shut down`);
 		}
 		const session = new MySessionInternal(this, this.dsn, this.xaTask.xaInfoTables, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
@@ -187,7 +192,7 @@ export class MyPool
 	}
 
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
-	{	if (this.isShutDown && this.nSessionsOrConns==0)
+	{	if (this.isShuttingDown && this.nSessionsOrConns==0)
 		{	throw new Error(`Connections pool is shut down`);
 		}
 		if (dsn == undefined)
