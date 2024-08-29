@@ -10,6 +10,7 @@ import type {Param, ColumnValue} from './resultsets.ts';
 import {convColumnValue, dateToData} from './conv_column_value.ts';
 import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
 import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
+import {Closer, Reader} from './deno_ifaces.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
@@ -18,7 +19,7 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(4096);
 
-export type OnLoadFile = (filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>;
+export type OnLoadFile = (filename: string) => Promise<(Reader & Closer) | undefined>;
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -85,7 +86,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	private curResultsets: ResultsetsInternal<unknown> | undefined;
 	private pendingCloseStmts: number[] = [];
-	private curLastColumnReader: Deno.Reader | undefined;
+	private curLastColumnReader: Reader | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
 	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)

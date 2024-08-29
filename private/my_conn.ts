@@ -8,6 +8,7 @@ import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
 import {SqlLogToWriter} from "./sql_log_to_writer.ts";
+import {Reader} from './deno_ifaces.ts';
 
 export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
 export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
@@ -180,7 +181,7 @@ export class MyConn
 	}
 
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.doQuery<Record<string, ColumnType|Deno.Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+	{	const resultsets = await this.doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value} = await it.next();
 		return value==undefined ? undefined : value; // void -> undefined

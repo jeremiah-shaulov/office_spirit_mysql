@@ -3,6 +3,7 @@ import {utf8StringLength} from './utf8_string_length.ts';
 import {MyProtocolReader} from './my_protocol_reader.ts';
 import {writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
+import {Reader, Seeker} from './deno_ifaces.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
 const BUFFER_FOR_ENCODE_MAX_LEN = 1*1024*1024;
@@ -13,7 +14,7 @@ type Any = any;
 interface ToSqlBytes
 {	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: Any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
 }
-export type SqlSource = string | Uint8Array | Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number} | ToSqlBytes;
+export type SqlSource = string | Uint8Array | Reader&Seeker | Reader&{readonly size: number} | ToSqlBytes;
 
 const encoder = new TextEncoder;
 
@@ -212,7 +213,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	{	this.writeNulBytes(encoder.encode(value));
 	}
 
-	protected async writeReadChunk(value: Deno.Reader)
+	protected async writeReadChunk(value: Reader)
 	{	debugAssert(this.bufferEnd < this.buffer.length); // please, call ensureRoom() if writing long packet
 		const n = await value.read(this.buffer.subarray(this.bufferEnd));
 		if (n != null)

@@ -3,6 +3,7 @@ import {reallocAppend} from "./realloc_append.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {writeAll} from "./deps.ts";
+import {Writer} from "./deno_ifaces.ts";
 
 const MAX_BUFFER_SIZE = 1*1024*1024;
 
@@ -16,7 +17,7 @@ export class SqlLogToWriterBase implements SqlLogger
 	private continueAfterFlush: (() => void) | undefined;
 	private isDisposed = false;
 
-	constructor(protected writer: Deno.Writer)
+	constructor(protected writer: Writer)
 	{
 	}
 
