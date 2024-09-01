@@ -180,8 +180,20 @@ export class MyConn
 	{	return this.doQuery<void>(sql, params, RowType.VOID);
 	}
 
+	/**	Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
+		@deprecated As `Deno.Reader` is deprecated, this method is deprecated as well.
+	 **/
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	const resultsets = await this.doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+		const it = resultsets[Symbol.asyncIterator]();
+		const {value} = await it.next();
+		return value==undefined ? undefined : value; // void -> undefined
+	}
+
+	/**	Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
+	 **/
+	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	const resultsets = await this.doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value} = await it.next();
 		return value==undefined ? undefined : value; // void -> undefined

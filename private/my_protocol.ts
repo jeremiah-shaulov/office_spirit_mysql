@@ -10,6 +10,7 @@ import type {Param, ColumnValue} from './resultsets.ts';
 import {convColumnValue, dateToData} from './conv_column_value.ts';
 import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
 import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
+import {RdStream} from './deps.ts';
 import {Closer, Reader} from './deno_ifaces.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
@@ -17,7 +18,7 @@ const DEFAULT_RETRY_QUERY_TIMES = 0;
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
-const BUFFER_FOR_END_SESSION = new Uint8Array(4096);
+const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 
 export type OnLoadFile = (filename: string) => Promise<(Reader & Closer) | undefined>;
 
@@ -40,7 +41,11 @@ export const enum ReadPacketMode
 
 export const enum RowType
 {	OBJECT,
+	/**	Old.
+		@deprecated
+	 **/
 	LAST_COLUMN_READER,
+	LAST_COLUMN_READABLE,
 	MAP,
 	ARRAY,
 	FIRST_COLUMN,
@@ -86,7 +91,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	private curResultsets: ResultsetsInternal<unknown> | undefined;
 	private pendingCloseStmts: number[] = [];
-	private curLastColumnReader: Reader | undefined;
+	private curLastColumnReader: Reader | RdStream | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
 	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
@@ -1462,6 +1467,7 @@ L:		while (true)
 			switch (rowType)
 			{	case RowType.OBJECT:
 				case RowType.LAST_COLUMN_READER:
+				case RowType.LAST_COLUMN_READABLE:
 					row = {};
 					break;
 				case RowType.MAP:
@@ -1486,7 +1492,7 @@ L:		while (true)
 					len = Number(len);
 					let value: ColumnValue = null;
 					if (len != -1) // if not a null value
-					{	if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
+					{	if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
 						{	lastColumnReaderLen = len;
 						}
 						else if (len>this.maxColumnLen || rowType==RowType.VOID)
@@ -1510,6 +1516,7 @@ L:		while (true)
 					switch (rowType)
 					{	case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
+						case RowType.LAST_COLUMN_READABLE:
 							row[name] = value;
 							break;
 						case RowType.MAP:
@@ -1665,7 +1672,7 @@ L:		while (true)
 								{	throw new Error(`Field is too long: ${len} bytes`);
 								}
 								len = Number(len);
-								if (rowType==RowType.LAST_COLUMN_READER && i+1==nColumns)
+								if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
 								{	lastColumnReaderLen = len;
 								}
 								else if (len>this.maxColumnLen || rowType==RowType.VOID)
@@ -1697,6 +1704,7 @@ L:		while (true)
 					switch (rowType)
 					{	case RowType.OBJECT:
 						case RowType.LAST_COLUMN_READER:
+						case RowType.LAST_COLUMN_READABLE:
 							row[name] = value;
 							break;
 						case RowType.MAP:
@@ -1715,7 +1723,7 @@ L:		while (true)
 					}
 				}
 			}
-			if (rowType == RowType.LAST_COLUMN_READER)
+			if (rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE)
 			{	// deno-lint-ignore no-this-alias
 				const that = this;
 				let dataInCurPacketLen = Math.min(lastColumnReaderLen, this.payloadLength - this.packetOffset);
@@ -1782,9 +1790,10 @@ L:		while (true)
 						return n;
 					}
 				};
+				const value = rowType==RowType.LAST_COLUMN_READER ? reader : new RdStream(reader);
 				const columnName = columns[columns.length - 1].name;
-				row[columnName] = reader;
-				this.curLastColumnReader = reader;
+				row[columnName] = value;
+				this.curLastColumnReader = value;
 			}
 			else
 			{	this.setState(ProtocolState.HAS_MORE_ROWS);
@@ -1891,7 +1900,16 @@ L:		while (true)
 			if (state == ProtocolState.QUERYING)
 			{	const promise = new Promise<ProtocolState>(y => {this.onEndSession = y});
 				try
-				{	await this.curLastColumnReader?.read(BUFFER_FOR_END_SESSION);
+				{	if (this.curLastColumnReader instanceof RdStream)
+					{	await this.curLastColumnReader.cancel();
+					}
+					else
+					{	while (true)
+						{	if (!await this.curLastColumnReader?.read(BUFFER_FOR_END_SESSION))
+							{	break;
+							}
+						}
+					}
 				}
 				catch (e)
 				{	if (!(e instanceof CanceledError))

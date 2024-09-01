@@ -4,7 +4,7 @@ import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
-import {writeAll, readAll, copy} from '../deps.ts';
+import {writeAll, readAll, copy, RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
@@ -336,6 +336,18 @@ async function testBasic(dsnStr: string)
 				message = row?.message;
 				assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
 				assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 3');
+
+				// makeLastColumnReadable - text protocol
+				row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=2");
+				message = row?.message;
+				assert(message instanceof RdStream);
+				assertEquals(await message.text(), 'Message 2');
+
+				// makeLastColumnReadable - binary protocol
+				row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=?", [3]);
+				message = row?.message;
+				assert(message instanceof RdStream);
+				assertEquals(await message.text(), 'Message 3');
 
 				// SELECT discard
 				const res2 = await conn.query("SELECT * FROM t_log");
