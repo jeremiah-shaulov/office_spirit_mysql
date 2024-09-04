@@ -1736,6 +1736,11 @@ async function testLoadBigDump(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
 	dsn.maxColumnLen = Number.MAX_SAFE_INTEGER;
 	const pool = new MyPool(dsn);
+	const enum SqlReadMode
+	{	ToMemory,
+		WithReader,
+		WithReadableStream,
+	}
 	try
 	{	pool.forConn
 		(	async conn =>
@@ -1747,7 +1752,7 @@ async function testLoadBigDump(dsnStr: string)
 				// CREATE TABLE
 				await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
 
-				for (const readToMemory of [false, true])
+				for (const sqlReadMode of [SqlReadMode.ToMemory, SqlReadMode.WithReader, SqlReadMode.WithReadableStream])
 				{	for (const SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
 					{	const maxAllowedPacket = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
 						if (maxAllowedPacket < SIZE+100)
@@ -1791,11 +1796,7 @@ async function testLoadBigDump(dsnStr: string)
 								// Read INSERT from file
 								let insertStatus: Resultsets<Any>|undefined;
 								try
-								{	if (!readToMemory)
-									{	await fh.seek(0, Deno.SeekMode.Start);
-										insertStatus = await conn.query(fh);
-									}
-									else
+								{	if (sqlReadMode == SqlReadMode.ToMemory)
 									{	const q = await Deno.readTextFile(filename);
 										if (SIZE == 2**24 - 8)
 										{	insertStatus = await conn.query(q);
@@ -1803,6 +1804,14 @@ async function testLoadBigDump(dsnStr: string)
 										else
 										{	insertStatus = await conn.query(new TextEncoder().encode(q));
 										}
+									}
+									else if (sqlReadMode == SqlReadMode.WithReader)
+									{	await fh.seek(0, Deno.SeekMode.Start);
+										insertStatus = await conn.query(fh);
+									}
+									else
+									{	await fh.seek(0, Deno.SeekMode.Start);
+										insertStatus = await conn.query({seek: (o, w) => fh.seek(o, w), readable: fh.readable});
 									}
 								}
 								catch (e)
@@ -1817,7 +1826,7 @@ async function testLoadBigDump(dsnStr: string)
 								// SELECT Length()
 								assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id="+recordId).first(), SIZE);
 
-								const row = await conn.query("SELECT message, id FROM t_log WHERE id="+recordId, readToMemory ? undefined : []).first();
+								const row = await conn.query("SELECT message, id FROM t_log WHERE id="+recordId, sqlReadMode ? undefined : []).first();
 								assertEquals(typeof(row?.message)=='string' ? row.message.length : -1, SIZE);
 								assertEquals(row?.id, recordId);
 

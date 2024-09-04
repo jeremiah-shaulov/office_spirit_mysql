@@ -1,11 +1,12 @@
 import {debugAssert} from './debug_assert.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
 import {MyProtocolReader} from './my_protocol_reader.ts';
-import {writeAll} from './deps.ts';
+import {RdStream, writeAll} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
+const BUFFER_FOR_SEND_MAX_LEN = 64*1024;
 const BUFFER_FOR_ENCODE_MAX_LEN = 1*1024*1024;
 
 // deno-lint-ignore no-explicit-any
@@ -14,7 +15,11 @@ type Any = any;
 interface ToSqlBytes
 {	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: Any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
 }
-export type SqlSource = string | Uint8Array | Reader&Seeker | Reader&{readonly size: number} | ToSqlBytes;
+export type SqlSource =
+	string |
+	Uint8Array |
+	(Reader | {readonly readable: ReadableStream<Uint8Array>}) & (Seeker | {readonly size: number}) |
+	ToSqlBytes;
 
 const encoder = new TextEncoder;
 
@@ -298,104 +303,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	throw new SendWithDataError(e.message, packetSize);
 			}
 		}
-		else if (typeof(data) != 'string') // Deno.Reader&Deno.Seeker | Deno.Reader&{readonly size: number}
-		{	let dataLength: number;
-			if ('size' in data)
-			{	dataLength = data.size;
-			}
-			else
-			{	const pos = await data.seek(0, Deno.SeekMode.Current);
-				dataLength = await data.seek(0, Deno.SeekMode.End);
-				await data.seek(pos, Deno.SeekMode.Start);
-				dataLength -= pos;
-			}
-			const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
-			let packetSizeRemaining = packetSize;
-			while (packetSizeRemaining >= 0xFFFFFF)
-			{	// send current packet part + data chunk = 0xFFFFFF
-				this.setHeader(0xFFFFFF);
-				try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
-				}
-				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
-				}
-				let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
-				dataLength -= dataChunkLen;
-				while (dataChunkLen > 0)
-				{	const n = await data.read(this.buffer.subarray(0, Math.min(dataChunkLen, this.buffer.length)));
-					if (n == null)
-					{	throw new Error(`Unexpected end of stream`);
-					}
-					const part = this.buffer.subarray(0, n);
-					if (logData)
-					{	await logData(part);
-					}
-					try
-					{	await writeAll(this.conn, part);
-					}
-					catch (e)
-					{	throw new SendWithDataError(e.message, packetSize);
-					}
-					dataChunkLen -= n;
-				}
-				this.bufferStart = 0;
-				this.bufferEnd = 4; // after header
-				packetSizeRemaining = dataLength;
-			}
-			debugAssert(packetSizeRemaining < 0xFFFFFF);
-			if (this.bufferStart+4+packetSizeRemaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
-			{	const from = this.bufferEnd;
-				while (dataLength > 0)
-				{	const n = await data.read(this.buffer.subarray(this.bufferEnd));
-					if (n == null)
-					{	throw new Error(`Unexpected end of stream`);
-					}
-					this.bufferEnd += n;
-					dataLength -= n;
-				}
-				if (logData)
-				{	await logData(this.buffer.subarray(from, this.bufferEnd));
-				}
-				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-				{	return true;
-				}
-				this.setHeader(packetSizeRemaining);
-				try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
-				}
-				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
-				}
-			}
-			else
-			{	this.setHeader(packetSizeRemaining);
-				try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
-				}
-				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
-				}
-				while (dataLength > 0)
-				{	const n = await data.read(this.buffer.subarray(0, Math.min(dataLength, this.buffer.length)));
-					if (n == null)
-					{	throw new Error(`Unexpected end of stream`);
-					}
-					const part = this.buffer.subarray(0, n);
-					if (logData)
-					{	await logData(part);
-					}
-					try
-					{	await writeAll(this.conn, part);
-					}
-					catch (e)
-					{	throw new SendWithDataError(e.message, packetSize);
-					}
-					dataLength -= n;
-				}
-			}
-		}
-		else // string
+		else if (typeof(data) == 'string')
 		{	const maxByteLen = data.length * 4;
 			if (this.bufferEnd+maxByteLen <= this.buffer.length)
 			{	// short string
@@ -470,6 +378,93 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
 				}
+			}
+		}
+		else // (Reader | {readonly readable: ReadableStream<Uint8Array>}) & (Seeker | {readonly size: number})
+		{	// 1. Calc the size of the data to send
+			let dataLength: number;
+			if ('size' in data)
+			{	dataLength = data.size;
+			}
+			else
+			{	const pos = await data.seek(0, Deno.SeekMode.Current);
+				dataLength = await data.seek(0, Deno.SeekMode.End);
+				await data.seek(pos, Deno.SeekMode.Start);
+				dataLength -= pos;
+			}
+			// 2. If 0, use `this.send()`
+			if (dataLength <= 0)
+			{	if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
+				{	return true;
+				}
+				await this.send();
+				return false;
+			}
+			// 3. Get `ReadableStream`
+			let readable;
+			if ('read' in data)
+			{	const reader = data;
+				readable = new RdStream({read: b => reader.read(b)});
+			}
+			else
+			{	readable = data.readable;
+			}
+			// 4. Get reader
+			const reader = readable.getReader({mode: 'byob'});
+			// 5. Calc packet size
+			let alreadyFilled = this.bufferEnd - this.bufferStart - 4;
+			const packetSize = alreadyFilled + dataLength;
+			let packetSizeRemaining = packetSize;
+			let curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
+			packetSizeRemaining -= curLen;
+			this.setHeader(curLen);
+			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
+			if (this.bufferEnd > this.buffer.length/2)
+			{	try
+				{	await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message, packetSize);
+				}
+				this.bufferEnd = 0;
+				curLen = dataLength;
+			}
+			// 7. Create another buffer, because ReadableStream shamelessly transfers it
+			let buffer = new Uint8Array(Math.max(this.bufferEnd, Math.min(BUFFER_FOR_SEND_MAX_LEN, this.bufferEnd+dataLength)));
+			let from = this.bufferEnd;
+			buffer.set(this.buffer.subarray(0, from));
+			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
+			// 8. Pipe
+			while (true)
+			{	const {value, done} = await reader.read(buffer.subarray(from, from-alreadyFilled+curLen));
+				if (done)
+				{	throw new Error(`Unexpected end of stream`);
+				}
+				buffer = new Uint8Array(value.buffer);
+				if (logData)
+				{	await logData(value);
+				}
+				try
+				{	await writeAll(this.conn, buffer.subarray(0, from+value.length));
+				}
+				catch (e)
+				{	throw new SendWithDataError(e.message, packetSize);
+				}
+				curLen -= alreadyFilled + value.length;
+				if (curLen > 0)
+				{	from = 0;
+				}
+				else
+				{	if (packetSizeRemaining == 0)
+					{	break;
+					}
+					curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
+					packetSizeRemaining -= curLen;
+					this.setHeader(curLen);
+					buffer.set(this.buffer.subarray(0, 4));
+					from = 4;
+				}
+				alreadyFilled = 0;
 			}
 		}
 		// prepare for reader
