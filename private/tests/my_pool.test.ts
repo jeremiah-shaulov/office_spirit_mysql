@@ -4,9 +4,10 @@ import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
-import {writeAll, readAll, copy, RdStream} from '../deps.ts';
+import {writeAll, copy, RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {Reader} from '../deno_ifaces.ts';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -46,6 +47,24 @@ class SqlSelectGenerator
 		{	return buffer.subarray(0, written);
 		}
 		return encoder.encode(sql);
+	}
+}
+
+async function readAll(reader: Reader)
+{	const BUFFER_SIZE = 8*1024;
+	let buffer = new Uint8Array(BUFFER_SIZE);
+	let pos = 0;
+	while (true)
+	{	const n = await reader.read(buffer.subarray(pos));
+		if (!n)
+		{	return buffer.subarray(0, pos);
+		}
+		pos += n;
+		if (pos+BUFFER_SIZE > buffer.length)
+		{	const buffer2 = new Uint8Array(buffer.length*2);
+			buffer2.set(buffer);
+			buffer = buffer2;
+		}
 	}
 }
 
