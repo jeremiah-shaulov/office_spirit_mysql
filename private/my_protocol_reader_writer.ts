@@ -422,8 +422,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			let curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
 			packetSizeRemaining -= curLen;
 			this.setHeader(curLen);
-			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
-			if (this.bufferEnd > this.buffer.length/2)
+			// 6. If there are previous packets pending (`bufferStart>0`), send them, because ReadableStream shamelessly transfers buffer, and those packets can be lost. Also if at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
+			if (this.bufferStart>0 || this.bufferEnd>this.buffer.length/2)
 			{	try
 				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
@@ -433,30 +433,26 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				this.bufferEnd = 0;
 				curLen = dataLength;
 			}
-			// 7. Create another buffer, because ReadableStream shamelessly transfers it
-			let buffer = new Uint8Array(Math.max(this.bufferEnd, Math.min(BUFFER_FOR_SEND_MAX_LEN, this.bufferEnd+dataLength)));
-			let from = this.bufferEnd;
-			buffer.set(this.buffer.subarray(0, from));
+			// 7. Pipe
 			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
-			// 8. Pipe
 			while (true)
-			{	const {value, done} = await reader.read(buffer.subarray(from, from-alreadyFilled+curLen));
+			{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd-alreadyFilled+curLen));
 				if (done)
 				{	throw new Error(`Unexpected end of stream`);
 				}
-				buffer = new Uint8Array(value.buffer);
+				this.buffer = new Uint8Array(value.buffer);
 				if (logData)
 				{	await logData(value);
 				}
 				try
-				{	await this.writer.write(buffer.subarray(0, from+value.length));
+				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length));
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
 				}
 				curLen -= alreadyFilled + value.length;
 				if (curLen > 0)
-				{	from = 0;
+				{	this.bufferEnd = 0;
 				}
 				else
 				{	if (packetSizeRemaining == 0)
@@ -465,8 +461,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
 					packetSizeRemaining -= curLen;
 					this.setHeader(curLen);
-					buffer.set(this.buffer.subarray(0, 4));
-					from = 4;
+					this.bufferEnd = 4;
 				}
 				alreadyFilled = 0;
 			}
