@@ -186,8 +186,8 @@ export class MyConn
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	const resultsets = await this.doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		const it = resultsets[Symbol.asyncIterator]();
-		const {value} = await it.next();
-		return value==undefined ? undefined : value; // void -> undefined
+		const {value, done} = await it.next();
+		return done ? undefined : value; // void -> undefined
 	}
 
 	/**	Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
@@ -195,8 +195,8 @@ export class MyConn
 	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	const resultsets = await this.doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE);
 		const it = resultsets[Symbol.asyncIterator]();
-		const {value} = await it.next();
-		return value==undefined ? undefined : value; // void -> undefined
+		const {value, done} = await it.next();
+		return done ? undefined : value; // void -> undefined
 	}
 
 	async forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>

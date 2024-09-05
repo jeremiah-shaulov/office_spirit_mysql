@@ -4,10 +4,10 @@ import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {withDocker} from "./with_docker.ts";
-import {writeAll, copy, RdStream} from '../deps.ts';
+import {RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
-import {Reader} from '../deno_ifaces.ts';
+import {Reader, Writer} from '../deno_ifaces.ts';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -64,6 +64,21 @@ async function readAll(reader: Reader)
 		{	const buffer2 = new Uint8Array(buffer.length*2);
 			buffer2.set(buffer);
 			buffer = buffer2;
+		}
+	}
+}
+
+async function copy(reader: Reader, writer: Writer)
+{	const buffer = new Uint8Array(64*1024);
+	while (true)
+	{	const r = await reader.read(buffer);
+		if (!r)
+		{	return;
+		}
+		let rem = 0;
+		while (rem < r)
+		{	const w = await writer.write(buffer.subarray(rem, r));
+			rem += w;
 		}
 	}
 }
@@ -345,28 +360,32 @@ async function testBasic(dsnStr: string)
 				);
 
 				// makeLastColumnReader - text protocol
-				let row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=2");
-				let message = row?.message;
-				assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
-				assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 2');
+				{	const row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=2");
+					const message = row?.message;
+					assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
+					assertEquals(new TextDecoder().decode(await readAll(message as Any)), 'Message 2');
+				}
 
 				// makeLastColumnReader - binary protocol
-				row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=?", [3]);
-				message = row?.message;
-				assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
-				assertEquals(new TextDecoder().decode(await readAll(message)), 'Message 3');
+				{	const row = await conn.makeLastColumnReader("SELECT * FROM t_log WHERE id=?", [3]);
+					const message = row?.message;
+					assert(message && typeof(message)=='object' && 'read' in message && typeof(message.read)=='function');
+					assertEquals(new TextDecoder().decode(await readAll(message as Any)), 'Message 3');
+				}
 
 				// makeLastColumnReadable - text protocol
-				row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=2");
-				message = row?.message;
-				assert(message instanceof RdStream);
-				assertEquals(await message.text(), 'Message 2');
+				{	const row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=2");
+					const message = row?.message;
+					assert(message instanceof RdStream);
+					assertEquals(await message.text(), 'Message 2');
+				}
 
 				// makeLastColumnReadable - binary protocol
-				row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=?", [3]);
-				message = row?.message;
-				assert(message instanceof RdStream);
-				assertEquals(await message.text(), 'Message 3');
+				{	const row = await conn.makeLastColumnReadable("SELECT * FROM t_log WHERE id=?", [3]);
+					const message = row?.message;
+					assert(message instanceof RdStream);
+					assertEquals(await message.text(), 'Message 3');
+				}
 
 				// SELECT discard
 				const res2 = await conn.query("SELECT * FROM t_log");
@@ -407,8 +426,9 @@ async function testBasic(dsnStr: string)
 				{	const filename = await Deno.makeTempFile();
 					try
 					{	const fh = await Deno.open(filename, {write: true, read: true});
+						const writer = fh.writable.getWriter();
 						try
-						{	await writeAll(fh, new TextEncoder().encode(id==6 ? '' : 'Message '+id));
+						{	await writer.write(new TextEncoder().encode(id==6 ? '' : 'Message '+id));
 							await fh.seek(0, Deno.SeekMode.Start);
 							res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
 							assertEquals(res.lastInsertId, id);
@@ -417,7 +437,8 @@ async function testBasic(dsnStr: string)
 							assertEquals(await conn.query(gen).first(), {id, time: new Date(now+id*1000), message: id==6 ? '' : 'Message '+id});
 						}
 						finally
-						{	fh.close();
+						{	writer.releaseLock();
+							fh.close();
 						}
 					}
 					finally
@@ -1647,7 +1668,7 @@ async function testRetryQueryTimes(dsnStr: string)
 	try
 	{	pool.forConn
 		(	async conn =>
-			{	// Createa and use db
+			{	// Create and use db
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1`");
 				await conn.query("USE test1");
@@ -1763,7 +1784,7 @@ async function testLoadBigDump(dsnStr: string)
 	try
 	{	pool.forConn
 		(	async conn =>
-			{	// Createa and use db
+			{	// Create and use db
 				await conn.query("DROP DATABASE IF EXISTS test1");
 				await conn.query("CREATE DATABASE `test1`");
 				await conn.query("USE test1");
@@ -1789,9 +1810,10 @@ async function testLoadBigDump(dsnStr: string)
 						const filename = await Deno.makeTempFile();
 						try
 						{	const fh = await Deno.open(filename, {write: true, read: true});
+							const writer = fh.writable.getWriter();
 							try
 							{	// Write INSERT query to file
-								await writeAll(fh, new TextEncoder().encode("INSERT INTO t_log SET message = '"));
+								await writer.write(new TextEncoder().encode("INSERT INTO t_log SET message = '"));
 								const buffer = new Uint8Array(8*1024);
 								for (let i=0; i<buffer.length; i++)
 								{	let c = i & 0x7F;
@@ -1803,11 +1825,11 @@ async function testLoadBigDump(dsnStr: string)
 								let curSize = 0;
 								for (let i=0; i<SIZE; i+=buffer.length)
 								{	const len = Math.min(buffer.length, SIZE-curSize);
-									await writeAll(fh, buffer.subarray(0, len));
+									await writer.write(buffer.subarray(0, len));
 									curSize += len;
 								}
 								assertEquals(curSize, SIZE);
-								await writeAll(fh, new TextEncoder().encode("'"));
+								await writer.write(new TextEncoder().encode("'"));
 
 								// DELETE
 								await conn.queryVoid("DELETE FROM t_log");
@@ -1889,7 +1911,8 @@ async function testLoadBigDump(dsnStr: string)
 								}
 							}
 							finally
-							{	fh.close();
+							{	writer.releaseLock();
+								fh.close();
 							}
 						}
 						finally

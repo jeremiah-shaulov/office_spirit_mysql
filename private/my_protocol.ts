@@ -94,8 +94,10 @@ export class MyProtocol extends MyProtocolReaderWriter
 	private curLastColumnReader: Reader | RdStream | undefined;
 	private onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
-	{	super(conn, decoder, useBuffer);
+	protected constructor(private conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
+	{	const writer = conn.writable.getWriter();
+		const reader = conn.readable.getReader({mode: 'byob'});
+		super(writer, reader, decoder, useBuffer);
 	}
 
 	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger?: Logger): Promise<MyProtocol>
@@ -1507,8 +1509,8 @@ L:		while (true)
 							{	if (!buffer || buffer.length<len)
 								{	buffer = new Uint8Array(len);
 								}
-								v = buffer.subarray(0, len);
-								await this.readBytesToBuffer(v);
+								v = await this.readBytesToBuffer(buffer.subarray(0, len));
+								buffer = new Uint8Array(v.buffer);
 							}
 							value = convColumnValue(v, typeId, flags, this.decoder, this.dsn.datesAsString, this);
 						}
@@ -1679,8 +1681,7 @@ L:		while (true)
 								{	this.readVoid(len) || this.readVoidAsync(len);
 								}
 								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
-								{	value = new Uint8Array(len);
-									await this.readBytesToBuffer(value);
+								{	value = await this.readBytesToBuffer(new Uint8Array(len));
 								}
 								else
 								{	if (len <= this.buffer.length)
@@ -1690,8 +1691,8 @@ L:		while (true)
 									{	if (!buffer || buffer.length<len)
 										{	buffer = new Uint8Array(len);
 										}
-										const v = buffer.subarray(0, len);
-										await this.readBytesToBuffer(v);
+										const v = await this.readBytesToBuffer(buffer.subarray(0, len));
+										buffer = new Uint8Array(v.buffer);
 										value = this.decoder.decode(v);
 									}
 									if (typeId == MysqlType.MYSQL_TYPE_JSON)
@@ -1733,6 +1734,7 @@ L:		while (true)
 					YES_BY_END_SESSION,
 				}
 				let isReading = IsReading.NO;
+				let anotherBuffer: Uint8Array|undefined; // ReadableStream shamelessly transfers buffers back and forth, so i'm forced to create anotherBuffer, and to copy bytes again after they're copied to their main buffer
 				const reader =
 				{	async read(dest: Uint8Array)
 					{	if (isReading != IsReading.NO)
@@ -1773,7 +1775,12 @@ L:		while (true)
 									dataInCurPacketLen = Math.min(lastColumnReaderLen, that.payloadLength - that.packetOffset);
 								}
 								n = Math.min(dest.length, dataInCurPacketLen);
-								await that.readBytesToBuffer(dest.subarray(0, n));
+								if (!anotherBuffer || anotherBuffer.length<n)
+								{	anotherBuffer = new Uint8Array(n);
+								}
+								const data = await that.readBytesToBuffer(anotherBuffer.subarray(0, n));
+								anotherBuffer = new Uint8Array(data.buffer);
+								dest.set(data);
 								dataInCurPacketLen -= n;
 								lastColumnReaderLen -= n;
 								if (!that.onEndSession)
@@ -1895,6 +1902,7 @@ L:		while (true)
 	 **/
 	async end(rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
 	{	let {state} = this;
+		let buffer: Uint8Array|undefined;
 		if (state != ProtocolState.TERMINATED)
 		{	this.state = ProtocolState.TERMINATED;
 			if (state == ProtocolState.QUERYING)
@@ -1952,7 +1960,9 @@ L:		while (true)
 			}
 			this.curLastColumnReader = undefined;
 			this.onEndSession = undefined;
-			const buffer = this.recycleBuffer();
+			buffer = this.recycleBuffer();
+			this.reader.releaseLock();
+			this.writer.releaseLock();
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
 				const protocol = new MyProtocol(this.conn, this.decoder, buffer, this.dsn);
@@ -2000,7 +2010,7 @@ L:		while (true)
 				{	await this.sqlLogger.dispose();
 				}
 			}
-			return buffer;
 		}
+		return buffer;
 	}
 }

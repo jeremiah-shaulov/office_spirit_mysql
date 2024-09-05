@@ -12,22 +12,19 @@ export class MyProtocolReader
 	protected sequenceId = 0;
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
-	protected dataView: DataView;
 
 	private origBuffer: Uint8Array;
 
-	protected constructor(protected conn: Deno.Conn, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(INIT_BUFFER_LEN);
 		this.origBuffer = this.buffer;
-		this.dataView = new DataView(this.buffer.buffer);
 		debugAssert(this.buffer.length == INIT_BUFFER_LEN);
 	}
 
 	recycleBuffer()
 	{	const {origBuffer} = this;
 		this.origBuffer = this.buffer = STUB;
-		this.dataView = new DataView(STUB.buffer);
-		return origBuffer; // this buffer can be recycled
+		return origBuffer.length==INIT_BUFFER_LEN ? origBuffer : undefined; // this buffer can be recycled
 	}
 
 	protected ensureRoom(room: number)
@@ -41,7 +38,6 @@ export class MyProtocolReader
 			const newBuffer = new Uint8Array(len);
 			newBuffer.set(this.buffer);
 			this.buffer = newBuffer;
-			this.dataView = new DataView(newBuffer.buffer);
 		}
 	}
 
@@ -83,14 +79,15 @@ export class MyProtocolReader
 		}
 		const to = this.bufferStart + nBytes;
 		while (this.bufferEnd < to)
-		{	const nRead = await this.conn.read(this.buffer.subarray(this.bufferEnd));
-			if (nRead == null)
-			{	if (canEof && this.bufferEnd-this.bufferStart==0)
+		{	const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+			if (done)
+			{	if (canEof && this.bufferEnd==this.bufferStart)
 				{	return false;
 				}
 				throw new ServerDisconnectedError('Lost connection to server');
 			}
-			this.bufferEnd += nRead;
+			this.buffer = new Uint8Array(value.buffer);
+			this.bufferEnd += value.length;
 		}
 		return true;
 	}
@@ -114,12 +111,13 @@ export class MyProtocolReader
 				this.bufferStart = 0;
 			}
 			debugAssert(this.bufferEnd < this.buffer.length);
-			const nRead = await this.conn.read(this.buffer.subarray(this.bufferEnd));
-			if (nRead == null)
+			const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+			if (done)
 			{	throw new ServerDisconnectedError('Lost connection to server');
 			}
-			this.bufferEnd += nRead;
-			const i = this.buffer.subarray(0, this.bufferEnd).indexOf(0, this.bufferEnd-nRead);
+			this.buffer = new Uint8Array(value.buffer);
+			this.bufferEnd += value.length;
+			const i = this.buffer.subarray(0, this.bufferEnd).indexOf(0, this.bufferEnd-value.length);
 			if (i != -1)
 			{	debugAssert(this.buffer[i] == 0);
 				return i;
@@ -134,7 +132,7 @@ export class MyProtocolReader
 	 **/
 	protected readPacketHeader()
 	{	if (this.bufferEnd-this.bufferStart >= 4)
-		{	const header = this.dataView.getUint32(this.bufferStart, true);
+		{	const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 			this.bufferStart += 4;
 			this.payloadLength = header & 0xFFFFFF;
 			this.sequenceId = (header >> 24) + 1; // inc sequenceId
@@ -150,7 +148,7 @@ export class MyProtocolReader
 	protected async readPacketHeaderAsync()
 	{	debugAssert(this.bufferEnd-this.bufferStart < 4); // use readPacketHeader() first
 		await this.recvAtLeast(4);
-		const header = this.dataView.getUint32(this.bufferStart, true);
+		const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.payloadLength = header & 0xFFFFFF;
 		this.sequenceId = (header >> 24) + 1; // inc sequenceId
@@ -167,14 +165,15 @@ export class MyProtocolReader
 			{	this.buffer.copyWithin(0, this.bufferStart, this.bufferEnd);
 				this.bufferEnd -= this.bufferStart;
 				this.bufferStart = 0;
-				const nRead = await this.conn.read(this.buffer.subarray(this.bufferEnd));
-				if (nRead == null)
+				const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
-				this.bufferEnd += nRead;
+				this.buffer = new Uint8Array(value.buffer);
+				this.bufferEnd += value.length;
 			}
 			// Next packet header
-			const header = this.dataView.getUint32(this.bufferStart+tail, true);
+			const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart+tail, true);
 			this.payloadLength = header & 0xFFFFFF;
 			this.sequenceId = (header >> 24) + 1; // inc sequenceId
 			this.packetOffset = -tail;
@@ -217,7 +216,7 @@ export class MyProtocolReader
 	{	if (this.bufferEnd > this.bufferStart && this.packetOffset <= 0xFFFFFF-1)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 1);
 			this.packetOffset++;
-			return this.dataView.getInt8(this.bufferStart++);
+			return new DataView(this.buffer.buffer).getInt8(this.bufferStart++);
 		}
 	}
 
@@ -229,7 +228,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(1);
-		const value = this.dataView.getInt8(this.bufferStart++);
+		const value = new DataView(this.buffer.buffer).getInt8(this.bufferStart++);
 		this.packetOffset++;
 		return value;
 	}
@@ -239,7 +238,7 @@ export class MyProtocolReader
 	protected readUint16()
 	{	if (this.bufferEnd-this.bufferStart >= 2 && this.packetOffset <= 0xFFFFFF-2)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 2);
-			const value = this.dataView.getUint16(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart, true);
 			this.bufferStart += 2;
 			this.packetOffset += 2;
 			return value;
@@ -254,7 +253,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(2);
-		const value = this.dataView.getUint16(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart, true);
 		this.bufferStart += 2;
 		this.packetOffset += 2;
 		return value;
@@ -265,7 +264,7 @@ export class MyProtocolReader
 	protected readInt16()
 	{	if (this.bufferEnd-this.bufferStart >= 2 && this.packetOffset <= 0xFFFFFF-2)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 2);
-			const value = this.dataView.getInt16(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getInt16(this.bufferStart, true);
 			this.bufferStart += 2;
 			this.packetOffset += 2;
 			return value;
@@ -280,7 +279,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(2);
-		const value = this.dataView.getInt16(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getInt16(this.bufferStart, true);
 		this.bufferStart += 2;
 		this.packetOffset += 2;
 		return value;
@@ -291,7 +290,8 @@ export class MyProtocolReader
 	protected readUint24()
 	{	if (this.bufferEnd-this.bufferStart >= 3 && this.packetOffset <= 0xFFFFFF-3)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 3);
-			const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getUint8(this.bufferStart+2) << 16);
+			const dataView = new DataView(this.buffer.buffer);
+			const value = dataView.getUint16(this.bufferStart, true) | (dataView.getUint8(this.bufferStart+2) << 16);
 			this.bufferStart += 3;
 			this.packetOffset += 3;
 			return value;
@@ -306,7 +306,8 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(3);
-		const value = this.dataView.getUint16(this.bufferStart, true) | (this.dataView.getUint8(this.bufferStart+2) << 16);
+		const dataView = new DataView(this.buffer.buffer);
+		const value = dataView.getUint16(this.bufferStart, true) | (dataView.getUint8(this.bufferStart+2) << 16);
 		this.bufferStart += 3;
 		this.packetOffset += 3;
 		return value;
@@ -317,7 +318,7 @@ export class MyProtocolReader
 	protected readUint32()
 	{	if (this.bufferEnd-this.bufferStart >= 4 && this.packetOffset <= 0xFFFFFF-4)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 4);
-			const value = this.dataView.getUint32(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 			this.bufferStart += 4;
 			this.packetOffset += 4;
 			return value;
@@ -332,7 +333,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(4);
-		const value = this.dataView.getUint32(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
 		return value;
@@ -343,7 +344,7 @@ export class MyProtocolReader
 	protected readInt32()
 	{	if (this.bufferEnd-this.bufferStart >= 4 && this.packetOffset <= 0xFFFFFF-4)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 4);
-			const value = this.dataView.getInt32(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getInt32(this.bufferStart, true);
 			this.bufferStart += 4;
 			this.packetOffset += 4;
 			return value;
@@ -358,7 +359,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(4);
-		const value = this.dataView.getInt32(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getInt32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
 		return value;
@@ -369,7 +370,7 @@ export class MyProtocolReader
 	protected readUint64()
 	{	if (this.bufferEnd-this.bufferStart >= 8 && this.packetOffset <= 0xFFFFFF-8)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 8);
-			const value = this.dataView.getBigUint64(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart, true);
 			this.bufferStart += 8;
 			this.packetOffset += 8;
 			return value;
@@ -384,7 +385,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(8);
-		const value = this.dataView.getBigUint64(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
 		return value;
@@ -395,7 +396,7 @@ export class MyProtocolReader
 	protected readInt64()
 	{	if (this.bufferEnd-this.bufferStart >= 8 && this.packetOffset <= 0xFFFFFF-8)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 8);
-			const value = this.dataView.getBigInt64(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getBigInt64(this.bufferStart, true);
 			this.bufferStart += 8;
 			this.packetOffset += 8;
 			return value;
@@ -410,7 +411,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(8);
-		const value = this.dataView.getBigInt64(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getBigInt64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
 		return value;
@@ -421,7 +422,7 @@ export class MyProtocolReader
 	protected readFloat()
 	{	if (this.bufferEnd-this.bufferStart >= 4 && this.packetOffset <= 0xFFFFFF-4)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 4);
-			const value = this.dataView.getFloat32(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getFloat32(this.bufferStart, true);
 			this.bufferStart += 4;
 			this.packetOffset += 4;
 			return value;
@@ -436,7 +437,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(4);
-		const value = this.dataView.getFloat32(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getFloat32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
 		return value;
@@ -447,7 +448,7 @@ export class MyProtocolReader
 	protected readDouble()
 	{	if (this.bufferEnd-this.bufferStart >= 8 && this.packetOffset <= 0xFFFFFF-8)
 		{	debugAssert(this.payloadLength-this.packetOffset >= 8);
-			const value = this.dataView.getFloat64(this.bufferStart, true);
+			const value = new DataView(this.buffer.buffer).getFloat64(this.bufferStart, true);
 			this.bufferStart += 8;
 			this.packetOffset += 8;
 			return value;
@@ -462,7 +463,7 @@ export class MyProtocolReader
 		{	await this.correctNearPacketBoundary();
 		}
 		await this.recvAtLeast(8);
-		const value = this.dataView.getFloat64(this.bufferStart, true);
+		const value = new DataView(this.buffer.buffer).getFloat64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
 		return value;
@@ -481,7 +482,7 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 9);
-					const value64 = this.dataView.getBigUint64(this.bufferStart+1, true);
+					const value64 = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart+1, true);
 					this.bufferStart += 9;
 					this.packetOffset += 9;
 					return value64<Number.MIN_SAFE_INTEGER || value64>Number.MAX_SAFE_INTEGER ? value64 : Number(value64);
@@ -491,7 +492,8 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 4);
-					const value = this.dataView.getUint16(this.bufferStart+1, true) | (this.dataView.getUint8(this.bufferStart+3) << 16);
+					const dataView = new DataView(this.buffer.buffer);
+					const value = dataView.getUint16(this.bufferStart+1, true) | (dataView.getUint8(this.bufferStart+3) << 16);
 					this.bufferStart += 4;
 					this.packetOffset += 4;
 					return value;
@@ -501,7 +503,7 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 3);
-					const value = this.dataView.getUint16(this.bufferStart+1, true);
+					const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart+1, true);
 					this.bufferStart += 3;
 					this.packetOffset += 3;
 					return value;
@@ -536,7 +538,7 @@ export class MyProtocolReader
 		{	case 0xFE:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 9);
 				await this.recvAtLeast(9);
-				const value64 = this.dataView.getBigUint64(this.bufferStart+1, true);
+				const value64 = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart+1, true);
 				this.bufferStart += 9;
 				this.packetOffset += 9;
 				return value64<Number.MIN_SAFE_INTEGER || value64>Number.MAX_SAFE_INTEGER ? value64 : Number(value64);
@@ -544,7 +546,8 @@ export class MyProtocolReader
 			case 0xFD:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 4);
 				await this.recvAtLeast(4);
-				const value = this.dataView.getUint16(this.bufferStart+1, true) | (this.dataView.getUint8(this.bufferStart+3) << 16);
+				const dataView = new DataView(this.buffer.buffer);
+				const value = dataView.getUint16(this.bufferStart+1, true) | (dataView.getUint8(this.bufferStart+3) << 16);
 				this.bufferStart += 4;
 				this.packetOffset += 4;
 				return value;
@@ -552,7 +555,7 @@ export class MyProtocolReader
 			case 0xFC:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 3);
 				await this.recvAtLeast(3);
-				const value = this.dataView.getUint16(this.bufferStart+1, true);
+				const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart+1, true);
 				this.bufferStart += 3;
 				this.packetOffset += 3;
 				return value;
@@ -672,7 +675,7 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 9);
-					const value = this.dataView.getBigUint64(this.bufferStart+1, true);
+					const value = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart+1, true);
 					if (value <= this.buffer.length)
 					{	strLen = Number(value);
 						allLen = strLen + 9;
@@ -684,7 +687,8 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 4);
-					strLen = this.dataView.getUint16(this.bufferStart+1, true) | (this.dataView.getUint8(this.bufferStart+3) << 16);
+					const dataView = new DataView(this.buffer.buffer);
+					strLen = dataView.getUint16(this.bufferStart+1, true) | (dataView.getUint8(this.bufferStart+3) << 16);
 					allLen = strLen + 4;
 					break;
 				}
@@ -693,7 +697,7 @@ export class MyProtocolReader
 					{	return;
 					}
 					debugAssert(this.payloadLength-this.packetOffset >= 3);
-					strLen = this.dataView.getUint16(this.bufferStart+1, true);
+					strLen = new DataView(this.buffer.buffer).getUint16(this.bufferStart+1, true);
 					allLen = strLen + 3;
 					break;
 				}
@@ -802,18 +806,21 @@ export class MyProtocolReader
 				haveBytes -= len;
 				lenInCurPacket -= len;
 			}
+			const {byteOffset, length} = dest;
 			while (lenInCurPacket>0 && pos<dest.length)
-			{	const n = await this.conn.read(dest.subarray(pos, Math.min(dest.length, pos+lenInCurPacket)));
-				if (n == null)
+			{	const {value, done} = await this.reader.read(dest.subarray(pos, pos+lenInCurPacket));
+				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
-				pos += n;
-				this.packetOffset += n;
+				dest = new Uint8Array(value.buffer, byteOffset, length);
+				pos += value.length;
+				this.packetOffset += value.length;
 				this.bufferStart = 0;
 				this.bufferEnd = 0;
-				lenInCurPacket -= n;
+				lenInCurPacket -= value.length;
 			}
 		}
+		return dest;
 	}
 
 
@@ -845,12 +852,13 @@ export class MyProtocolReader
 			{	lenInCurPacket -= this.bufferEnd - this.bufferStart;
 			}
 			while (lenInCurPacket > 0)
-			{	const nRead = await this.conn.read(this.buffer);
-				if (nRead == null)
+			{	const {value, done} = await this.reader.read(this.buffer);
+				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
-				lenInCurPacket -= nRead;
-				this.bufferEnd = nRead;
+				this.buffer = new Uint8Array(value.buffer);
+				lenInCurPacket -= value.length;
+				this.bufferEnd = value.length;
 			}
 			this.bufferStart = this.bufferEnd + lenInCurPacket;
 		}

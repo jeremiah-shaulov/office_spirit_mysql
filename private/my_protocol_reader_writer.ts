@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
 import {MyProtocolReader} from './my_protocol_reader.ts';
-import {RdStream, writeAll} from './deps.ts';
+import {RdStream} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 
@@ -47,7 +47,11 @@ const encoder = new TextEncoder;
 	To send a long packet, use `sendWithData()`.
  **/
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	protected startWritingNewPacket(resetSequenceId=false, canBeContinuation=false)
+{	protected constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+	{	super(reader, decoder, useBuffer);
+	}
+
+	protected startWritingNewPacket(resetSequenceId=false, canBeContinuation=false)
 	{	debugAssert(this.bufferEnd==this.bufferStart || canBeContinuation); // must read all before starting to write
 		if (this.bufferEnd == this.bufferStart)
 		{	this.bufferStart = 0;
@@ -76,26 +80,26 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	protected writeUint16(value: number)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 2); // please, call ensureRoom() if writing long packet
-		this.dataView.setUint16(this.bufferEnd, value, true);
+		new DataView(this.buffer.buffer).setUint16(this.bufferEnd, value, true);
 		this.bufferEnd += 2;
 	}
 
 	/*protected writeUint24(value: number)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 3); // please, call ensureRoom() if writing long packet
-		this.dataView.setUint16(this.bufferEnd, value&0xFFFF, true);
+		new DataView(this.buffer.buffer).setUint16(this.bufferEnd, value&0xFFFF, true);
 		this.bufferEnd += 2;
 		this.buffer[this.bufferEnd++] = value >> 16;
 	}*/
 
 	protected writeUint32(value: number)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 4); // please, call ensureRoom() if writing long packet
-		this.dataView.setUint32(this.bufferEnd, value, true);
+		new DataView(this.buffer.buffer).setUint32(this.bufferEnd, value, true);
 		this.bufferEnd += 4;
 	}
 
 	protected writeUint64(value: bigint)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 8); // please, call ensureRoom() if writing long packet
-		this.dataView.setBigUint64(this.bufferEnd, value, true);
+		new DataView(this.buffer.buffer).setBigUint64(this.bufferEnd, value, true);
 		this.bufferEnd += 8;
 	}
 
@@ -110,28 +114,28 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		else if (value <= 0xFFFF)
 		{	debugAssert(this.buffer.length-this.bufferEnd >= 3); // please, call ensureRoom() if writing long packet
 			this.buffer[this.bufferEnd++] = 0xFC;
-			this.dataView.setUint16(this.bufferEnd, Number(value), true);
+			new DataView(this.buffer.buffer).setUint16(this.bufferEnd, Number(value), true);
 			this.bufferEnd += 2;
 		}
 		else if (value <= 0xFFFFFF)
 		{	debugAssert(this.buffer.length-this.bufferEnd >= 4); // please, call ensureRoom() if writing long packet
 			const n = Number(value);
 			this.buffer[this.bufferEnd++] = 0xFD;
-			this.dataView.setUint16(this.bufferEnd, n&0xFFFF, true);
+			new DataView(this.buffer.buffer).setUint16(this.bufferEnd, n&0xFFFF, true);
 			this.bufferEnd += 2;
 			this.buffer[this.bufferEnd++] = n >> 16;
 		}
 		else
 		{	debugAssert(this.buffer.length-this.bufferEnd >= 9); // please, call ensureRoom() if writing long packet
 			this.buffer[this.bufferEnd++] = 0xFE;
-			this.dataView.setBigUint64(this.bufferEnd, BigInt(value), true);
+			new DataView(this.buffer.buffer).setBigUint64(this.bufferEnd, BigInt(value), true);
 			this.bufferEnd += 8;
 		}
 	}
 
 	protected writeDouble(value: number)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 8); // please, call ensureRoom() if writing long packet
-		this.dataView.setFloat64(this.bufferEnd, value, true);
+		new DataView(this.buffer.buffer).setFloat64(this.bufferEnd, value, true);
 		this.bufferEnd += 8;
 	}
 
@@ -183,7 +187,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	// 3-byte length
 				this.buffer[this.bufferEnd++] = 0xFC;
 				this.buffer.copyWithin(this.bufferEnd+2, this.bufferEnd, this.bufferEnd+written);
-				this.dataView.setUint16(this.bufferEnd, written, true);
+				new DataView(this.buffer.buffer).setUint16(this.bufferEnd, written, true);
 				this.bufferEnd += 2;
 			}
 			this.bufferEnd += written;
@@ -201,7 +205,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			else
 			{	// 3-byte length
 				this.buffer[this.bufferEnd++] = 0xFC;
-				this.dataView.setUint16(this.bufferEnd, written, true);
+				new DataView(this.buffer.buffer).setUint16(this.bufferEnd, written, true);
 				this.bufferEnd += 2;
 			}
 			this.bufferEnd += written;
@@ -230,7 +234,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	private setHeader(payloadLength: number)
 	{	const header = payloadLength | (this.sequenceId << 24);
 		this.sequenceId++;
-		this.dataView.setUint32(this.bufferStart, header, true);
+		new DataView(this.buffer.buffer).setUint32(this.bufferStart, header, true);
 	}
 
 	protected send()
@@ -240,7 +244,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.bufferStart = 0;
 		this.bufferEnd = 0;
 		// send
-		return writeAll(this.conn, this.buffer.subarray(0, n));
+		return this.writer.write(this.buffer.subarray(0, n));
 	}
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
@@ -269,9 +273,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				while (packetSizeRemaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.setHeader(0xFFFFFF);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
+					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					const dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
-					await writeAll(this.conn, data.subarray(0, dataChunkLen));
+					await this.writer.write(data.subarray(0, dataChunkLen));
 					data = data.subarray(dataChunkLen);
 					this.bufferStart = 0;
 					this.bufferEnd = 4; // after header
@@ -285,18 +289,18 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	return true;
 					}
 					this.setHeader(packetSizeRemaining);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
+					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
 				else
 				{	this.setHeader(packetSizeRemaining);
-					await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
+					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					if (canWait && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	this.buffer.set(data);
 						this.bufferStart = data.length;
 						this.bufferEnd = data.length;
 						return true;
 					}
-					await writeAll(this.conn, data);
+					await this.writer.write(data);
 				}
 			}
 			catch (e)
@@ -328,7 +332,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
 						this.setHeader(0xFFFFFF);
-						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
 						while (dataChunkLen > 0)
@@ -338,7 +342,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							if (logData)
 							{	await logData(part);
 							}
-							await writeAll(this.conn, part);
+							await this.writer.write(part);
 							dataChunkLen -= written;
 						}
 						this.bufferStart = 0;
@@ -358,11 +362,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	return true;
 						}
 						this.setHeader(packetSizeRemaining);
-						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
+						await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 					}
 					else
 					{	this.setHeader(packetSizeRemaining);
-						await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						while (dataLength > 0)
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
 							data = data.slice(read);
@@ -371,7 +375,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							if (logData)
 							{	await logData(part);
 							}
-							await writeAll(this.conn, part);
+							await this.writer.write(part);
 						}
 					}
 				}
@@ -421,7 +425,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
 			if (this.bufferEnd > this.buffer.length/2)
 			{	try
-				{	await writeAll(this.conn, this.buffer.subarray(0, this.bufferEnd));
+				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
@@ -445,7 +449,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await logData(value);
 				}
 				try
-				{	await writeAll(this.conn, buffer.subarray(0, from+value.length));
+				{	await this.writer.write(buffer.subarray(0, from+value.length));
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
