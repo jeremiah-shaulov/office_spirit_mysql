@@ -1,24 +1,25 @@
 export function reallocAppend(arr: Uint8Array, data: Uint8Array, withCapacity=false)
-{	const offset = arr.byteOffset;
-	const len = arr.length;
+{	const {byteOffset, length} = arr;
 	const dataLen = data.length;
+	const space = arr.buffer.byteLength - length - byteOffset;
 	// can just append?
-	let space = arr.buffer.byteLength - len - offset;
 	if (space >= dataLen)
-	{	arr = new Uint8Array(arr.buffer, offset, len+dataLen);
-		arr.set(data, len);
-		return arr;
+	{	const res = new Uint8Array(arr.buffer, byteOffset, length+dataLen);
+		res.set(data, length);
+		return res;
 	}
 	// can shift to the beginning and append?
-	space += offset;
-	if (space >= dataLen)
-	{	const tmp = new Uint8Array(arr.buffer);
-		tmp.copyWithin(0, offset, offset+len);
-		return tmp.subarray(0, len);
+	else if (space+byteOffset >= dataLen)
+	{	const res = new Uint8Array(arr.buffer);
+		res.copyWithin(0, byteOffset, byteOffset+length);
+		res.set(data, length);
+		return res.subarray(0, length+dataLen);
 	}
 	// no, so enlarge the buffer
-	const tmp = new Uint8Array(!withCapacity ? len+dataLen : Math.max(len+dataLen+(len >> 1), len*2));
-	tmp.set(arr, 0);
-	tmp.set(data, len);
-	return tmp;
+	else
+	{	const res = new Uint8Array(!withCapacity ? length+dataLen : Math.max(length+dataLen+(length >> 1), length*2));
+		res.set(arr);
+		res.set(data, length);
+		return res.subarray(0, length+dataLen);
+	}
 }
