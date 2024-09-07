@@ -1233,7 +1233,7 @@ console.log(`Result: ${result}`);
 ![image](./readme-assets/sql-logger-1.png)
 
 The default logger truncates long queries to maximum 10,000 bytes, and long query parameters to 3,000 bytes.
-Also it shows not more than 100 lines of query SQL.
+Also it shows no more than 100 lines of each query SQL.
 
 This library allows you to provide your own custom logger.
 This can be any object that implements `SqlLogger` interface:
@@ -1268,7 +1268,7 @@ interface SqlLogger
 	dispose?: () => Promise<unknown>;
 }
 
-/**	1. First one of `appendToQuery()` or `setStmtId()` is called.
+/**	1. In the beginning one of `appendToQuery()` or `setStmtId()` is called.
 	To start writing a regular query, `appendToQuery()` is called one or multiple times.
 	To write a prepared query, `setStmtId()` is called (once).
 	2. Then, in case of prepared query, a sequence of `appendToParam()` (one or multiple times) and `paramEnd()` can be called.
@@ -1295,19 +1295,19 @@ interface SqlLoggerQuery
 	end?: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
 }
 ```
-This library provides a base class called `SqlLogToWriter` that you can use to implement a logger that logs to any `Deno.Writer`.
+This library provides a base class called `SqlLogToWritable` that you can use to implement a logger that logs to any `WritableStream<Uint8Array>` or `Deno.Writer`.
 
-The default logger (that is used if you specify `sqlLogger == true`) is also implemented through `SqlLogToWriter`:
+The default logger (that is used if you specify `sqlLogger == true`) is also implemented through `SqlLogToWritable`:
 
 ```ts
 conn.setSqlLogger(true);
 
 // Is the same as:
 
-conn.setSqlLogger(new SqlLogToWriter(Deno.stderr, !Deno.noColor, 10_000, 3_000, 100));
+conn.setSqlLogger(new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, 10_000, 3_000, 100));
 ```
 
-Here is how to subclass `SqlLogToWriter` to log to a file:
+Here is how to subclass `SqlLogToWritable` to log to a file:
 
 ```ts
 // To download and run this example:
@@ -1315,18 +1315,18 @@ Here is how to subclass `SqlLogToWriter` to log to a file:
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
 // deno run --allow-env --allow-net --allow-write /tmp/example20.ts
 
-import {MyPool, SqlLogToWriter} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
+import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
 
 const pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 const LOG_FILE = '/tmp/sql.log';
 
-class SqlLogToFile extends SqlLogToWriter
-{	protected closer: Deno.Closer;
+class SqlLogToFile extends SqlLogToWritable
+{	protected disposable: Disposable;
 
-	private constructor(writer: Deno.Writer&Deno.Closer, withColor=false)
-	{	super(writer, withColor);
-		this.closer = writer;
+	private constructor(fileLike: {writable: WritableStream<Uint8Array>}&Disposable, withColor=false)
+	{	super(fileLike.writable, withColor);
+		this.disposable = fileLike;
 	}
 
 	static async inst(path: string|URL, withColor=false)
@@ -1336,7 +1336,7 @@ class SqlLogToFile extends SqlLogToWriter
 
 	async dispose()
 	{	await super.dispose();
-		this.closer.close();
+		this.disposable[Symbol.dispose]();
 	}
 }
 

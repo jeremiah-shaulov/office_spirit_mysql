@@ -58,6 +58,8 @@ export interface SqlLoggerQuery
 	end?: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
 }
 
+/**	Like {@link SqlLoggerQuery}, but all functions are non-optional, and uses `paramStart()` instead of `nParam` argument in `appendToParam()` and `paramEnd()`.
+ **/
 export interface SafeSqlLoggerQuery
 {	appendToQuery: (data: Uint8Array) => Promise<unknown>;
 	setStmtId: (stmtId: number) => Promise<unknown>;

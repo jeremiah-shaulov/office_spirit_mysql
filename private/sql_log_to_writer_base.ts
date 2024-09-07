@@ -2,23 +2,29 @@ import {debugAssert} from "./debug_assert.ts";
 import {reallocAppend} from "./realloc_append.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
-import {writeAll} from "./deps.ts";
 import {Writer} from "./deno_ifaces.ts";
+import {WrStream} from "./deps.ts";
 
 const MAX_BUFFER_SIZE = 1*1024*1024;
 
 const encoder = new TextEncoder;
 
-export class SqlLogToWriterBase implements SqlLogger
-{	private pending = new Map<Dsn, Map<number, Uint8Array>>();
+export class SqlLogToWritableBase implements SqlLogger
+{	private pending = new Map<Dsn, Map<number, Uint8Array>>;
 	private ongoing: Promise<void> | undefined;
 	private prevDsn: Dsn | undefined;
 	private prevConnectionId = -1;
-	private continueAfterFlush: (() => void) | undefined;
+	private continueAfterFlush = new Array<VoidFunction>;
 	private isDisposed = false;
 
-	constructor(protected writer: Writer)
-	{
+	protected writer: WritableStreamDefaultWriter<Uint8Array>;
+
+	constructor(writer: Writer|WritableStream<Uint8Array>)
+	{	if (!(writer instanceof WritableStream))
+		{	const w = writer;
+			writer = new WrStream({write: b => w.write(b)});
+		}
+		this.writer = writer.getWriter();
 	}
 
 	protected write(dsn: Dsn, connectionId: number, data: Uint8Array|string)
@@ -54,15 +60,17 @@ export class SqlLogToWriterBase implements SqlLogger
 		if (this.getMemory() < MAX_BUFFER_SIZE)
 		{	return Promise.resolve();
 		}
-		return new Promise<void>(y => {this.continueAfterFlush = y});
+		return new Promise<void>(y => {this.continueAfterFlush.push(y)});
 	}
 
 	private async doTask()
 	{	while (true)
 		{	const {continueAfterFlush} = this;
-			if (continueAfterFlush && this.getMemory()<MAX_BUFFER_SIZE)
-			{	this.continueAfterFlush = undefined;
-				continueAfterFlush();
+			if (continueAfterFlush.length && this.getMemory()<MAX_BUFFER_SIZE)
+			{	for (const callback of continueAfterFlush)
+				{	callback();
+				}
+				continueAfterFlush.length = 0;
 			}
 			// byConn
 			const dsn: Dsn|undefined = this.pending.keys().next().value;
@@ -91,7 +99,7 @@ export class SqlLogToWriterBase implements SqlLogger
 						{	if (typeof(banner) == 'string')
 							{	banner = encoder.encode(banner);
 							}
-							await writeAll(this.writer, banner);
+							await this.writer.write(banner);
 							buf = byConn.get(connectionId)!;
 						}
 					}
@@ -102,7 +110,8 @@ export class SqlLogToWriterBase implements SqlLogger
 						buf = newBuf.subarray(0, buf.length);
 						byConn.set(connectionId, buf);
 					}
-					const n = await this.writer.write(buf);
+					const n = buf.length;
+					await this.writer.write(buf);
 					buf = byConn.get(connectionId);
 					if (!buf || n==buf.length)
 					{	byConn.delete(connectionId);
@@ -135,8 +144,13 @@ export class SqlLogToWriterBase implements SqlLogger
 
 	async dispose()
 	{	this.isDisposed = true;
-		if (this.ongoing)
-		{	await this.ongoing;
+		try
+		{	if (this.ongoing)
+			{	await this.ongoing;
+			}
+		}
+		finally
+		{	this.writer.releaseLock();
 		}
 	}
 }

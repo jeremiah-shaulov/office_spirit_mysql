@@ -2,7 +2,7 @@ import {debugAssert} from "./debug_assert.ts";
 import {Resultsets} from "./resultsets.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWriterBase} from "./sql_log_to_writer_base.ts";
+import {SqlLogToWritableBase} from "./sql_log_to_writer_base.ts";
 import {SqlWordsList} from "./sql_words_list.ts";
 import {Colors} from './deps.ts';
 import {Writer} from "./deno_ifaces.ts";
@@ -40,12 +40,12 @@ const RESET_COLOR = '\x1B[0m';
 
 const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER EVENT CALL PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
-export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
+export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 {	private msgOk = 'OK';
 	private msgError = 'ERROR:';
 
 	constructor
-	(	writer: Writer,
+	(	writer: Writer|WritableStream<Uint8Array>,
 		protected withColor = false,
 		protected queryMaxBytes = DEFAULT_QUERY_MAX_BYTES,
 		protected paramMaxBytes = DEFAULT_PARAM_MAX_BYTES,
@@ -337,4 +337,12 @@ export class SqlLogToWriter extends SqlLogToWriterBase implements SqlLogger
 		{	await this.write(dsn, connectionId, RESET_COLOR);
 		}
 	}
+}
+
+/**	Please, use new class called `SqlLogToWritable` that has the same functionality as old `SqlLogToWriter`,
+	plus it supports `WritableStream<Uint8Array>`.
+	@deprecated
+ **/
+export class SqlLogToWriter extends SqlLogToWritable
+{
 }

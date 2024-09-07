@@ -7,7 +7,7 @@ import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
-import {SqlLogToWriter} from "./sql_log_to_writer.ts";
+import {SqlLogToWritable} from "./sql_log_to_writer.ts";
 import {Reader} from './deno_ifaces.ts';
 
 export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
@@ -452,7 +452,7 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWriter(Deno.stderr, !Deno.noColor) : sqlLogger, this.logger);
+	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor) : sqlLogger, this.logger);
 		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
