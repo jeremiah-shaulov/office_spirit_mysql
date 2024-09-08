@@ -138,7 +138,7 @@ export class MyPool
 	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
 		Then new connections will be rejected, and this object will be unusable.
 	 **/
-	async shutdown()
+	async [Symbol.asyncDispose]()
 	{	this.isShuttingDown = true;
 		try
 		{	if (this.nSessionsOrConns!=0 || this.nBusyAll!=0)
@@ -150,6 +150,13 @@ export class MyPool
 		finally
 		{	this.isShuttingDown = false;
 		}
+	}
+
+	/**	Deprecated alias of `this[Symbol.asyncDispose]()`.
+		@deprecated
+	 **/
+	shutdown()
+	{	return this[Symbol.asyncDispose]();
 	}
 
 	private async waitHaveSlots(dsn: Dsn, till: number, haveSlotsCallbacks: HaveSlotsCallback[])
