@@ -6,7 +6,6 @@ import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
-const BUFFER_FOR_SEND_MAX_LEN = 64*1024;
 const BUFFER_FOR_ENCODE_MAX_LEN = 1*1024*1024;
 
 // deno-lint-ignore no-explicit-any

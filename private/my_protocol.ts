@@ -20,7 +20,7 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 
-export type OnLoadFile = (filename: string) => Promise<(Reader & Closer) | undefined>;
+export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -573,22 +573,53 @@ L:		while (true)
 					if (!reader)
 					{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
 					}
-					try
-					{	while (true)
-						{	this.startWritingNewPacket();
-							const n = await this.writeReadChunk(reader);
-							await this.send();
-							if (n == null)
-							{	break;
+					if ('read' in reader)
+					{	try
+						{	while (true)
+							{	this.startWritingNewPacket();
+								const n = await this.writeReadChunk(reader);
+								await this.send();
+								if (n == null)
+								{	break;
+								}
+							}
+						}
+						finally
+						{	try
+							{	reader.close();
+							}
+							catch (e)
+							{	this.logger.error(e);
 							}
 						}
 					}
-					finally
-					{	try
-						{	reader.close();
+					else
+					{	let reader2;
+						try
+						{	reader2 = reader.readable.getReader({mode: 'byob'});
+							let buffer = new Uint8Array(this.buffer.length);
+							while (true)
+							{	this.startWritingNewPacket();
+								const {value, done} = await reader2.read(buffer.subarray(0, this.buffer.length - this.bufferEnd));
+								if (done)
+								{	await this.send();
+									break;
+								}
+								else
+								{	buffer = new Uint8Array(value.buffer);
+									this.writeBytes(value);
+									await this.send();
+								}
+							}
 						}
-						catch (e)
-						{	this.logger.error(e);
+						finally
+						{	reader2?.releaseLock();
+							try
+							{	reader[Symbol.dispose]();
+							}
+							catch (e)
+							{	this.logger.error(e);
+							}
 						}
 					}
 					continue L;

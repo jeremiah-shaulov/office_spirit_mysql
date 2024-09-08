@@ -5,11 +5,11 @@ Features:
 - Pool for connections to multiple servers.
 - Auto-retry connection if server is busy.
 - Auto-retry queries if "deadlock" in autocommit mode, or if "lock wait timeout".
-- Streaming BLOBs and `Deno.Reader`s.
+- Streaming BLOBs and `ReadableStream`s.
 - Custom handler for LOCAL INFILE.
 - Advanced transactions manager: regular transactions, readonly, distributed (2-phase commit), savepoints.
 - Prepared statements.
-- Binary protocol. Query parameters are sent separately from text query.
+- Binary protocol. Query parameters are sent separately from query text.
 - Made with CPU and RAM efficiency in mind.
 
 This library is not just a driver, but it's ready to use tool, that covers many MySQL use cases.
@@ -19,7 +19,7 @@ Basic example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
 // deno run --allow-env --allow-net /tmp/example1.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -151,7 +151,7 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -215,7 +215,7 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
 // deno run --allow-env --allow-net /tmp/example3.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -246,7 +246,7 @@ And it skips all further rows, if they exist.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
 // deno run --allow-env --allow-net /tmp/example4.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -279,7 +279,7 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
 // deno run --allow-env --allow-net /tmp/example5.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -318,7 +318,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
 // deno run --allow-env --allow-net /tmp/example6.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -359,7 +359,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
 // deno run --allow-env --allow-net /tmp/example7.ts
 
 import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -392,7 +392,7 @@ If you're sure about column types, you can override the column type with `any` (
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -482,7 +482,7 @@ Consider the following example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.1.ts~)' > /tmp/example8.1.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.1.ts~)' > /tmp/example8.1.ts
 // deno run --allow-env --allow-net /tmp/example8.1.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -510,7 +510,7 @@ But with `correctDates` parameter set 2 equal dates are always printed, because 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.2.ts~)' > /tmp/example8.2.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.2.ts~)' > /tmp/example8.2.ts
 // deno run --allow-env --allow-net /tmp/example8.2.ts
 
 import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -552,7 +552,7 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
 // deno run --allow-env --allow-net /tmp/example9.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -581,7 +581,7 @@ Parameter names will override session variables with the same names.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
 // deno run --allow-env --allow-net /tmp/example10.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -638,7 +638,7 @@ Example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
 // deno run --allow-env --allow-net /tmp/example11.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -746,7 +746,7 @@ Let's measure how fast is all that.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
 // deno run --allow-env --allow-net /tmp/example12.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -851,7 +851,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
 // deno run --allow-env --allow-net /tmp/example13.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -904,7 +904,7 @@ This library tries to have everything needed in real life usage. It's possible t
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
 // deno run --allow-env --allow-net /tmp/example14.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -932,7 +932,7 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
 // deno run --allow-env --allow-net /tmp/example15.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -976,7 +976,7 @@ This allows to read SQL from files.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests?multiStatements'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
 // deno run --allow-env --allow-net /tmp/example16.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1022,7 +1022,7 @@ If this feature is enabled on your server, you can register a custom handler tha
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
 // deno run --allow-env --allow-net /tmp/example17.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1045,9 +1045,9 @@ pool.options
 );
 
 // Download some public example CSV file from github
-const data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
 const filename = await Deno.makeTempFile();
-await Deno.writeTextFile(filename, await data.text());
+const data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
+await Deno.writeFile(filename, data.body ?? new Uint8Array);
 
 // Create temporary table, load the data to it, and then select it back
 pool.forConn
@@ -1115,7 +1115,7 @@ And you must read or discard all the resultsets before being able to issue next 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests?multiStatements'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1188,7 +1188,7 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
 // deno run --allow-env --allow-net /tmp/example19.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1312,7 +1312,7 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
 // deno run --allow-env --allow-net --allow-write /tmp/example20.ts
 
 import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1324,7 +1324,7 @@ const LOG_FILE = '/tmp/sql.log';
 class SqlLogToFile extends SqlLogToWritable
 {	protected disposable: Disposable;
 
-	private constructor(fileLike: {writable: WritableStream<Uint8Array>}&Disposable, withColor=false)
+	private constructor(fileLike: {readonly writable: WritableStream<Uint8Array>}&Disposable, withColor=false)
 	{	super(fileLike.writable, withColor);
 		this.disposable = fileLike;
 	}
@@ -1335,8 +1335,12 @@ class SqlLogToFile extends SqlLogToWritable
 	}
 
 	async dispose()
-	{	await super.dispose();
-		this.disposable[Symbol.dispose]();
+	{	try
+		{	await super.dispose();
+		}
+		finally
+		{	this.disposable[Symbol.dispose]();
+		}
 	}
 }
 
@@ -1437,7 +1441,7 @@ To start a regular transaction call `startTrx()` without parameters. Then you ca
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
 // deno run --allow-env --allow-net /tmp/example21.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';
@@ -1603,7 +1607,7 @@ If you wish you can add a timestamp column for your own use (transactions manage
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.12.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
 // deno run --allow-env --allow-net /tmp/example22.ts
 
 import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.12.0/mod.ts';

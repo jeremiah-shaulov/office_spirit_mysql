@@ -100,6 +100,7 @@ const TESTS =
 	testRetryQueryTimes,
 	testMaxConns,
 	testLoadBigDump,
+	testLoadFile,
 ];
 
 if (TESTS_DSN)
@@ -1928,5 +1929,85 @@ async function testLoadBigDump(dsnStr: string)
 	}
 	finally
 	{	await pool.shutdown();
+	}
+}
+
+async function testLoadFile(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	const pool = new MyPool(dsn);
+	const dataFile = await Deno.makeTempFile();
+	const data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
+	await Deno.writeFile(dataFile, data.body ?? new Uint8Array);
+	for (const asReadable of [false, true])
+	{	if (asReadable)
+		{	pool.options
+			(	{	async onLoadFile(filename: string)
+					{	if (filename == dataFile)
+						{	const fh = await Deno.open(filename, {read: true});
+							return {readable: fh.readable, [Symbol.dispose]: () => fh[Symbol.dispose]()};
+						}
+					}
+				}
+			);
+		}
+		else
+		{	pool.options
+			(	{	async onLoadFile(filename: string)
+					{	if (filename == dataFile)
+						{	const fh = await Deno.open(filename, {read: true});
+							return {read: b => fh.read(b), close: () => fh.close()};
+						}
+					}
+				}
+			);
+		}
+		try
+		{	pool.forConn
+			(	async conn =>
+				{	// Create and use db
+					await conn.query("DROP DATABASE IF EXISTS test1");
+					await conn.query("CREATE DATABASE `test1`");
+					await conn.query("USE test1");
+
+					// CREATE TABLE
+					await conn.queryVoid
+					(	`	CREATE TEMPORARY TABLE t_countries
+							(	country_code char(2) CHARACTER SET latin1 NOT NULL PRIMARY KEY,
+								country_name varchar(128) NOT NULL
+							)
+						`
+					);
+
+					// SQL-quote filename, because `LOAD DATA LOCAL INFILE` doesn't accept parameters
+					const dataFileSql = await conn.queryCol("SELECT Quote(?)", [dataFile]).first();
+
+					// LOAD DATA
+					await conn.queryVoid
+					(	`	LOAD DATA LOCAL INFILE ${dataFileSql}
+							INTO TABLE t_countries
+							FIELDS TERMINATED BY ','
+							ENCLOSED BY '"'
+							IGNORE 1 LINES
+							(@name, @code)
+							SET
+								country_code = @code,
+								country_name = @name
+						`
+					);
+
+					// SELECT
+					const row = await conn.query("SELECT Count(*) AS cnt, Sum(country_code = 'TH') AS n_th FROM t_countries").first();
+
+					assertEquals(Number(row?.cnt)>100, true);
+					assertEquals(Number(row?.n_th), 1);
+
+					// Drop database that i created
+					await conn.query("DROP DATABASE test1");
+				}
+			);
+		}
+		finally
+		{	await pool.shutdown();
+		}
 	}
 }
