@@ -28,7 +28,6 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 		case MysqlType.MYSQL_TYPE_BIT:
 			return value[0] != 0;
 
-		case MysqlType.MYSQL_TYPE_DECIMAL:
 		case MysqlType.MYSQL_TYPE_DOUBLE:
 		case MysqlType.MYSQL_TYPE_FLOAT:
 			return dataToNumber(value);
@@ -78,7 +77,7 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 			return dataToTime(value);
 
 		default:
-			if ((flags & ColumnFlags.BINARY) && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL)
+			if ((flags & ColumnFlags.BINARY) && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL && type!=MysqlType.MYSQL_TYPE_DECIMAL)
 			{	return value.slice();
 			}
 			else
