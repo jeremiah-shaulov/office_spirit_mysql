@@ -35,15 +35,15 @@ export interface MyPoolOptions
 type HaveSlotsCallback = {y: () => void, till: number};
 
 class MyPoolConns
-{	idle: MyProtocol[] = [];
-	busy: MyProtocol[] = [];
+{	idle = new Array<MyProtocol>;
+	busy = new Array<MyProtocol>;
 	nConnecting = 0;
-	haveSlotsCallbacks: HaveSlotsCallback[] = [];
+	haveSlotsCallbacks = new Array<HaveSlotsCallback>;
 }
 
 export class MyPool
-{	private connsPool = new Map<number, MyPoolConns>();
-	private unusedBuffers: Uint8Array[] = [];
+{	private connsPool = new Map<number, MyPoolConns>;
+	private unusedBuffers = new Array<Uint8Array>;
 	private nIdleAll = 0;
 	private nBusyAll = 0;
 	private nSessionsOrConns = 0;
@@ -443,7 +443,7 @@ export class MyPool
 	private closeKeptAliveTimedOut(closeAllIdle=false)
 	{	const {connsPool} = this;
 		const now = Date.now();
-		const promises = [];
+		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of connsPool)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
@@ -487,9 +487,9 @@ export class MyPool
 }
 
 class XaTask
-{	managedXaDsns: Dsn[] = [];
+{	managedXaDsns = new Array<Dsn>;
 	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
-	xaInfoTables: XaInfoTable[] = [];
+	xaInfoTables = new Array<XaInfoTable>;
 	logger: Logger = console;
 
 	private xaTaskTimer: number | undefined;
@@ -518,15 +518,15 @@ class XaTask
 			(	async session =>
 				{	// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 					type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
-					const byInfoDsn = new Map<string, Item[]>();
-					const byConn = new Map<MyConn, Item[]>();
+					const byInfoDsn = new Map<string, Item[]>;
+					const byConn = new Map<MyConn, Item[]>;
 					const results = await Promise.allSettled
 					(	this.managedXaDsns.map
 						(	async dsn =>
 							{	const conn = session.conn(dsn);
 								// 1. Read XA RECOVER
-								const xas: {xaId: string, xaId1: string, time: number, pid: number, hash: number, connectionId: number}[] = [];
-								const cids: number[] = [];
+								const xas = new Array<{xaId: string, xaId1: string, time: number, pid: number, hash: number, connectionId: number}>;
+								const cids = new Array<number>;
 								for await (const {data: xaId} of await conn.query<string>("XA RECOVER"))
 								{	const m = XaIdGen.decode(xaId);
 									if (m)
@@ -586,12 +586,12 @@ class XaTask
 						}
 					}
 					// 2. Find out should i rollback or commit, according to xaInfoTables
-					const promises2 = [];
+					const promises2 = new Array<Promise<void>>;
 					for (const [dsnStr, items] of byInfoDsn)
 					{	if (dsnStr)
 						{	promises2[promises2.length] = Promise.resolve(session.conn(dsnStr)).then
 							(	async conn =>
-								{	const byTable = new Map<string, typeof items>();
+								{	const byTable = new Map<string, typeof items>;
 									for (const item of items)
 									{	const {table} = item;
 										if (table && table.indexOf('`')==-1)
@@ -622,7 +622,7 @@ class XaTask
 						}
 					}
 					// 3. Rollback or commit
-					const promises3 = [];
+					const promises3 = new Array<Promise<void>>;
 					for (const items of byConn.values())
 					{	let promise = Promise.resolve();
 						for (const {conn, xaId, time, pid, connectionId, commit} of items)
