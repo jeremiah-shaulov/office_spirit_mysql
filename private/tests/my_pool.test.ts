@@ -550,88 +550,84 @@ async function testNoDsn(_dsnStr: string)
 async function testPrepared(dsnStr: string)
 {	const N_ROWS = 3;
 	await using pool = new MyPool;
+	using conn = pool.getConn(dsnStr);
 
-	pool.forConn
-	(	async conn =>
-		{	// CREATE DATABASE
-			await conn.query("DROP DATABASE IF EXISTS test1");
-			await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
+	// CREATE DATABASE
+	await conn.query("DROP DATABASE IF EXISTS test1");
+	await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
 
-			// USE
-			await conn.query("USE test1");
+	// USE
+	await conn.query("USE test1");
 
-			// Timezone
-			await conn.query("SET time_zone = 'SYSTEM'");
+	// Timezone
+	await conn.query("SET time_zone = 'SYSTEM'");
 
-			// CREATE TABLE
-			await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");
+	// CREATE TABLE
+	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp NOT NULL, message text)");
 
-			// INSERT
-			let now = Date.now();
-			now -= now % 1000;
-			await conn.forQuery
-			(	"INSERT INTO t_log SET `time`=?, message=?",
-				async prepared =>
-				{	for (let i=1; i<=N_ROWS; i++)
-					{	await prepared.exec([new Date(now+i*1000), 'Message '+i]);
-					}
-				}
-			);
-
-			// SELECT no read at end
-			await conn.forQuery
-			(	"SELECT * FROM t_log WHERE id=?",
-				async prepared =>
-				{	await prepared.exec([1]);
-					assertEquals(prepared.columns.length, 3);
-				}
-			);
-
-			// SELECT
-			await conn.forQuery
-			(	"SELECT * FROM t_log WHERE id=?",
-				async prepared =>
-				{	for (let i=1; i<=N_ROWS; i++)
-					{	await prepared.exec([i]);
-						for await (const row of prepared)
-						{	assertEquals(row, {id: i, time: new Date(now+i*1000), message: 'Message '+i});
-						}
-					}
-				}
-			);
-
-			// SELECT call end()
-			let error: Error|undefined;
-			let error2: Error|undefined;
-			await conn.forQuery
-			(	"SELECT * FROM t_log WHERE id=?",
-				async prepared =>
-				{	await prepared.exec([1]);
-					assertEquals(prepared.columns.length, 3);
-					conn.end();
-					try
-					{	await prepared.exec([2]);
-					}
-					catch (e)
-					{	error = e;
-					}
-					await new Promise(y => setTimeout(y, 1000));
-					try
-					{	await prepared.exec([2]);
-					}
-					catch (e)
-					{	error2 = e;
-					}
-				}
-			);
-			assert(error instanceof CanceledError);
-			assert(error2 instanceof CanceledError);
-
-			// Drop database that i created
-			await conn.query("DROP DATABASE test1");
-		},
-		dsnStr
+	// INSERT
+	let now = Date.now();
+	now -= now % 1000;
+	await conn.forQuery
+	(	"INSERT INTO t_log SET `time`=?, message=?",
+		async prepared =>
+		{	for (let i=1; i<=N_ROWS; i++)
+			{	await prepared.exec([new Date(now+i*1000), 'Message '+i]);
+			}
+		}
 	);
+
+	// SELECT no read at end
+	await conn.forQuery
+	(	"SELECT * FROM t_log WHERE id=?",
+		async prepared =>
+		{	await prepared.exec([1]);
+			assertEquals(prepared.columns.length, 3);
+		}
+	);
+
+	// SELECT
+	await conn.forQuery
+	(	"SELECT * FROM t_log WHERE id=?",
+		async prepared =>
+		{	for (let i=1; i<=N_ROWS; i++)
+			{	await prepared.exec([i]);
+				for await (const row of prepared)
+				{	assertEquals(row, {id: i, time: new Date(now+i*1000), message: 'Message '+i});
+				}
+			}
+		}
+	);
+
+	// SELECT call end()
+	let error: Error|undefined;
+	let error2: Error|undefined;
+	await conn.forQuery
+	(	"SELECT * FROM t_log WHERE id=?",
+		async prepared =>
+		{	await prepared.exec([1]);
+			assertEquals(prepared.columns.length, 3);
+			conn.end();
+			try
+			{	await prepared.exec([2]);
+			}
+			catch (e)
+			{	error = e;
+			}
+			await new Promise(y => setTimeout(y, 1000));
+			try
+			{	await prepared.exec([2]);
+			}
+			catch (e)
+			{	error2 = e;
+			}
+		}
+	);
+	assert(error instanceof CanceledError);
+	assert(error2 instanceof CanceledError);
+
+	// Drop database that i created
+	await conn.query("DROP DATABASE test1");
 }
 
 async function testVariousColumnTypes(dsnStr: string)
@@ -1094,32 +1090,30 @@ async function testSessions(dsnStr: string)
 	const dsn2 = new Dsn(dsnStr);
 	dsn2.keepAliveMax = 10;
 
-	pool.session
-	(	async session =>
-		{	const conn1 = session.conn(); // default DSN
-			const conn2 = session.conn(); // the same object
-			const conn3 = session.conn(undefined, true); // another connection to default DSN
-			const conn4 = session.conn(dsn2); // connection to different DSN
+	using session = pool.getSession();
 
-			assert(conn1 === conn2);
-			assert(conn2 !== conn3);
-			assert(conn2 !== conn4);
-			assert(conn3 !== conn4);
+	const conn1 = session.conn(); // default DSN
+	const conn2 = session.conn(); // the same object
+	const conn3 = session.conn(undefined, true); // another connection to default DSN
+	const conn4 = session.conn(dsn2); // connection to different DSN
 
-			const connId2Promise = conn2.queryCol("SELECT Connection_id()").first();
-			const connId3Promise = conn3.queryCol("SELECT Connection_id()").first();
-			const connId4Promise = conn4.queryCol("SELECT Connection_id()").first();
+	assert(conn1 === conn2);
+	assert(conn2 !== conn3);
+	assert(conn2 !== conn4);
+	assert(conn3 !== conn4);
 
-			const [connId2, connId3, connId4] = await Promise.all([connId2Promise, connId3Promise, connId4Promise]);
-			assert(connId2!=connId3 && connId3!=connId4);
-		}
-	);
+	const connId2Promise = conn2.queryCol("SELECT Connection_id()").first();
+	const connId3Promise = conn3.queryCol("SELECT Connection_id()").first();
+	const connId4Promise = conn4.queryCol("SELECT Connection_id()").first();
+
+	const [connId2, connId3, connId4] = await Promise.all([connId2Promise, connId3Promise, connId4Promise]);
+	assert(connId2!=connId3 && connId3!=connId4);
 }
 
 async function testPoolDsn(_dsnStr: string)
 {	await using pool = new MyPool;
 
-	pool.session
+	pool.forSession
 	(	// deno-lint-ignore require-await
 		async session =>
 		{	let error;
@@ -1369,7 +1363,7 @@ async function testTrx(dsnStr: string)
 	pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
 
 	// XA Info: test
-	await pool.session
+	await pool.forSession
 	(	async session =>
 		{	await session.startTrx({xa: true});
 			const conn = session.conn();
@@ -1402,7 +1396,7 @@ async function testTrx(dsnStr: string)
 	xaInfoDsn1.schema = 'test58168';
 	const xaInfoDsn2 = new Dsn(dsnStr);
 	xaInfoDsn2.schema = 'test38743';
-	await pool.session
+	await pool.forSession
 	(	async session =>
 		{	const conn2 = session.conn(xaInfoDsn2);
 			assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
@@ -1510,7 +1504,7 @@ async function testTrx(dsnStr: string)
 	);
 
 	for (let noXa=0; noXa<2; noXa++)
-	{	await pool.session
+	{	await pool.forSession
 		(	async session =>
 			{	const conn1 = session.conn(xaInfoDsn1);
 				const conn2 = session.conn(xaInfoDsn2);
@@ -1577,7 +1571,7 @@ async function testTrx(dsnStr: string)
 			}
 		);
 
-		await pool.session
+		await pool.forSession
 		(	async session =>
 			{	const conn1 = session.conn(xaInfoDsn1);
 				const conn2 = session.conn(xaInfoDsn2);
@@ -1674,7 +1668,7 @@ async function testMaxConns(dsnStr: string)
 
 		pool.options({maxConnsWaitQueue});
 
-		pool.session
+		pool.forSession
 		(	async session =>
 			{	const conn1 = session.conn(undefined, true);
 				await conn1.connect();

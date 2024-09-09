@@ -26,7 +26,7 @@ export interface SqlLogger
 	 **/
 	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
 
-	/**	I'll call this function at the end of `MyPool.forConn()` or `MyPool.session()`.
+	/**	This callback is called when current `MyConn` object is disposed of. This happens at the end of `MyPool.forConn()`, or at the end of a block with `using conn = ...`.
 	 **/
 	dispose?: () => Promise<unknown>;
 }

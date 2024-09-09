@@ -25,17 +25,14 @@ Basic example:
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		for await (const row of await conn.query("SELECT * FROM t_log"))
-		{	console.log(row);
-		}
-	}
-);
+for await (const row of await conn.query("SELECT * FROM t_log"))
+{	console.log(row);
+}
 ```
 
 ## Connections pool
@@ -95,7 +92,7 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 - `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
 - `maxConns` - (number, default `250`) Limit number of simultaneous connections to this DSN in pool
-- `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReader()` - see below)
+- `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReadable()` - see below)
 - `foundRows` (boolean, default `false`) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
 - `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
 - `multiStatements` (boolean, default `false`) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
@@ -105,16 +102,60 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 
 ## Connections
 
-A new connection from connections pool can be asked with `pool.forConn()` function:
+A new connection from connections pool can be asked with `pool.getConn()` function:
+
+```ts
+MyPool.getConn(dsn?: Dsn|string): MyConn
+```
+If `dsn` is not provided, the default DSN of the pool will be used. You can provide different `dsn` to ask a connection to different server.
+
+The returned `MyConn` object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
+When `conn[Symbol.dispose]()` is called, the connection comes back to it's pool.
+
+Another way of using connections is by calling `pool.forConn()` giving it an async callback, and the connection can be used within this callback, and when it returns the connection will be returned to the pool.
 
 ```ts
 MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Promise<T>
 ```
-If `dsn` is not provided, the default DSN of the pool will be used. You can ask connections to different servers.
 
-The requested connection will be available in the provided `callback` function, and when the function returns, this connection will come back to the pool.
+The following is essentially the same:
 
-Connection state is reset before returning to the pool. This means that incomplete transactions are rolled back, and all kind of locks are cleared.
+```ts
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
+
+await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
+const version = await conn.queryCol("SELECT Version()").first();
+console.log(version);
+```
+And:
+```ts
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
+
+await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+const version = await pool.forConn
+(	async conn =>
+	{	const version = await conn.queryCol("SELECT Version()").first();
+		return version;
+	}
+);
+console.log(version);
+```
+
+If the promise that `pool.forConn()` returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
+```ts
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
+
+await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+pool.forConn
+(	async conn =>
+	{	const version = await conn.queryCol("SELECT Version()").first();
+		console.log(version);
+	}
+);
+```
+
+Before the connection is returned to the pool, its state is reset. This means that incomplete transactions are rolled back, and all kind of locks are cleared.
 Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
@@ -132,11 +173,21 @@ If there was no free slot during the `connectionTimeout` period, or if the waiti
 
 ## Cross-server sessions
 
-If you want to deal with multiple simultaneous connections, you can call `pool.session()` to start a cross-server session.
+If you want to deal with multiple simultaneous connections, you can call `pool.getSession()` to start a cross-server session.
 
 ```ts
-MyPool.session<T>(callback: (session: MySession) => Promise<T>): Promise<T>
+MyPool.getSession(): MySession
 ```
+
+The returned `MySession` object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
+When `session[Symbol.dispose]()` is called, all the connections in this session are disposed.
+
+Another way of using sessions is by calling `pool.forSession()` giving it an async callback, and the session can be used within this callback.
+
+```ts
+MyPool.forSession<T>(callback: (session: MySession) => Promise<T>): Promise<T>
+```
+
 During this session you can call `session.conn()` to get a connection. At the end of callback all the connections will return to the pool, if they didn't before.
 
 ```ts
@@ -155,24 +206,21 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
+using session = pool.getSession();
 
-pool.session
-(	async session =>
-	{	const conn1 = session.conn(); // default DSN
-		const conn2 = session.conn(); // the same object
-		const conn3 = session.conn(undefined, true); // another connection to default DSN
-		const conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
+const conn1 = session.conn(); // default DSN
+const conn2 = session.conn(); // the same object
+const conn3 = session.conn(undefined, true); // another connection to default DSN
+const conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
 
-		console.log(conn1 == conn2); // prints true
-		console.log(conn2 != conn3); // prints true
+console.log(conn1 == conn2); // prints true
+console.log(conn2 != conn3); // prints true
 
-		const connId2 = conn2.queryCol("SELECT Connection_id()").first();
-		const connId3 = conn3.queryCol("SELECT Connection_id()").first();
-		const connId4 = conn4.queryCol("SELECT Connection_id()").first();
+const connId2 = conn2.queryCol("SELECT Connection_id()").first();
+const connId3 = conn3.queryCol("SELECT Connection_id()").first();
+const connId4 = conn4.queryCol("SELECT Connection_id()").first();
 
-		console.log(await Promise.all([connId2, connId3, connId4])); // prints 3 different connection ids
-	}
-);
+console.log(await Promise.all([connId2, connId3, connId4])); // prints 3 different connection ids
 ```
 At the end of callback all active connections will be returned to the pool. However you can call `conn.end()` to free a connection earlier.
 
@@ -217,21 +265,18 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		// use ResultsetsPromise.all()
-		console.log(await conn.query("SELECT * FROM t_log").all());
+// use ResultsetsPromise.all()
+console.log(await conn.query("SELECT * FROM t_log").all());
 
-		// use Resultsets.all()
-		const res = await conn.query("SELECT * FROM t_log");
-		console.log(res.columns);
-		console.log(await res.all());
-	}
-);
+// use Resultsets.all()
+const res = await conn.query("SELECT * FROM t_log");
+console.log(res.columns);
+console.log(await res.all());
 ```
 If your query returns single row, you can read it with `Resultsets.first()` or `ResultsetsPromise.first()`.
 It returns the first row itself, not an array of rows.
@@ -246,21 +291,18 @@ And it skips all further rows, if they exist.
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		// use ResultsetsPromise.first()
-		console.log(await conn.query("SELECT Count(*) FROM t_log").first());
+// use ResultsetsPromise.first()
+console.log(await conn.query("SELECT Count(*) FROM t_log").first());
 
-		// use Resultsets.first()
-		const res = await conn.query("SELECT Count(*) FROM t_log");
-		console.log(res.columns);
-		console.log(await res.first());
-	}
-);
+// use Resultsets.first()
+const res = await conn.query("SELECT Count(*) FROM t_log");
+console.log(res.columns);
+console.log(await res.first());
 ```
 You can iterate the resultset with `for await` loop, or you can call `ResultsetsPromise.forEach()` or `Resultsets.forEach()` method.
 
@@ -277,23 +319,20 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		// for await loop
-		for await (const row of await conn.query("SELECT * FROM t_log"))
-		{	console.log(row);
-		}
+// for await loop
+for await (const row of await conn.query("SELECT * FROM t_log"))
+{	console.log(row);
+}
 
-		// ResultsetsPromise.forEach()
-		await conn.query("SELECT * FROM t_log").forEach
-		(	row =>
-			{	console.log(row);
-			}
-		);
+// ResultsetsPromise.forEach()
+await conn.query("SELECT * FROM t_log").forEach
+(	row =>
+	{	console.log(row);
 	}
 );
 ```
@@ -314,16 +353,13 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		const count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
-		console.log(count); // prints 3
-	}
-);
+const count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
+console.log(count); // prints 3
 ```
 
 Here is the complete definition of query functions:
@@ -353,24 +389,21 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		const row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
-		if (row)
-		{	// The type of `row` here is `Record<string, ColumnValue>`
-			let message = '';
-			// Remember that the `message` column can also be null
-			if (typeof(row.message) == 'string') // Without this check, the error will be: Type 'ColumnValue' is not assignable to type 'string'
-			{	message = row.message;
-			}
-			console.log(message); // Prints 'Message 1'
-		}
+const row = await conn.query("SELECT * FROM t_log WHERE id=1").first();
+if (row)
+{	// The type of `row` here is `Record<string, ColumnValue>`
+	let message = '';
+	// Remember that the `message` column can also be null
+	if (typeof(row.message) == 'string') // Without this check, the error will be: Type 'ColumnValue' is not assignable to type 'string'
+	{	message = row.message;
 	}
-);
+	console.log(message); // Prints 'Message 1'
+}
 ```
 
 If you're sure about column types, you can override the column type with `any` (or something else), so each column value will be assumed to have this type.
@@ -384,21 +417,18 @@ If you're sure about column types, you can override the column type with `any` (
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
 
-		// Use query<any>()
-		const row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
-		if (row)
-		{	// The type of `row` here is `Record<string, any>`
-			const message: string = row.message;
-			console.log(message); // Prints 'Message 1'
-		}
-	}
-);
+// Use query<any>()
+const row = await conn.query<any>("SELECT * FROM t_log WHERE id=1").first();
+if (row)
+{	// The type of `row` here is `Record<string, any>`
+	const message: string = row.message;
+	console.log(message); // Prints 'Message 1'
+}
 ```
 
 ## Type conversions
@@ -472,18 +502,15 @@ Consider the following example:
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.query("SET time_zone = 'UTC'");
+await conn.query("SET time_zone = 'UTC'");
 
-		const refDate = new Date(2022, 2, 17, 10, 0, 0);
-		const dateBack = await conn.queryCol("SELECT From_unixtime(@t / 1000)", {t: refDate.getTime()}).first();
+const refDate = new Date(2022, 2, 17, 10, 0, 0);
+const dateBack = await conn.queryCol("SELECT From_unixtime(@t / 1000)", {t: refDate.getTime()}).first();
 
-		console.log(refDate);
-		console.log(dateBack);
-	}
-);
+console.log(refDate);
+console.log(dateBack);
 ```
 
 If your MySQL server is configured to use different timezone than the Deno app, this example prints 2 different dates.
@@ -500,18 +527,15 @@ import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.t
 const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 dsn.correctDates = true; // THE DIFFERENCE IS HERE
 await using pool = new MyPool(dsn);
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.query("SET time_zone = 'UTC'");
+await conn.query("SET time_zone = 'UTC'");
 
-		const refDate = new Date(2022, 2, 17, 10, 0, 0);
-		const dateBack = await conn.queryCol("SELECT From_unixtime(@t / 1000)", {t: refDate.getTime()}).first();
+const refDate = new Date(2022, 2, 17, 10, 0, 0);
+const dateBack = await conn.queryCol("SELECT From_unixtime(@t / 1000)", {t: refDate.getTime()}).first();
 
-		console.log(refDate);
-		console.log(dateBack);
-	}
-);
+console.log(refDate);
+console.log(dateBack);
 ```
 
 ## Query parameters
@@ -538,16 +562,13 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
-		const row = await conn.query("SELECT `time` + INTERVAL ? DAY AS 'time', message FROM t_log WHERE id=?", [3, 1]).first();
-		console.log(row);
-	}
-);
+const row = await conn.query("SELECT `time` + INTERVAL ? DAY AS 'time', message FROM t_log WHERE id=?", [3, 1]).first();
+console.log(row);
 ```
 
 ### Named parameters
@@ -565,16 +586,13 @@ Parameter names will override session variables with the same names.
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message='Message 1'");
 
-		const row = await conn.query("SELECT `time` + INTERVAL @days DAY AS 'time', message FROM t_log WHERE id=@`id`", {days: 3, id: 1}).first();
-		console.log(row);
-	}
-);
+const row = await conn.query("SELECT `time` + INTERVAL @days DAY AS 'time', message FROM t_log WHERE id=@`id`", {days: 3, id: 1}).first();
+console.log(row);
 ```
 
 ### Using external SQL generators
@@ -650,16 +668,13 @@ class SqlSelectGenerator
 // 2. Use the generator
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.query("INSERT INTO t_log SET `time`=Now(), message='message'");
+await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+await conn.query("INSERT INTO t_log SET `time`=Now(), message='message'");
 
-		const rows = await conn.query<any>(new SqlSelectGenerator('t_log', 1), []).all();
-		console.log(rows);
-	}
-);
+const rows = await conn.query<any>(new SqlSelectGenerator('t_log', 1), []).all();
+console.log(rows);
 ```
 
 There're the following external libraries that implement `toSqlBytesWithParamsBackslashAndBuffer()` to optimally support `x/office_spirit_mysql`:
@@ -725,78 +740,75 @@ Let's measure how fast is all that.
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
-await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
-
 const N_ROWS = 100;
 const N_QUERIES = 800;
 
-pool.forConn
-(	async conn =>
-	{	// CREATE DATABASE
-		await conn.query("DROP DATABASE IF EXISTS test1");
-		await conn.query("CREATE DATABASE `test1`");
+await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-		// USE
-		await conn.query("USE test1");
+// CREATE DATABASE
+await conn.query("DROP DATABASE IF EXISTS test1");
+await conn.query("CREATE DATABASE `test1`");
 
-		// CREATE TABLE
-		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, val integer)");
+// USE
+await conn.query("USE test1");
 
-		// INSERT
-		let sql = "INSERT INTO t_log (val) VALUES (0)";
-		for (let i=1; i<N_ROWS; i++)
-		{	sql += `,(${i})`;
-		}
-		await conn.queryVoid(sql);
+// CREATE TABLE
+await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, val integer)");
 
-		// Begin tests
-		console.log('Begin tests');
+// INSERT
+let sql = "INSERT INTO t_log (val) VALUES (0)";
+for (let i=1; i<N_ROWS; i++)
+{	sql += `,(${i})`;
+}
+await conn.queryVoid(sql);
 
-		// Text Protocol
-		let since = Date.now();
-		let sum = 0;
-		for (let i=0; i<N_QUERIES; i++)
+// Begin tests
+console.log('Begin tests');
+
+// Text Protocol
+let since = Date.now();
+let sum = 0;
+for (let i=0; i<N_QUERIES; i++)
+{	const n = 1 + Math.floor(Math.random() * N_ROWS);
+	sum += await conn.queryCol("SELECT val FROM t_log WHERE id = "+n).first();
+}
+console.log(`Text Protocol took ${(Date.now()-since) / 1000} sec (random=${sum})`);
+
+// Named params
+since = Date.now();
+sum = 0;
+for (let i=0; i<N_QUERIES; i++)
+{	const n = 1 + Math.floor(Math.random() * N_ROWS);
+	sum += await conn.queryCol("SELECT val FROM t_log WHERE id = @n", {n}).first();
+}
+console.log(`Named params took ${(Date.now()-since) / 1000} sec (random=${sum})`);
+
+// Positional params
+since = Date.now();
+sum = 0;
+for (let i=0; i<N_QUERIES; i++)
+{	const n = 1 + Math.floor(Math.random() * N_ROWS);
+	sum += await conn.queryCol("SELECT val FROM t_log WHERE id = ?", [n]).first();
+}
+console.log(`Positional params took ${(Date.now()-since) / 1000} sec (random=${sum})`);
+
+// Positional params prepared once
+since = Date.now();
+sum = 0;
+await conn.forQueryCol
+(	"SELECT val FROM t_log WHERE id = ?",
+	async stmt =>
+	{	for (let i=0; i<N_QUERIES; i++)
 		{	const n = 1 + Math.floor(Math.random() * N_ROWS);
-			sum += await conn.queryCol("SELECT val FROM t_log WHERE id = "+n).first();
+			sum += Number(await stmt.exec([n]).first());
 		}
-		console.log(`Text Protocol took ${(Date.now()-since) / 1000} sec (random=${sum})`);
-
-		// Named params
-		since = Date.now();
-		sum = 0;
-		for (let i=0; i<N_QUERIES; i++)
-		{	const n = 1 + Math.floor(Math.random() * N_ROWS);
-			sum += await conn.queryCol("SELECT val FROM t_log WHERE id = @n", {n}).first();
-		}
-		console.log(`Named params took ${(Date.now()-since) / 1000} sec (random=${sum})`);
-
-		// Positional params
-		since = Date.now();
-		sum = 0;
-		for (let i=0; i<N_QUERIES; i++)
-		{	const n = 1 + Math.floor(Math.random() * N_ROWS);
-			sum += await conn.queryCol("SELECT val FROM t_log WHERE id = ?", [n]).first();
-		}
-		console.log(`Positional params took ${(Date.now()-since) / 1000} sec (random=${sum})`);
-
-		// Positional params prepared once
-		since = Date.now();
-		sum = 0;
-		await conn.forQueryCol
-		(	"SELECT val FROM t_log WHERE id = ?",
-			async stmt =>
-			{	for (let i=0; i<N_QUERIES; i++)
-				{	const n = 1 + Math.floor(Math.random() * N_ROWS);
-					sum += Number(await stmt.exec([n]).first());
-				}
-			}
-		);
-		console.log(`Positional params prepared once took ${(Date.now()-since) / 1000} sec (random=${sum})`);
-
-		// Drop database that i created
-		await conn.query("DROP DATABASE test1");
 	}
 );
+console.log(`Positional params prepared once took ${(Date.now()-since) / 1000} sec (random=${sum})`);
+
+// Drop database that i created
+await conn.query("DROP DATABASE test1");
 ```
 
 On my computer i see the following results:
@@ -826,26 +838,23 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	// CREATE TABLE
-		await conn.query("CREATE TEMPORARY TABLE t_messages (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+// CREATE TABLE
+await conn.query("CREATE TEMPORARY TABLE t_messages (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 
-		// INSERT
-		await conn.forQuery
-		(	"INSERT INTO t_messages SET message=?",
-			async prepared =>
-			{	for (let i=1; i<=3; i++)
-				{	await prepared.exec(['Message '+i]);
-				}
-			}
-		);
-
-		// SELECT
-		console.log(await conn.query("SELECT * FROM t_messages").all());
+// INSERT
+await conn.forQuery
+(	"INSERT INTO t_messages SET message=?",
+	async prepared =>
+	{	for (let i=1; i<=3; i++)
+		{	await prepared.exec(['Message '+i]);
+		}
 	}
 );
+
+// SELECT
+console.log(await conn.query("SELECT * FROM t_messages").all());
 ```
 
 There's family of functions:
@@ -875,24 +884,22 @@ This library tries to have everything needed in real life usage. It's possible t
 // deno run --allow-env --allow-net /tmp/example14.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
-import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
-		await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
+await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message'");
 
-		const row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
-		await copy(row!.message, Deno.stdout);
-	}
-);
+const row = await conn.makeLastColumnReadable("SELECT `time`, message FROM t_log WHERE id=1");
+if (row?.message instanceof ReadableStream)
+{	await row.message.pipeTo(Deno.stdout.writable);
+}
 ```
 
 ## Writing long BLOBS
 
-Query parameter values can be of various types, including `Deno.Reader`. If some parameter is `Deno.Reader`, the parameter value will be read from this reader (without storing the whole BLOB in memory).
+Query parameter values can be of various types, including `ReadableStream<Uint8Array>` (and `Deno.Reader`). If some parameter is such, the parameter value will be read from this reader (without storing the whole BLOB in memory).
 
 ```ts
 // To download and run this example:
@@ -901,28 +908,21 @@ Query parameter values can be of various types, including `Deno.Reader`. If some
 // deno run --allow-env --allow-net /tmp/example15.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
-import {copy} from 'https://deno.land/std@0.117.0/streams/conversion.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
+await conn.queryVoid("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp, message text)");
 
-		const file = await Deno.open('/etc/passwd', {read: true});
-		try
-		{	// Write the file to db
-			await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message=?", [file]);
-		}
-		finally
-		{	file.close();
-		}
+using file = await Deno.open('/etc/passwd', {read: true});
+// Write the file to db
+await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message=?", [file.readable]);
 
-		// Read the contents back from db
-		const row = await conn.makeLastColumnReader<any>("SELECT `time`, message FROM t_log WHERE id=1");
-		await copy(row!.message, Deno.stdout);
-	}
-);
+// Read the contents back from db
+const row = await conn.makeLastColumnReadable("SELECT `time`, message FROM t_log WHERE id=1");
+if (row?.message instanceof ReadableStream)
+{	await row.message.pipeTo(Deno.stdout.writable);
+}
 ```
 
 ## Importing big dumps
@@ -946,34 +946,26 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 // Don't forget `?multiStatements`
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	const filename = await Deno.makeTempFile();
-		try
-		{	await Deno.writeTextFile
-			(	filename,
-				`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, c_time timestamp, message text);
+const filename = await Deno.makeTempFile();
+try
+{	await Deno.writeTextFile
+	(	filename,
+		`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, c_time timestamp, message text);
 
-					INSERT INTO t_log SET c_time=Now(), message='long long message';
-				`
-			);
+			INSERT INTO t_log SET c_time=Now(), message='long long message';
+		`
+	);
 
-			const file = await Deno.open(filename, {read: true});
-			try
-			{	await conn.queryVoid(file);
-			}
-			finally
-			{	file.close();
-			}
+	using file = await Deno.open(filename, {read: true});
+	await conn.queryVoid(file);
 
-			console.log(await conn.query("SELECT c_time, message FROM t_log").all());
-		}
-		finally
-		{	await Deno.remove(filename);
-		}
-	}
-);
+	console.log(await conn.query("SELECT c_time, message FROM t_log").all());
+}
+finally
+{	await Deno.remove(filename);
+}
 ```
 
 ## LOAD DATA LOCAL INFILE
@@ -1010,40 +1002,39 @@ const filename = await Deno.makeTempFile();
 const data = await fetch('https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv');
 await Deno.writeFile(filename, data.body ?? new Uint8Array);
 
-// Create temporary table, load the data to it, and then select it back
-pool.forConn
-(	async conn =>
-	{	// CREATE TABLE
-		await conn.queryVoid
-		(	`	CREATE TEMPORARY TABLE t_countries
-				(	country_code char(2) CHARACTER SET latin1 NOT NULL PRIMARY KEY,
-					country_name varchar(128) NOT NULL
-				)
-			`
-		);
+using conn = pool.getConn();
 
-		// SQL-quote filename, because `LOAD DATA LOCAL INFILE` doesn't accept parameters
-		const filenameSql = await conn.queryCol("SELECT Quote(?)", [filename]).first();
+// Create temporary table, load the data to it, and then select it back:
 
-		// LOAD DATA
-		const res = await conn.queryVoid
-		(	`	LOAD DATA LOCAL INFILE ${filenameSql}
-				INTO TABLE t_countries
-				FIELDS TERMINATED BY ','
-				ENCLOSED BY '"'
-				IGNORE 1 LINES
-				(@name, @code)
-				SET
-					country_code = @code,
-					country_name = @name
-			`
-		);
-		console.log(res.statusInfo);
-
-		// SELECT
-		console.log(await conn.query("SELECT * FROM t_countries LIMIT 3").all());
-	}
+// CREATE TABLE
+await conn.queryVoid
+(	`	CREATE TEMPORARY TABLE t_countries
+		(	country_code char(2) CHARACTER SET latin1 NOT NULL PRIMARY KEY,
+			country_name varchar(128) NOT NULL
+		)
+	`
 );
+
+// SQL-quote filename, because `LOAD DATA LOCAL INFILE` doesn't accept parameters
+const filenameSql = await conn.queryCol("SELECT Quote(?)", [filename]).first();
+
+// LOAD DATA
+const res = await conn.queryVoid
+(	`	LOAD DATA LOCAL INFILE ${filenameSql}
+		INTO TABLE t_countries
+		FIELDS TERMINATED BY ','
+		ENCLOSED BY '"'
+		IGNORE 1 LINES
+		(@name, @code)
+		SET
+			country_code = @code,
+			country_name = @name
+	`
+);
+console.log(res.statusInfo);
+
+// SELECT
+console.log(await conn.query("SELECT * FROM t_countries LIMIT 3").all());
 ```
 
 ## Connection status
@@ -1081,31 +1072,28 @@ import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 // Don't forget `?multiStatements`
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
+using conn = pool.getConn();
 
-pool.forConn
-(	async conn =>
-	{	const resultsets = await conn.query
-		(	`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
+const resultsets = await conn.query
+(	`	CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
 
-				INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3');
+		INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3');
 
-				SELECT * FROM t_log;
-			`
-		);
-
-		console.log(resultsets.affectedRows); // prints 0
-
-		await resultsets.nextResultset();
-		console.log(resultsets.affectedRows); // prints 3
-
-		await resultsets.nextResultset();
-		console.log(resultsets.columns.length); // prints 2
-
-		for await (const row of resultsets)
-		{	console.log(row);
-		}
-	}
+		SELECT * FROM t_log;
+	`
 );
+
+console.log(resultsets.affectedRows); // prints 0
+
+await resultsets.nextResultset();
+console.log(resultsets.affectedRows); // prints 3
+
+await resultsets.nextResultset();
+console.log(resultsets.columns.length); // prints 2
+
+for await (const row of resultsets)
+{	console.log(row);
+}
 ```
 
 `Resultsets` object has the following properties and methods:
@@ -1151,33 +1139,30 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
 let result;
 
-pool.forConn
-(	async conn =>
-	{	// Enable SQL logger
-		conn.setSqlLogger(true);
+// Enable SQL logger
+conn.setSqlLogger(true);
 
-		// CREATE DATABASE
-		await conn.query("DROP DATABASE IF EXISTS test1");
-		await conn.query("CREATE DATABASE `test1`");
+// CREATE DATABASE
+await conn.query("DROP DATABASE IF EXISTS test1");
+await conn.query("CREATE DATABASE `test1`");
 
-		// USE
-		await conn.query("USE test1");
+// USE
+await conn.query("USE test1");
 
-		// CREATE TABLE
-		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+// CREATE TABLE
+await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 
-		// INSERT
-		await conn.query("INSERT INTO t_log SET message = 'Message 1'");
+// INSERT
+await conn.query("INSERT INTO t_log SET message = 'Message 1'");
 
-		result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
+result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
 
-		// Drop database that i created
-		await conn.query("DROP DATABASE test1");
-	}
-);
+// Drop database that i created
+await conn.query("DROP DATABASE test1");
 
 console.log(`Result: ${result}`);
 ```
@@ -1215,7 +1200,7 @@ interface SqlLogger
 	 **/
 	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
 
-	/**	I'll call this function at the end of `MyPool.forConn()` or `MyPool.session()`.
+	/**	This callback is called when current `MyConn` object is disposed of. This happens at the end of `MyPool.forConn()`, or at the end of a block with `using conn = ...`.
 	 **/
 	dispose?: () => Promise<unknown>;
 }
@@ -1296,32 +1281,29 @@ class SqlLogToFile extends SqlLogToWritable
 	}
 }
 
+using conn = pool.getConn();
 let result;
 
-pool.forConn
-(	async conn =>
-	{	// Enable SQL logger
-		conn.setSqlLogger(await SqlLogToFile.inst(LOG_FILE, !Deno.noColor));
+// Enable SQL logger
+conn.setSqlLogger(await SqlLogToFile.inst(LOG_FILE, !Deno.noColor));
 
-		// CREATE DATABASE
-		await conn.query("DROP DATABASE IF EXISTS test1");
-		await conn.query("CREATE DATABASE `test1`");
+// CREATE DATABASE
+await conn.query("DROP DATABASE IF EXISTS test1");
+await conn.query("CREATE DATABASE `test1`");
 
-		// USE
-		await conn.query("USE test1");
+// USE
+await conn.query("USE test1");
 
-		// CREATE TABLE
-		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+// CREATE TABLE
+await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 
-		// INSERT
-		await conn.query("INSERT INTO t_log SET message = 'Message 1'");
+// INSERT
+await conn.query("INSERT INTO t_log SET message = 'Message 1'");
 
-		result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
+result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n: 1}).first();
 
-		// Drop database that i created
-		await conn.query("DROP DATABASE test1");
-	}
-);
+// Drop database that i created
+await conn.query("DROP DATABASE test1");
 
 console.log(`Result: ${result}`);
 ```
@@ -1394,38 +1376,35 @@ To start a regular transaction call `startTrx()` without parameters. Then you ca
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.13.0/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+using conn = pool.getConn();
 
-await pool.forConn
-(	async conn =>
-	{	// CREATE DATABASE
-		await conn.query("DROP DATABASE IF EXISTS test1");
-		await conn.query("CREATE DATABASE `test1`");
+// CREATE DATABASE
+await conn.query("DROP DATABASE IF EXISTS test1");
+await conn.query("CREATE DATABASE `test1`");
 
-		// USE
-		await conn.query("USE test1");
+// USE
+await conn.query("USE test1");
 
-		// CREATE TABLE
-		await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
+// CREATE TABLE
+await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
 
-		// Start transaction
-		await conn.startTrx();
+// Start transaction
+await conn.startTrx();
 
-		// Insert a row
-		await conn.query("INSERT INTO t_log SET a = 123");
+// Insert a row
+await conn.query("INSERT INTO t_log SET a = 123");
 
-		// Ensure that the row is present
-		console.log(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first()); // prints: 123
+// Ensure that the row is present
+console.log(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first()); // prints: 123
 
-		// Rollback
-		await conn.rollback();
+// Rollback
+await conn.rollback();
 
-		// The inserted row not persisted
-		console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
+// The inserted row not persisted
+console.log(await conn.queryCol("SELECT Count(*) FROM t_log").first()); // prints: 0
 
-		// Drop database that i created
-		await conn.query("DROP DATABASE test1");
-	}
-);
+// Drop database that i created
+await conn.query("DROP DATABASE test1");
 ```
 
 It's also possible to start a READONLY transaction:
@@ -1504,7 +1483,7 @@ This library provides transactions manager that you can use, or you can use your
 
 When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
 
-- create session (`pool.session()`), and call `MySession.startTrx({xa: true})` on session object
+- create session (`pool.getSession()`), and call `MySession.startTrx({xa: true})` on session object
 - specify `managedXaDsns` in pool options
 - optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
 
@@ -1574,26 +1553,25 @@ await using pool = new MyPool
 	}
 );
 
-await pool.session
-(	async session =>
-	{	// Enable SQL logger
-		session.setSqlLogger(true);
+// Start session
+using session = pool.getSession();
 
-		// Start distributed transaction
-		await session.startTrx({xa: true});
+// Enable SQL logger
+session.setSqlLogger(true);
 
-		// Get connection objects (actual connection will be established on first query)
-		const conn1 = session.conn(dsn1);
-		const conn2 = session.conn(dsn2);
+// Start distributed transaction
+await session.startTrx({xa: true});
 
-		// Query
-		await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
-		await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
+// Get connection objects (actual connection will be established on first query)
+const conn1 = session.conn(dsn1);
+const conn2 = session.conn(dsn2);
 
-		// 2-phase commit
-		await session.commit();
-	}
-);
+// Query
+await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
+await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
+
+// 2-phase commit
+await session.commit();
 ```
 
 When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
