@@ -304,7 +304,7 @@ async function testBasic(dsnStr: string)
 			);
 
 			// SELECT forEach
-			let rows: Record<string, Any>[] = [];
+			let rows = new Array<Record<string, Any>>;
 			const theHello = await conn.query("SELECT * FROM t_log").forEach
 			(	row =>
 				{	rows.push(row);
@@ -1145,7 +1145,7 @@ async function testManyPlaceholders(dsnStr: string)
 
 			const N_ROWS = 8*1024-1;
 			const q = `INSERT INTO t_log (a, b, c, d, e, f, g, h) VALUES ` + `(?, ?, ?, ?, ?, ?, ?, ?), `.repeat(N_ROWS).slice(0, -2);
-			const params = [];
+			const params = new Array<number>;
 			for (let r=0; r<N_ROWS; r++)
 			{	for (let c=0; c<8; c++)
 				{	params.push(params.length + 1);
@@ -1176,7 +1176,7 @@ async function testManyPlaceholders2(dsnStr: string)
 	pool.forConn
 	(	async conn =>
 		{	const N_PARAMS = 303; // this magic number causes read_void_async() to trigger
-			const pp = [];
+			const pp = new Array<number>;
 			let sum = 0;
 			for (let i=0; i<N_PARAMS; i++)
 			{	pp[i] = i;

@@ -7,20 +7,20 @@ const RE_S = /\s+/;
 const encoder = new TextEncoder;
 
 export class SqlWordsList
-{	private map: Map<number, Uint8Array[]> = new Map;
+{	#map: Map<number, Uint8Array[]> = new Map;
 
 	constructor(initDef: string)
 	{	initDef = initDef.trim();
 		const initIdentsArr = initDef.split(RE_S);
-		const idents = [];
+		const idents = new Array<string>;
 		for (let id of initIdentsArr)
 		{	id = id.toUpperCase();
 			const word = encoder.encode(id);
 			const key = word[0] | (word[1] << 8) | (word[word.length-1] << 16) | (word.length << 24);
-			let list = this.map.get(key);
+			let list = this.#map.get(key);
 			if (!list)
 			{	list = [];
-				this.map.set(key, list);
+				this.#map.set(key, list);
 			}
 			if (list.findIndex(v => uint8arrayCmp(v, word)==0) == -1)
 			{	list.push(word);
@@ -45,7 +45,7 @@ export class SqlWordsList
 		{	cN += C_A_CAP - C_A; // to upper case
 		}
 		const key = c0 | (c1 << 8) | (cN << 16) | (len << 24);
-		const list = this.map.get(key);
+		const list = this.#map.get(key);
 		if (list)
 		{	len--; // no need to compare the last char, as it's part of key
 			// is subj in list?

@@ -41,8 +41,8 @@ const RESET_COLOR = '\x1B[0m';
 const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER EVENT CALL PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
 export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
-{	private msgOk = 'OK';
-	private msgError = 'ERROR:';
+{	#msgOk = 'OK';
+	#msgError = 'ERROR:';
 
 	constructor
 	(	writer: Writer|WritableStream<Uint8Array>,
@@ -53,8 +53,8 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 	)
 	{	super(writer);
 		if (withColor)
-		{	this.msgOk = Colors.green('OK');
-			this.msgError = Colors.red('ERROR:');
+		{	this.#msgOk = Colors.green('OK');
+			this.#msgError = Colors.red('ERROR:');
 		}
 	}
 
@@ -78,7 +78,9 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 	query(dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean)
 	{	// deno-lint-ignore no-this-alias
 		const that = this;
-		const {queryMaxBytes, paramMaxBytes, maxLines, withColor, msgOk, msgError} = this;
+		const {queryMaxBytes, paramMaxBytes, maxLines, withColor} = this;
+		const msgOk = this.#msgOk;
+		const msgError = this.#msgError;
 		const since = Date.now();
 		let curNParam = -1;
 		let curDataLen = 0;
@@ -142,7 +144,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 					}
 					data = countExceeding(data);
 					if (withColor)
-					{	await that.writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
+					{	await that.#writeColoredSql(dsn, connectionId, data, noBackslashEscapes);
 					}
 					else
 					{	await that.write(dsn, connectionId, data);
@@ -171,7 +173,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 						{	await that.write(dsn, connectionId, str);
 						}
 						data = countExceeding(data);
-						await that.writeSqlString(dsn, connectionId, data);
+						await that.#writeSqlString(dsn, connectionId, data);
 					}
 					else
 					{	await that.write(dsn, connectionId, str + data);
@@ -216,7 +218,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
 	}
 
-	private async writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)
+	async #writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)
 	{	let i = 0;
 		let esc = this.withColor ? COLOR_SQL_STRING+"'" : "'";
 		while (true)
@@ -264,7 +266,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 		}
 	}
 
-	private async writeColoredSql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
+	async #writeColoredSql(dsn: Dsn, connectionId: number, data: Uint8Array, noBackslashEscapes: boolean)
 	{	let i = 0;
 		const enum Type {DEFAULT, KEYWORD, STRING, QUOTED_IDENT, COMMENT}
 		const COLORS = [RESET_COLOR, COLOR_SQL_KEYWORD, COLOR_SQL_STRING, COLOR_SQL_QUOTED_IDENT, COLOR_SQL_COMMENT];

@@ -13,17 +13,17 @@ export class MyProtocolReader
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
 
-	private origBuffer: Uint8Array;
+	#origBuffer: Uint8Array;
 
 	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(INIT_BUFFER_LEN);
-		this.origBuffer = this.buffer;
+		this.#origBuffer = this.buffer;
 		debugAssert(this.buffer.length == INIT_BUFFER_LEN);
 	}
 
 	recycleBuffer()
-	{	const {origBuffer} = this;
-		this.origBuffer = this.buffer = STUB;
+	{	const origBuffer = this.#origBuffer;
+		this.#origBuffer = this.buffer = STUB;
 		return origBuffer.length==INIT_BUFFER_LEN ? origBuffer : undefined; // this buffer can be recycled
 	}
 
@@ -66,7 +66,7 @@ export class MyProtocolReader
 
 	// --- 1. recv*
 
-	private async recvAtLeast(nBytes: number, canEof=false)
+	async #recvAtLeast(nBytes: number, canEof=false)
 	{	debugAssert(nBytes <= this.buffer.length);
 		if (this.bufferStart == this.bufferEnd)
 		{	this.bufferStart = 0;
@@ -96,7 +96,7 @@ export class MyProtocolReader
 		Only can read strings not longer than buffer.length, and not across packet boundary, or exception will be thrown.
 		Returns i, where buffer[i] == 0, and buffer[bufferStart .. i] is the string.
 	 **/
-	private async recvToNul()
+	async #recvToNul()
 	{	if (this.bufferStart == this.bufferEnd)
 		{	this.bufferStart = 0;
 			this.bufferEnd = 0;
@@ -147,7 +147,7 @@ export class MyProtocolReader
 	 **/
 	protected async readPacketHeaderAsync()
 	{	debugAssert(this.bufferEnd-this.bufferStart < 4); // use readPacketHeader() first
-		await this.recvAtLeast(4);
+		await this.#recvAtLeast(4);
 		const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.payloadLength = header & 0xFFFFFF;
@@ -155,7 +155,7 @@ export class MyProtocolReader
 		this.packetOffset = 0; // start counting offset
 	}
 
-	private async correctNearPacketBoundary()
+	async #correctNearPacketBoundary()
 	{	debugAssert(this.packetOffset > 0xFFFFFF-9); // otherwise don't call me
 		debugAssert(this.payloadLength <= 0xFFFFFF); // payloadLength is 3-byte in the packet header
 		if (this.payloadLength == 0xFFFFFF)
@@ -202,9 +202,9 @@ export class MyProtocolReader
 	 **/
 	protected async readUint8Async()
 	{	if (this.packetOffset > 0xFFFFFF-1)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(1);
+		await this.#recvAtLeast(1);
 		const value = this.buffer[this.bufferStart++];
 		this.packetOffset++;
 		return value;
@@ -225,9 +225,9 @@ export class MyProtocolReader
 	 **/
 	protected async readInt8Async()
 	{	if (this.packetOffset > 0xFFFFFF-1)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(1);
+		await this.#recvAtLeast(1);
 		const value = new DataView(this.buffer.buffer).getInt8(this.bufferStart++);
 		this.packetOffset++;
 		return value;
@@ -250,9 +250,9 @@ export class MyProtocolReader
 	 **/
 	protected async readUint16Async()
 	{	if (this.packetOffset > 0xFFFFFF-2)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(2);
+		await this.#recvAtLeast(2);
 		const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart, true);
 		this.bufferStart += 2;
 		this.packetOffset += 2;
@@ -276,9 +276,9 @@ export class MyProtocolReader
 	 **/
 	protected async readInt16Async()
 	{	if (this.packetOffset > 0xFFFFFF-2)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(2);
+		await this.#recvAtLeast(2);
 		const value = new DataView(this.buffer.buffer).getInt16(this.bufferStart, true);
 		this.bufferStart += 2;
 		this.packetOffset += 2;
@@ -303,9 +303,9 @@ export class MyProtocolReader
 	 **/
 	protected async readUint24Async()
 	{	if (this.packetOffset > 0xFFFFFF-3)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(3);
+		await this.#recvAtLeast(3);
 		const dataView = new DataView(this.buffer.buffer);
 		const value = dataView.getUint16(this.bufferStart, true) | (dataView.getUint8(this.bufferStart+2) << 16);
 		this.bufferStart += 3;
@@ -330,9 +330,9 @@ export class MyProtocolReader
 	 **/
 	protected async readUint32Async()
 	{	if (this.packetOffset > 0xFFFFFF-4)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(4);
+		await this.#recvAtLeast(4);
 		const value = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
@@ -356,9 +356,9 @@ export class MyProtocolReader
 	 **/
 	protected async readInt32Async()
 	{	if (this.packetOffset > 0xFFFFFF-4)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(4);
+		await this.#recvAtLeast(4);
 		const value = new DataView(this.buffer.buffer).getInt32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
@@ -382,9 +382,9 @@ export class MyProtocolReader
 	 **/
 	protected async readUint64Async()
 	{	if (this.packetOffset > 0xFFFFFF-8)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(8);
+		await this.#recvAtLeast(8);
 		const value = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
@@ -408,9 +408,9 @@ export class MyProtocolReader
 	 **/
 	protected async readInt64Async()
 	{	if (this.packetOffset > 0xFFFFFF-8)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(8);
+		await this.#recvAtLeast(8);
 		const value = new DataView(this.buffer.buffer).getBigInt64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
@@ -434,9 +434,9 @@ export class MyProtocolReader
 	 **/
 	protected async readFloatAsync()
 	{	if (this.packetOffset > 0xFFFFFF-4)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(4);
+		await this.#recvAtLeast(4);
 		const value = new DataView(this.buffer.buffer).getFloat32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.packetOffset += 4;
@@ -460,9 +460,9 @@ export class MyProtocolReader
 	 **/
 	protected async readDoubleAsync()
 	{	if (this.packetOffset > 0xFFFFFF-8)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
-		await this.recvAtLeast(8);
+		await this.#recvAtLeast(8);
 		const value = new DataView(this.buffer.buffer).getFloat64(this.bufferStart, true);
 		this.bufferStart += 8;
 		this.packetOffset += 8;
@@ -528,16 +528,16 @@ export class MyProtocolReader
 	 **/
 	protected async readLenencIntAsync()
 	{	if (this.packetOffset > 0xFFFFFF-9)
-		{	await this.correctNearPacketBoundary();
+		{	await this.#correctNearPacketBoundary();
 		}
 		if (this.bufferEnd == this.bufferStart)
-		{	await this.recvAtLeast(1);
+		{	await this.#recvAtLeast(1);
 		}
 		const desc = this.buffer[this.bufferStart];
 		switch (desc)
 		{	case 0xFE:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 9);
-				await this.recvAtLeast(9);
+				await this.#recvAtLeast(9);
 				const value64 = new DataView(this.buffer.buffer).getBigUint64(this.bufferStart+1, true);
 				this.bufferStart += 9;
 				this.packetOffset += 9;
@@ -545,7 +545,7 @@ export class MyProtocolReader
 			}
 			case 0xFD:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 4);
-				await this.recvAtLeast(4);
+				await this.#recvAtLeast(4);
 				const dataView = new DataView(this.buffer.buffer);
 				const value = dataView.getUint16(this.bufferStart+1, true) | (dataView.getUint8(this.bufferStart+3) << 16);
 				this.bufferStart += 4;
@@ -554,7 +554,7 @@ export class MyProtocolReader
 			}
 			case 0xFC:
 			{	debugAssert(this.payloadLength-this.packetOffset >= 3);
-				await this.recvAtLeast(3);
+				await this.#recvAtLeast(3);
 				const value = new DataView(this.buffer.buffer).getUint16(this.bufferStart+1, true);
 				this.bufferStart += 3;
 				this.packetOffset += 3;
@@ -613,19 +613,19 @@ export class MyProtocolReader
 	{	debugAssert(len <= this.buffer.length-4); // use readShortBytes() first
 		const lenInCurPacket = this.payloadLength - this.packetOffset;
 		if (lenInCurPacket >= len)
-		{	await this.recvAtLeast(len);
+		{	await this.#recvAtLeast(len);
 			this.bufferStart += len;
 			this.packetOffset += len;
 			return this.buffer.subarray(this.bufferStart-len, this.bufferStart);
 		}
 		else
-		{	await this.recvAtLeast(lenInCurPacket + 4);
+		{	await this.#recvAtLeast(lenInCurPacket + 4);
 			const value = new Uint8Array(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+lenInCurPacket));
 			this.bufferStart += lenInCurPacket;
 			len -= lenInCurPacket;
 			this.readPacketHeader();
-			await this.recvAtLeast(len);
+			await this.#recvAtLeast(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+len), lenInCurPacket);
 			this.bufferStart += len;
 			debugAssert(this.bufferStart <= this.bufferEnd);
@@ -653,7 +653,7 @@ export class MyProtocolReader
 		Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 	 **/
 	protected async readShortNulBytesAsync()
-	{	const i = await this.recvToNul();
+	{	const i = await this.#recvToNul();
 		const value = this.buffer.subarray(this.bufferStart, i);
 		this.packetOffset += i - this.bufferStart + 1;
 		this.bufferStart = i + 1;
@@ -776,7 +776,7 @@ export class MyProtocolReader
 	protected async readShortEofBytesAsync()
 	{	const len = this.payloadLength - this.packetOffset;
 		debugAssert(this.bufferEnd-this.bufferStart < len); // use readShortEofBytes() first
-		await this.recvAtLeast(len);
+		await this.#recvAtLeast(len);
 		this.bufferStart += len;
 		this.packetOffset += len;
 		let bytes = this.buffer.subarray(this.bufferStart-len, this.bufferStart);
@@ -843,7 +843,7 @@ export class MyProtocolReader
 	protected async readVoidAsync(len: number)
 	{	while (len > 0)
 		{	if (this.packetOffset > 0xFFFFFF-1)
-			{	await this.correctNearPacketBoundary();
+			{	await this.#correctNearPacketBoundary();
 			}
 			let lenInCurPacket = Math.min(len, this.payloadLength-this.packetOffset);
 			len -= lenInCurPacket;
@@ -883,19 +883,19 @@ export class MyProtocolReader
 	{	debugAssert(len <= this.buffer.length-4); // use readShortString() first
 		const lenInCurPacket = this.payloadLength - this.packetOffset;
 		if (lenInCurPacket >= len)
-		{	await this.recvAtLeast(len);
+		{	await this.#recvAtLeast(len);
 			this.bufferStart += len;
 			this.packetOffset += len;
 			return this.decoder.decode(this.buffer.subarray(this.bufferStart-len, this.bufferStart));
 		}
 		else
-		{	await this.recvAtLeast(lenInCurPacket + 4);
+		{	await this.#recvAtLeast(lenInCurPacket + 4);
 			const value = new Uint8Array(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+lenInCurPacket));
 			this.bufferStart += lenInCurPacket;
 			len -= lenInCurPacket;
 			this.readPacketHeader();
-			await this.recvAtLeast(len);
+			await this.#recvAtLeast(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+len), lenInCurPacket);
 			this.bufferStart += len;
 			debugAssert(this.bufferStart <= this.bufferEnd);
@@ -921,7 +921,7 @@ export class MyProtocolReader
 		If the string was longer than buffer.length, error is thrown.
 	 **/
 	protected async readShortNulStringAsync()
-	{	const i = await this.recvToNul();
+	{	const i = await this.#recvToNul();
 		const value = this.decoder.decode(this.buffer.subarray(this.bufferStart, i));
 		this.packetOffset += i - this.bufferStart + 1;
 		this.bufferStart = i + 1;
@@ -976,7 +976,7 @@ export class MyProtocolReader
 	protected async readShortEofStringAsync()
 	{	const len = this.payloadLength - this.packetOffset;
 		debugAssert(this.bufferEnd-this.bufferStart < len); // use readShortEofString() first
-		await this.recvAtLeast(len);
+		await this.#recvAtLeast(len);
 		this.bufferStart += len;
 		this.packetOffset += len;
 		let bytes = this.buffer.subarray(this.bufferStart-len, this.bufferStart);

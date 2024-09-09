@@ -32,7 +32,7 @@ export interface MyPoolOptions
 	logger?: Logger;
 }
 
-type HaveSlotsCallback = {y: () => void, till: number};
+type HaveSlotsCallback = {y: VoidFunction, till: number};
 
 class MyPoolConns
 {	idle = new Array<MyProtocol>;
@@ -42,28 +42,28 @@ class MyPoolConns
 }
 
 export class MyPool
-{	private connsPool = new Map<number, MyPoolConns>;
-	private unusedBuffers = new Array<Uint8Array>;
-	private nIdleAll = 0;
-	private nBusyAll = 0;
-	private nSessionsOrConns = 0;
-	private hTimer: number | undefined;
-	private xaTask: XaTask;
-	private curRetryingPromise: Promise<true> | undefined;
-	private isShuttingDown = false;
-	private onend: (() => void) | undefined;
+{	#connsPool = new Map<number, MyPoolConns>;
+	#unusedBuffers = new Array<Uint8Array>;
+	#nIdleAll = 0;
+	#nBusyAll = 0;
+	#nSessionsOrConns = 0;
+	#hTimer: number | undefined;
+	#xaTask: XaTask;
+	#curRetryingPromise: Promise<true> | undefined;
+	#isShuttingDown = false;
+	#onend: VoidFunction | undefined;
 
-	private dsn: Dsn | undefined;
-	private maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
-	private onLoadFile: OnLoadFile|undefined;
-	private onBeforeCommit: OnBeforeCommit|undefined;
+	#dsn: Dsn | undefined;
+	#maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
+	#onLoadFile: OnLoadFile|undefined;
+	#onBeforeCommit: OnBeforeCommit|undefined;
 
-	private getConnFromPoolFunc = this.getConnFromPool.bind(this);
-	private returnConnToPoolFunc = this.returnConnToPool.bind(this);
-	private decSessionsOrConnsFunc = this.decSessionsOrConns.bind(this);
+	#getConnFromPoolFunc = this.#getConnFromPool.bind(this);
+	#returnConnToPoolFunc = this.#returnConnToPool.bind(this);
+	#decSessionsOrConnsFunc = this.#decSessionsOrConns.bind(this);
 
 	constructor(options?: Dsn | string | MyPoolOptions)
-	{	this.xaTask = new XaTask(this);
+	{	this.#xaTask = new XaTask(this);
 		this.options(options);
 	}
 
@@ -77,62 +77,66 @@ export class MyPool
 			const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
-			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
+			{	this.#dsn = dsn ? new Dsn(dsn) : undefined;
 			}
 			else if (dsn)
-			{	this.dsn = dsn;
+			{	this.#dsn = dsn;
 			}
 			// maxConnsWaitQueue
 			if (typeof(maxConnsWaitQueue) == 'number')
-			{	this.maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
+			{	this.#maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
 			}
 			// onLoadFile
-			this.onLoadFile = onLoadFile;
+			this.#onLoadFile = onLoadFile;
 			// onBeforeCommit
-			this.onBeforeCommit = onBeforeCommit;
+			this.#onBeforeCommit = onBeforeCommit;
 			// managedXaDsns
 			if (typeof(managedXaDsns) == 'string')
-			{	this.xaTask.managedXaDsns.length = 0;
+			{	this.#xaTask.managedXaDsns.length = 0;
 				if (managedXaDsns)
-				{	this.xaTask.managedXaDsns[0] = new Dsn(managedXaDsns);
+				{	this.#xaTask.managedXaDsns[0] = new Dsn(managedXaDsns);
 				}
 			}
 			else if (managedXaDsns instanceof Dsn)
-			{	this.xaTask.managedXaDsns.length = 0;
+			{	this.#xaTask.managedXaDsns.length = 0;
 				if (managedXaDsns)
-				{	this.xaTask.managedXaDsns[0] = managedXaDsns;
+				{	this.#xaTask.managedXaDsns[0] = managedXaDsns;
 				}
 			}
 			else if (managedXaDsns)
-			{	this.xaTask.managedXaDsns.length = 0;
+			{	this.#xaTask.managedXaDsns.length = 0;
 				for (const item of managedXaDsns)
 				{	if (item)
-					{	this.xaTask.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
+					{	this.#xaTask.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
 					}
 				}
 			}
 			// xaCheckEach
 			if (typeof(xaCheckEach)=='number')
-			{	this.xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
+			{	this.#xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 			}
 			// xaInfoTables
 			if (xaInfoTables)
-			{	this.xaTask.xaInfoTables.length = 0;
+			{	this.#xaTask.xaInfoTables.length = 0;
 				for (const {dsn, table} of xaInfoTables)
 				{	if (dsn && table)
 					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
 						const hash = (crc32(dsnObj.name) ^ crc32(table)) >>> 0;
-						if (this.xaTask.xaInfoTables.findIndex(v => v.hash == hash) == -1)
-						{	this.xaTask.xaInfoTables.push({dsn: dsnObj, table, hash});
+						if (this.#xaTask.xaInfoTables.findIndex(v => v.hash == hash) == -1)
+						{	this.#xaTask.xaInfoTables.push({dsn: dsnObj, table, hash});
 						}
 					}
 				}
 			}
-			this.xaTask.start();
+			this.#xaTask.start();
 			// logger
-			this.xaTask.logger = logger ?? console;
+			this.#xaTask.logger = logger ?? console;
 		}
-		const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, xaTask: {managedXaDsns, xaCheckEach, xaInfoTables, logger}} = this;
+		const dsn = this.#dsn;
+		const maxConnsWaitQueue = this.#maxConnsWaitQueue;
+		const onLoadFile = this.#onLoadFile;
+		const onBeforeCommit = this.#onBeforeCommit;
+		const {managedXaDsns, xaCheckEach, xaInfoTables, logger} = this.#xaTask;
 		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
@@ -140,16 +144,16 @@ export class MyPool
 		Then new connections will be rejected, and this object will be unusable.
 	 **/
 	async [Symbol.asyncDispose]()
-	{	this.isShuttingDown = true;
+	{	this.#isShuttingDown = true;
 		try
-		{	if (this.nSessionsOrConns!=0 || this.nBusyAll!=0)
-			{	await new Promise<void>(y => this.onend = y);
+		{	if (this.#nSessionsOrConns!=0 || this.#nBusyAll!=0)
+			{	await new Promise<void>(y => this.#onend = y);
 			}
 			// close idle connections
-			await this.closeKeptAliveTimedOut(true);
+			await this.#closeKeptAliveTimedOut(true);
 		}
 		finally
-		{	this.isShuttingDown = false;
+		{	this.#isShuttingDown = false;
 		}
 	}
 
@@ -160,16 +164,16 @@ export class MyPool
 	{	return this[Symbol.asyncDispose]();
 	}
 
-	private async waitHaveSlots(dsn: Dsn, till: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	async #waitHaveSlots(dsn: Dsn, till: number, haveSlotsCallbacks: HaveSlotsCallback[])
 	{	const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
 		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
-		while (this.nBusyAll >= maxConns)
-		{	this.closeHaveSlotsTimedOut(haveSlotsCallbacks);
+		while (this.#nBusyAll >= maxConns)
+		{	this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
 			const now = Date.now();
 			if (now >= till) // with connectionTimeout==0 must not retry
 			{	return false;
 			}
-			if (haveSlotsCallbacks.length >= this.maxConnsWaitQueue)
+			if (haveSlotsCallbacks.length >= this.#maxConnsWaitQueue)
 			{	return false;
 			}
 			const iterTill = Math.min(till, now + reconnectInterval);
@@ -183,20 +187,20 @@ export class MyPool
 	}
 
 	getSession()
-	{	if (this.isShuttingDown)
+	{	if (this.#isShuttingDown)
 		{	throw new Error(`Connections pool is shut down`);
 		}
 		const session = new MySession
 		(	this,
-			this.dsn,
-			this.xaTask.xaInfoTables,
-			this.xaTask.logger,
-			this.getConnFromPoolFunc,
-			this.returnConnToPoolFunc,
-			this.onBeforeCommit,
-			this.decSessionsOrConnsFunc,
+			this.#dsn,
+			this.#xaTask.xaInfoTables,
+			this.#xaTask.logger,
+			this.#getConnFromPoolFunc,
+			this.#returnConnToPoolFunc,
+			this.#onBeforeCommit,
+			this.#decSessionsOrConnsFunc,
 		);
-		this.nSessionsOrConns++;
+		this.#nSessionsOrConns++;
 		return session;
 	}
 
@@ -213,11 +217,11 @@ export class MyPool
 	}
 
 	getConn(dsn?: Dsn|string): MyConn
-	{	if (this.isShuttingDown && this.nSessionsOrConns==0)
+	{	if (this.#isShuttingDown && this.#nSessionsOrConns==0)
 		{	throw new Error(`Connections pool is shut down`);
 		}
 		if (dsn == undefined)
-		{	dsn = this.dsn;
+		{	dsn = this.#dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -228,13 +232,13 @@ export class MyPool
 		const conn = new MyConnInternal
 		(	dsn,
 			undefined,
-			this.xaTask.logger,
-			this.getConnFromPoolFunc,
-			this.returnConnToPoolFunc,
-			this.onBeforeCommit,
-			this.decSessionsOrConnsFunc,
+			this.#xaTask.logger,
+			this.#getConnFromPoolFunc,
+			this.#returnConnToPoolFunc,
+			this.#onBeforeCommit,
+			this.#decSessionsOrConnsFunc,
 		);
-		this.nSessionsOrConns++;
+		this.#nSessionsOrConns++;
 		return conn;
 	}
 
@@ -243,27 +247,27 @@ export class MyPool
 		return await callback(conn);
 	}
 
-	private decSessionsOrConns()
-	{	if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
-		{	this.onend?.();
+	#decSessionsOrConns()
+	{	if (--this.#nSessionsOrConns==0 && this.#nBusyAll==0)
+		{	this.#onend?.();
 		}
 	}
 
-	private saveUnusedBuffer(buffer: Uint8Array)
-	{	if (this.unusedBuffers.length < SAVE_UNUSED_BUFFERS)
-		{	this.unusedBuffers.push(buffer);
+	#saveUnusedBuffer(buffer: Uint8Array)
+	{	if (this.#unusedBuffers.length < SAVE_UNUSED_BUFFERS)
+		{	this.#unusedBuffers.push(buffer);
 		}
 	}
 
-	private async newConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
-	{	const unusedBuffer = this.unusedBuffers.pop();
+	async #newConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
+	{	const unusedBuffer = this.#unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
 		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
 		let now = Date.now();
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, this.onLoadFile, sqlLogger, this.xaTask.logger);
+			{	return await MyProtocol.inst(dsn, unusedBuffer, this.#onLoadFile, sqlLogger, this.#xaTask.logger);
 			}
 			catch (e)
 			{	// with connectionTimeout==0 must not retry
@@ -271,59 +275,59 @@ export class MyPool
 				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
 				{	throw e;
 				}
-				if (this.curRetryingPromise)
+				if (this.#curRetryingPromise)
 				{	let hTimer;
 					const promiseNo = new Promise(y => {hTimer = setTimeout(y, connectTill-now)});
-					if (true !== await Promise.race([this.curRetryingPromise, promiseNo])) // `this.curRetryingPromise` resolves to `true`
+					if (true !== await Promise.race([this.#curRetryingPromise, promiseNo])) // `this.curRetryingPromise` resolves to `true`
 					{	throw e;
 					}
 					clearTimeout(hTimer);
 				}
 				else
 				{	const wait = Math.min(reconnectInterval, connectTill-now);
-					this.xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
-					this.curRetryingPromise = new Promise
+					this.#xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
+					this.#curRetryingPromise = new Promise
 					(	y =>
 						setTimeout
 						(	() =>
-							{	this.curRetryingPromise = undefined;
+							{	this.#curRetryingPromise = undefined;
 								y(true);
 							},
 							wait
 						)
 					);
-					await this.curRetryingPromise;
+					await this.#curRetryingPromise;
 				}
 			}
 		}
 	}
 
-	private async closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
-	{	this.nBusyAll++;
+	async #closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	{	this.#nBusyAll++;
 		try
 		{	const buffer = await conn.end();
 			if (buffer instanceof Uint8Array)
-			{	this.saveUnusedBuffer(buffer);
+			{	this.#saveUnusedBuffer(buffer);
 			}
 		}
 		catch (e)
 		{	// must not happen
-			this.xaTask.logger.error(e);
+			this.#xaTask.logger.error(e);
 		}
-		this.decNBusyAll(maxConns, haveSlotsCallbacks);
+		this.#decNBusyAll(maxConns, haveSlotsCallbacks);
 	}
 
-	private decNBusyAll(maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
-	{	const nBusyAll = --this.nBusyAll;
+	#decNBusyAll(maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	{	const nBusyAll = --this.#nBusyAll;
 		const n = haveSlotsCallbacks.length;
 		if (n == 0)
 		{	if (nBusyAll == 0)
-			{	if (this.nIdleAll == 0)
-				{	clearInterval(this.hTimer);
-					this.hTimer = undefined;
+			{	if (this.#nIdleAll == 0)
+				{	clearInterval(this.#hTimer);
+					this.#hTimer = undefined;
 				}
-				if (this.nSessionsOrConns == 0)
-				{	this.onend?.();
+				if (this.#nSessionsOrConns == 0)
+				{	this.#onend?.();
 				}
 			}
 		}
@@ -335,15 +339,15 @@ export class MyPool
 		}
 	}
 
-	private async getConnFromPool(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
-	{	debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
+	async #getConnFromPool(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
+	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0);
 		// 1. Find connsPool
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
-		let conns = this.connsPool.get(dsn.hash);
+		let conns = this.#connsPool.get(dsn.hash);
 		if (!conns)
 		{	conns = new MyPoolConns;
-			this.connsPool.set(dsn.hash, conns);
+			this.#connsPool.set(dsn.hash, conns);
 		}
 		debugAssert(conns.nConnecting >= 0);
 		const {idle, busy, haveSlotsCallbacks} = conns;
@@ -353,7 +357,7 @@ export class MyPool
 		{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
 			const till = Date.now() + connectionTimeout;
 			while (true)
-			{	if (Date.now()>=till || !await this.waitHaveSlots(dsn, till, haveSlotsCallbacks))
+			{	if (Date.now()>=till || !await this.#waitHaveSlots(dsn, till, haveSlotsCallbacks))
 				{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
 				}
 				// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
@@ -369,50 +373,50 @@ export class MyPool
 			conn = idle.pop();
 			if (!conn)
 			{	conns.nConnecting++;
-				this.nBusyAll++;
+				this.#nBusyAll++;
 				try
-				{	conn = await this.newConn(dsn, sqlLogger);
+				{	conn = await this.#newConn(dsn, sqlLogger);
 					conns.nConnecting--;
-					this.nBusyAll--;
+					this.#nBusyAll--;
 				}
 				catch (e)
 				{	conns.nConnecting--;
-					this.decNBusyAll(maxConns, haveSlotsCallbacks);
+					this.#decNBusyAll(maxConns, haveSlotsCallbacks);
 					throw e;
 				}
 			}
 			else if (conn.useTill <= now)
-			{	this.nIdleAll--;
-				this.closeConn(conn, maxConns, haveSlotsCallbacks);
+			{	this.#nIdleAll--;
+				this.#closeConn(conn, maxConns, haveSlotsCallbacks);
 				continue;
 			}
 			else
-			{	this.nIdleAll--;
+			{	this.#nIdleAll--;
 				conn.setSqlLogger(sqlLogger);
 			}
 			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
 			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
-			if (this.hTimer == undefined)
-			{	this.hTimer = setInterval(() => {this.closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
-				this.xaTask.start();
+			if (this.#hTimer == undefined)
+			{	this.#hTimer = setInterval(() => {this.#closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
+				this.#xaTask.start();
 			}
 			busy.push(conn);
-			this.nBusyAll++;
+			this.#nBusyAll++;
 			return conn;
 		}
 	}
 
-	private returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	#returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
 		(	protocolOrBuffer =>
-			{	let conns = this.connsPool.get(dsn.hash);
+			{	let conns = this.#connsPool.get(dsn.hash);
 				let i = -1;
 				if (conns)
 				{	i = conns.busy.indexOf(conn);
 				}
 				if (i == -1)
 				{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
-					for (const conns2 of this.connsPool.values())
+					for (const conns2 of this.#connsPool.values())
 					{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
 						if (i != -1)
 						{	conns = conns2;
@@ -424,24 +428,24 @@ export class MyPool
 				{	// assume: returnConnToPool() already called for this connection
 					return;
 				}
-				debugAssert(this.nIdleAll>=0 && this.nBusyAll>=1);
+				debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=1);
 				conns.busy[i] = conns.busy[conns.busy.length - 1];
 				conns.busy.length--;
 				if (protocolOrBuffer instanceof Uint8Array)
-				{	this.saveUnusedBuffer(protocolOrBuffer);
+				{	this.#saveUnusedBuffer(protocolOrBuffer);
 				}
 				else if (protocolOrBuffer)
 				{	conns.idle.push(protocolOrBuffer);
-					this.nIdleAll++;
+					this.#nIdleAll++;
 				}
 				const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
-				this.decNBusyAll(maxConns, conns.haveSlotsCallbacks);
+				this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
 			}
 		);
 	}
 
-	private closeKeptAliveTimedOut(closeAllIdle=false)
-	{	const {connsPool} = this;
+	#closeKeptAliveTimedOut(closeAllIdle=false)
+	{	const connsPool = this.#connsPool;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of connsPool)
@@ -449,9 +453,9 @@ export class MyPool
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
 				{	idle.splice(i, 1);
-					this.nIdleAll--;
+					this.#nIdleAll--;
 					const maxConns = conn.dsn.maxConns || DEFAULT_MAX_CONNS;
-					promises[promises.length] = this.closeConn(conn, maxConns, haveSlotsCallbacks);
+					promises[promises.length] = this.#closeConn(conn, maxConns, haveSlotsCallbacks);
 				}
 			}
 			//
@@ -459,20 +463,20 @@ export class MyPool
 			{	connsPool.delete(dsnHash);
 			}
 			//
-			this.closeHaveSlotsTimedOut(haveSlotsCallbacks);
+			this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
 		}
-		if (this.nBusyAll+this.nIdleAll == 0)
-		{	clearInterval(this.hTimer);
-			this.hTimer = undefined;
+		if (this.#nBusyAll+this.#nIdleAll == 0)
+		{	clearInterval(this.#hTimer);
+			this.#hTimer = undefined;
 		}
-		debugAssert(!closeAllIdle || this.nIdleAll==0);
+		debugAssert(!closeAllIdle || this.#nIdleAll==0);
 		if (closeAllIdle)
-		{	promises[promises.length] = this.xaTask.stop();
+		{	promises[promises.length] = this.#xaTask.stop();
 		}
 		return Promise.all(promises);
 	}
 
-	private closeHaveSlotsTimedOut(haveSlotsCallbacks: HaveSlotsCallback[])
+	#closeHaveSlotsTimedOut(haveSlotsCallbacks: HaveSlotsCallback[])
 	{	const now = Date.now();
 		let n = haveSlotsCallbacks.length;
 		for (let i=n-1; i>=0; i--)
@@ -492,29 +496,31 @@ class XaTask
 	xaInfoTables = new Array<XaInfoTable>;
 	logger: Logger = console;
 
-	private xaTaskTimer: number | undefined;
-	private xaTaskBusy = false;
-	private xaTaskOnDone: (() => void) | undefined;
+	#xaTaskTimer: number|undefined;
+	#xaTaskBusy = false;
+	#xaTaskOnDone: VoidFunction|undefined;
 
-	constructor(private pool: MyPool)
-	{
+	#pool;
+
+	constructor(pool: MyPool)
+	{	this.#pool = pool;
 	}
 
 	async start()
-	{	if (this.xaTaskBusy)
+	{	if (this.#xaTaskBusy)
 		{	return;
 		}
-		if (this.xaTaskTimer != undefined)
-		{	clearTimeout(this.xaTaskTimer);
-			this.xaTaskTimer = undefined;
+		if (this.#xaTaskTimer != undefined)
+		{	clearTimeout(this.#xaTaskTimer);
+			this.#xaTaskTimer = undefined;
 		}
 		if (this.managedXaDsns.length == 0)
 		{	return;
 		}
-		this.xaTaskBusy = true;
+		this.#xaTaskBusy = true;
 
 		try
-		{	await this.pool.forSession
+		{	await this.#pool.forSession
 			(	async session =>
 				{	// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 					type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
@@ -649,29 +655,29 @@ class XaTask
 		{	this.logger.error(e);
 		}
 
-		this.xaTaskBusy = false;
-		const {xaTaskOnDone} = this;
-		this.xaTaskOnDone = undefined;
+		this.#xaTaskBusy = false;
+		const xaTaskOnDone = this.#xaTaskOnDone;
+		this.#xaTaskOnDone = undefined;
 		if (xaTaskOnDone)
-		{	this.xaTaskTimer = undefined;
+		{	this.#xaTaskTimer = undefined;
 			xaTaskOnDone();
 		}
 		else if (this.managedXaDsns.length == 0)
-		{	this.xaTaskTimer = undefined;
+		{	this.#xaTaskTimer = undefined;
 		}
 		else
-		{	this.xaTaskTimer = setTimeout(() => this.start(), this.xaCheckEach);
+		{	this.#xaTaskTimer = setTimeout(() => this.start(), this.xaCheckEach);
 		}
 	}
 
 	stop()
-	{	if (!this.xaTaskBusy)
-		{	clearTimeout(this.xaTaskTimer);
-			this.xaTaskTimer = undefined;
+	{	if (!this.#xaTaskBusy)
+		{	clearTimeout(this.#xaTaskTimer);
+			this.#xaTaskTimer = undefined;
 			return Promise.resolve();
 		}
 		else
-		{	return new Promise<void>(y => {this.xaTaskOnDone = y});
+		{	return new Promise<void>(y => {this.#xaTaskOnDone = y});
 		}
 	}
 }

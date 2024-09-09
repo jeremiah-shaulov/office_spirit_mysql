@@ -10,29 +10,47 @@ const xaIdGen = new XaIdGen;
 
 export class MySession
 {	protected connsArr = new Array<MyConnInternal>;
-	private savepointEnum = 0;
-	private trxOptions: {readonly: boolean, xaId1: string} | undefined;
-	private curXaInfoTable: XaInfoTable | undefined;
-	private sqlLogger: SqlLogger | true | undefined;
-	private isDisposed = false;
+
+	#savepointEnum = 0;
+	#trxOptions: {readonly: boolean, xaId1: string} | undefined;
+	#curXaInfoTable: XaInfoTable | undefined;
+	#sqlLogger: SqlLogger | true | undefined;
+	#isDisposed = false;
+
+	#pool;
+	#dsn;
+	#xaInfoTables;
+	#logger;
+	#getConnFromPoolFunc;
+	#returnConnToPoolFunc;
+	#onBeforeCommit;
+	#onDispose;
 
 	constructor
-	(	private pool: MyPool,
-		private dsn: Dsn|undefined,
-		private xaInfoTables = new Array<XaInfoTable>,
-		private logger: Logger,
-		private getConnFromPoolFunc: GetConnFromPoolFunc,
-		private returnConnToPoolFunc: ReturnConnToPoolFunc,
-		private onBeforeCommit?: OnBeforeCommit,
-		private onDispose?: VoidFunction,
+	(	pool: MyPool,
+		dsn: Dsn|undefined,
+		xaInfoTables = new Array<XaInfoTable>,
+		logger: Logger,
+		getConnFromPoolFunc: GetConnFromPoolFunc,
+		returnConnToPoolFunc: ReturnConnToPoolFunc,
+		onBeforeCommit?: OnBeforeCommit,
+		onDispose?: VoidFunction,
 	)
-	{
+	{	this.#pool = pool;
+		this.#dsn = dsn;
+		this.#xaInfoTables = xaInfoTables;
+		this.#logger = logger;
+		this.#getConnFromPoolFunc = getConnFromPoolFunc;
+		this.#returnConnToPoolFunc = returnConnToPoolFunc;
+		this.#onBeforeCommit = onBeforeCommit;
+		this.#onDispose = onDispose;
 	}
 
 	[Symbol.dispose]()
-	{	const {onDispose, connsArr} = this;
-		this.onDispose = undefined;
-		this.isDisposed = true;
+	{	const onDispose = this.#onDispose;
+		const {connsArr} = this;
+		this.#onDispose = undefined;
+		this.#isDisposed = true;
 		this.connsArr = [];
 		for (const conn of connsArr)
 		{	conn[Symbol.dispose]();
@@ -45,11 +63,11 @@ export class MySession
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
-	{	if (this.isDisposed)
+	{	if (this.#isDisposed)
 		{	throw new Error(`This session object is already disposed of`);
 		}
 		if (dsn == undefined)
-		{	dsn = this.dsn;
+		{	dsn = this.#dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -62,12 +80,12 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.trxOptions, this.logger, this.getConnFromPoolFunc, this.returnConnToPoolFunc, undefined);
-		if (this.sqlLogger)
-		{	conn.setSqlLogger(this.sqlLogger);
+		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.#trxOptions, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
+		if (this.#sqlLogger)
+		{	conn.setSqlLogger(this.#sqlLogger);
 		}
 		this.connsArr[this.connsArr.length] = conn;
-		for (let i=1; i<=this.savepointEnum; i++)
+		for (let i=1; i<=this.#savepointEnum; i++)
 		{	conn.sessionSavepoint(i);
 		}
 		return conn;
@@ -91,7 +109,7 @@ export class MySession
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
 		if (xa)
-		{	const {xaInfoTables} = this;
+		{	const xaInfoTables = this.#xaInfoTables;
 			const {length} = xaInfoTables;
 			let i = 0;
 			if (length > 1)
@@ -105,9 +123,9 @@ export class MySession
 			readonly = false;
 		}
 		const trxOptions = {readonly, xaId1};
-		this.trxOptions = trxOptions;
-		this.curXaInfoTable = curXaInfoTable;
-		this.savepointEnum = 0;
+		this.#trxOptions = trxOptions;
+		this.#curXaInfoTable = curXaInfoTable;
+		this.#savepointEnum = 0;
 		// 4. Start transaction
 		for (const conn of this.connsArr)
 		{	conn.startTrx(trxOptions); // this must return resolved promise
@@ -121,7 +139,7 @@ export class MySession
 		Using `MySession.savepoint()` doesn't interfere with `MyConn.savepoint()`, so it's possible to use both.
 	 **/
 	savepoint()
-	{	const pointId = ++this.savepointEnum;
+	{	const pointId = ++this.#savepointEnum;
 		for (const conn of this.connsArr)
 		{	conn.sessionSavepoint(pointId);
 		}
@@ -138,32 +156,32 @@ export class MySession
 	async rollback(toPointId?: number)
 	{	let wantRestartXa = false;
 		if (typeof(toPointId) != 'number')
-		{	this.trxOptions = undefined;
-			this.curXaInfoTable = undefined;
-			this.savepointEnum = 0;
+		{	this.#trxOptions = undefined;
+			this.#curXaInfoTable = undefined;
+			this.#savepointEnum = 0;
 		}
 		else if (toPointId === 0)
-		{	if (this.trxOptions?.xaId1)
+		{	if (this.#trxOptions?.xaId1)
 			{	wantRestartXa = true;
 				toPointId = undefined;
-				this.trxOptions = undefined;
-				this.curXaInfoTable = undefined;
+				this.#trxOptions = undefined;
+				this.#curXaInfoTable = undefined;
 			}
-			this.savepointEnum = 0;
+			this.#savepointEnum = 0;
 		}
 		else if (toPointId <= SAVEPOINT_ENUM_SESSION_FROM)
 		{	throw new Error(`No such SAVEPOINT: ${toPointId}`);
 		}
 		else
-		{	this.savepointEnum = toPointId - (SAVEPOINT_ENUM_SESSION_FROM + 1);
+		{	this.#savepointEnum = toPointId - (SAVEPOINT_ENUM_SESSION_FROM + 1);
 		}
-		const promises = [];
+		const promises = new Array<Promise<void>>;
 		for (const conn of this.connsArr)
 		{	promises[promises.length] = conn.rollback(toPointId);
 		}
 		let error;
 		try
-		{	await this.doAll(promises);
+		{	await this.#doAll(promises);
 		}
 		catch (e)
 		{	error = e;
@@ -177,7 +195,7 @@ export class MySession
 				{	error = e;
 				}
 				else
-				{	this.logger.error(e);
+				{	this.#logger.error(e);
 				}
 			}
 		}
@@ -192,22 +210,23 @@ export class MySession
 		If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
 	 **/
 	commit(andChain=false)
-	{	if (this.trxOptions && this.curXaInfoTable && this.connsArr.length)
-		{	return this.pool.forConn
-			(	infoTableConn => this.doCommit(andChain, infoTableConn),
-				this.curXaInfoTable.dsn
+	{	if (this.#trxOptions && this.#curXaInfoTable && this.connsArr.length)
+		{	return this.#pool.forConn
+			(	infoTableConn => this.#doCommit(andChain, infoTableConn),
+				this.#curXaInfoTable.dsn
 			);
 		}
 		else
-		{	return this.doCommit(andChain);
+		{	return this.#doCommit(andChain);
 		}
 	}
 
-	private async doCommit(andChain: boolean, infoTableConn?: MyConn)
-	{	const {trxOptions, curXaInfoTable} = this;
-		this.trxOptions = undefined;
-		this.curXaInfoTable = undefined;
-		this.savepointEnum = 0;
+	async #doCommit(andChain: boolean, infoTableConn?: MyConn)
+	{	const trxOptions = this.#trxOptions;
+		const curXaInfoTable = this.#curXaInfoTable;
+		this.#trxOptions = undefined;
+		this.#curXaInfoTable = undefined;
+		this.#savepointEnum = 0;
 		if (this.connsArr.length)
 		{	// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
 			if (infoTableConn)
@@ -218,34 +237,34 @@ export class MySession
 					}
 				}
 				catch (e)
-				{	this.logger.error(e);
+				{	this.#logger.error(e);
 					infoTableConn = undefined;
 				}
 			}
 			// 2. Call onBeforeCommit
-			if (this.onBeforeCommit)
+			if (this.#onBeforeCommit)
 			{	try
-				{	await this.onBeforeCommit(this.conns);
+				{	await this.#onBeforeCommit(this.conns);
 				}
 				catch (e)
 				{	try
 					{	await this.rollback(andChain ? 0 : undefined);
 					}
 					catch (e2)
-					{	this.logger.error(e2);
+					{	this.#logger.error(e2);
 					}
 					throw e;
 				}
 			}
 			// 3. Prepare commit
-			const promises = [];
+			const promises = new Array<Promise<void>>;
 			for (const conn of this.connsArr)
 			{	if (conn.inXa)
 				{	promises[promises.length] = conn.prepareCommit();
 				}
 			}
 			if (promises.length)
-			{	await this.doAll(promises, true, andChain);
+			{	await this.#doAll(promises, true, andChain);
 			}
 			// 4. Log to XA info table
 			if (trxOptions && curXaInfoTable && infoTableConn)
@@ -253,7 +272,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
 				}
 				catch (e)
-				{	this.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
+				{	this.#logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
 					infoTableConn = undefined;
 				}
 			}
@@ -262,14 +281,14 @@ export class MySession
 			for (const conn of this.connsArr)
 			{	promises[promises.length] = conn.commit();
 			}
-			await this.doAll(promises);
+			await this.#doAll(promises);
 			// 6. Remove record from XA info table
 			if (trxOptions && curXaInfoTable && infoTableConn)
 			{	try
 				{	await infoTableConn.queryVoid(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 				}
 				catch (e)
-				{	this.logger.error(e);
+				{	this.#logger.error(e);
 				}
 			}
 			// 7. andChain
@@ -279,7 +298,7 @@ export class MySession
 		}
 	}
 
-	private async doAll(promises: Promise<unknown>[], rollbackOnError=false, rollbackAndChain=false)
+	async #doAll(promises: Promise<unknown>[], rollbackOnError=false, rollbackAndChain=false)
 	{	const result = await Promise.allSettled(promises);
 		let error;
 		for (const r of result)
@@ -288,7 +307,7 @@ export class MySession
 				{	error = r.reason;
 				}
 				else
-				{	this.logger.error(r.reason);
+				{	this.#logger.error(r.reason);
 				}
 			}
 		}
@@ -298,7 +317,7 @@ export class MySession
 				{	await this.rollback(rollbackAndChain ? 0 : undefined);
 				}
 				catch (e2)
-				{	this.logger.debug(e2);
+				{	this.#logger.debug(e2);
 				}
 			}
 			throw error;
@@ -309,7 +328,7 @@ export class MySession
 	{	if (sqlLogger === true)
 		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor); // want to pass the same object instance to each conn
 		}
-		this.sqlLogger = sqlLogger;
+		this.#sqlLogger = sqlLogger;
 		for (const conn of this.connsArr)
 		{	conn.setSqlLogger(sqlLogger);
 		}

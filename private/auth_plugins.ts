@@ -78,7 +78,7 @@ const enum AuthStatusFlags
 const REQUEST_PUBLIC_KEY = 2;
 
 class AuthPluginCachingSha2Password extends AuthPlugin
-{	private state = State.Initial;
+{	#state = State.Initial;
 
 	async quickAuth(password: string)
 	{	const stage1 = await hash('SHA-256', encoder.encode(password));
@@ -94,16 +94,16 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 	}
 
 	async progress(password: string, _packetType: number, packetData: Uint8Array, writer: MyProtocol)
-	{	switch (this.state)
+	{	switch (this.#state)
 		{	case State.Initial:
 			{	const statusFlag = packetData[0];
 				if (statusFlag == AuthStatusFlags.FastPath)
-				{	this.state = State.Done;
+				{	this.#state = State.Done;
 					return false;
 				}
 				else if (statusFlag == AuthStatusFlags.FullAuth)
 				{	await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
-					this.state = State.Encrypt;
+					this.#state = State.Encrypt;
 					return false;
 				}
 				else
@@ -119,7 +119,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				//const encryptedPassword = new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
 				const encryptedPassword = await new RSA(RSA.parseKey(publicKey)).encrypt(stage1);
 				await writer.authSendBytesPacket(encryptedPassword);
-				this.state = State.Done;
+				this.#state = State.Done;
 				return false;
 			}
 			case State.Done:

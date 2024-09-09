@@ -58,7 +58,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 		else
 		{	// continuation (queue another packet after existing not written one)
-			this.setHeader(this.bufferEnd - this.bufferStart - 4);
+			this.#setHeader(this.bufferEnd - this.bufferStart - 4);
 			this.bufferStart = this.bufferEnd;
 			this.bufferEnd += 4; // after header
 		}
@@ -230,14 +230,14 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		return n;
 	}
 
-	private setHeader(payloadLength: number)
+	#setHeader(payloadLength: number)
 	{	const header = payloadLength | (this.sequenceId << 24);
 		this.sequenceId++;
 		new DataView(this.buffer.buffer).setUint32(this.bufferStart, header, true);
 	}
 
 	protected send()
-	{	this.setHeader(this.bufferEnd - this.bufferStart - 4);
+	{	this.#setHeader(this.bufferEnd - this.bufferStart - 4);
 		const n = this.bufferEnd;
 		// prepare for reader
 		this.bufferStart = 0;
@@ -271,7 +271,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	let packetSizeRemaining = packetSize;
 				while (packetSizeRemaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
-					this.setHeader(0xFFFFFF);
+					this.#setHeader(0xFFFFFF);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					const dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 					await this.writer.write(data.subarray(0, dataChunkLen));
@@ -287,11 +287,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	return true;
 					}
-					this.setHeader(packetSizeRemaining);
+					this.#setHeader(packetSizeRemaining);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
 				else
-				{	this.setHeader(packetSizeRemaining);
+				{	this.#setHeader(packetSizeRemaining);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					if (canWait && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	this.buffer.set(data);
@@ -330,7 +330,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, BUFFER_FOR_ENCODE_MAX_LEN));
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
-						this.setHeader(0xFFFFFF);
+						this.#setHeader(0xFFFFFF);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
@@ -360,11 +360,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 						{	return true;
 						}
-						this.setHeader(packetSizeRemaining);
+						this.#setHeader(packetSizeRemaining);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 					}
 					else
-					{	this.setHeader(packetSizeRemaining);
+					{	this.#setHeader(packetSizeRemaining);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						while (dataLength > 0)
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
@@ -420,7 +420,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			let packetSizeRemaining = packetSize;
 			let curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
 			packetSizeRemaining -= curLen;
-			this.setHeader(curLen);
+			this.#setHeader(curLen);
 			// 6. If there are previous packets pending (`bufferStart>0`), send them, because ReadableStream shamelessly transfers buffer, and those packets can be lost. Also if at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
 			if (this.bufferStart>0 || this.bufferEnd>this.buffer.length/2)
 			{	try
@@ -459,7 +459,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 					curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
 					packetSizeRemaining -= curLen;
-					this.setHeader(curLen);
+					this.#setHeader(curLen);
 					this.bufferEnd = 4;
 				}
 				alreadyFilled = 0;

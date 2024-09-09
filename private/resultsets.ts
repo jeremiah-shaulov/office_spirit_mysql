@@ -15,7 +15,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 	 **/
 	async all()
 	{	const resultsets: Resultsets<Row> = await this;
-		const rows = [];
+		const rows = new Array<Row>;
 		for await (const row of resultsets)
 		{	rows[rows.length] = row;
 		}
@@ -85,7 +85,7 @@ export class Resultsets<Row>
 	/**	Reads all rows in current resultset to an array.
 	 **/
 	async all()
-	{	const rows = [];
+	{	const rows = new Array<Row>;
 		for await (const row of this)
 		{	rows[rows.length] = row;
 		}

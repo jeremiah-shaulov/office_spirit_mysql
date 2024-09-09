@@ -38,26 +38,37 @@ const encoder = new TextEncoder;
 export class MyConn
 {	protected protocol: MyProtocol|undefined;
 
-	private isConnecting = false;
+	#isConnecting = false;
 	protected sqlLogger: SafeSqlLogger | undefined;
 	protected savepointEnum = 0;
-	private curXaId = '';
-	private curXaIdAppendConn = false;
-	private isXaPrepared = false;
-	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
-	private preparedStmtsForParams: number[] = [];
-	private isDisposed = false;
+	#curXaId = '';
+	#curXaIdAppendConn = false;
+	#isXaPrepared = false;
+	protected pendingTrxSql = new Array<string>; // empty string means XA START (because full XA ID was not known)
+	#preparedStmtsForParams = new Array<number>;
+	#isDisposed = false;
+
+	#logger;
+	#getConnFromPoolFunc;
+	#returnConnToPoolFunc;
+	#onBeforeCommit;
+	#onDispose;
 
 	constructor
 	(	readonly dsn: Dsn,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
-		private logger: Logger,
-		private getConnFromPoolFunc: GetConnFromPoolFunc,
-		private returnConnToPoolFunc: ReturnConnToPoolFunc,
-		private onBeforeCommit?: OnBeforeCommit,
-		private onDispose?: VoidFunction,
+		logger: Logger,
+		getConnFromPoolFunc: GetConnFromPoolFunc,
+		returnConnToPoolFunc: ReturnConnToPoolFunc,
+		onBeforeCommit?: OnBeforeCommit,
+		onDispose?: VoidFunction,
 	)
-	{	if (trxOptions)
+	{	this.#logger = logger;
+		this.#getConnFromPoolFunc = getConnFromPoolFunc;
+		this.#returnConnToPoolFunc = returnConnToPoolFunc;
+		this.#onBeforeCommit = onBeforeCommit;
+		this.#onDispose = onDispose;
+		if (trxOptions)
 		{	this.startTrx(trxOptions);
 		}
 	}
@@ -91,69 +102,71 @@ export class MyConn
 	}
 
 	get inXa()
-	{	return this.curXaId != '';
+	{	return this.#curXaId != '';
 	}
 
 	get xaId()
-	{	return this.curXaIdAppendConn ? '' : this.curXaId;
+	{	return this.#curXaIdAppendConn ? '' : this.#curXaId;
 	}
 
 	/**	If end() called during connection process, the connection will not be established after this function returns.
 	 **/
 	async connect()
-	{	if (this.isConnecting)
+	{	if (this.#isConnecting)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
 		if (!this.protocol)
-		{	if (this.isDisposed)
+		{	if (this.#isDisposed)
 			{	throw new Error(`This connection object is already disposed of`);
 			}
-			this.isConnecting = true;
+			this.#isConnecting = true;
 			try
-			{	const protocol = await this.getConnFromPoolFunc(this.dsn, this.sqlLogger);
-				if (!this.isConnecting) // end() called
-				{	this.returnConnToPoolFunc(this.dsn, protocol, '', false);
+			{	const protocol = await this.#getConnFromPoolFunc(this.dsn, this.sqlLogger);
+				if (!this.#isConnecting) // end() called
+				{	this.#returnConnToPoolFunc(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
 			}
 			finally
-			{	this.isConnecting = false;
+			{	this.#isConnecting = false;
 			}
 		}
 	}
 
 	end()
-	{	this.doEnd(false);
+	{	this.#doEnd(false);
 	}
 
 	[Symbol.dispose]()
-	{	const {onDispose} = this;
-		this.onDispose = undefined;
-		this.isDisposed = true;
-		this.doEnd(true);
+	{	const onDispose = this.#onDispose;
+		this.#onDispose = undefined;
+		this.#isDisposed = true;
+		this.#doEnd(true);
 		onDispose?.();
 	}
 
-	private doEnd(withDisposeSqlLogger: boolean)
-	{	const {protocol, curXaId, isXaPrepared} = this;
-		this.isConnecting = false;
+	#doEnd(withDisposeSqlLogger: boolean)
+	{	const {protocol} = this;
+		const isXaPrepared = this.#isXaPrepared;
+		const curXaId = this.#curXaId;
+		this.#isConnecting = false;
 		this.savepointEnum = 0;
-		this.curXaId = '';
-		this.curXaIdAppendConn = false;
-		this.isXaPrepared = false;
+		this.#curXaId = '';
+		this.#curXaIdAppendConn = false;
+		this.#isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
-		this.preparedStmtsForParams.length = 0;
+		this.#preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnToPoolFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.#returnConnToPoolFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
+			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
 			}
 		);
 	}
@@ -161,7 +174,7 @@ export class MyConn
 	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
+			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
 			}
 		);
 	}
@@ -169,7 +182,7 @@ export class MyConn
 	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.doQuery<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
+			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
 			}
 		);
 	}
@@ -177,27 +190,27 @@ export class MyConn
 	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
+			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
 			}
 		);
 	}
 
 	queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.doQuery<void>(sql, params, RowType.VOID);
+	{	return this.#doQuery<void>(sql, params, RowType.VOID);
 	}
 
 	/**	Alias of queryVoid().
 		@deprecated
 	 **/
 	execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.doQuery<void>(sql, params, RowType.VOID);
+	{	return this.#doQuery<void>(sql, params, RowType.VOID);
 	}
 
 	/**	Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 		@deprecated As `Deno.Reader` is deprecated, this method is deprecated as well.
 	 **/
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
@@ -206,14 +219,14 @@ export class MyConn
 	/**	Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 	 **/
 	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE);
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
 	}
 
 	async forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
+	{	const prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
 		try
 		{	return await callback(prepared);
 		}
@@ -224,7 +237,7 @@ export class MyConn
 	}
 
 	async forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP);
+	{	const prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP);
 		try
 		{	return await callback(prepared);
 		}
@@ -235,7 +248,7 @@ export class MyConn
 	}
 
 	async forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-	{	const prepared = await this.doQuery<ColumnType[]>(sql, true, RowType.ARRAY);
+	{	const prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY);
 		try
 		{	return await callback(prepared);
 		}
@@ -246,7 +259,7 @@ export class MyConn
 	}
 
 	async forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-	{	const prepared = await this.doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN);
+	{	const prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN);
 		try
 		{	return await callback(prepared);
 		}
@@ -257,7 +270,7 @@ export class MyConn
 	}
 
 	async forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-	{	const prepared = await this.doQuery<void>(sql, true, RowType.VOID);
+	{	const prepared = await this.#doQuery<void>(sql, true, RowType.VOID);
 		try
 		{	return await callback(prepared);
 		}
@@ -279,12 +292,12 @@ export class MyConn
 		// 1. Commit
 		const {protocol} = this;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-		{	if (this.curXaId)
+		{	if (this.#curXaId)
 			{	throw new SqlError(`There's already an active Distributed Transaction`);
 			}
 			await this.commit();
 		}
-		// 2. Set this.curXaId, this.curXaIdAppendConn, this.pendingTrxSql=['START ...'], this.savepointEnum=0
+		// 2. Set this.#curXaId, this.#curXaIdAppendConn, this.pendingTrxSql=['START ...'], this.savepointEnum=0
 		let sql;
 		const xaId = options?.xaId;
 		const someXaId = xaId || options?.xaId1;
@@ -293,23 +306,23 @@ export class MyConn
 			{	throw new Error(`Invalid XA ID: ${someXaId}`);
 			}
 			if (xaId)
-			{	this.curXaId = xaId;
-				this.curXaIdAppendConn = false;
+			{	this.#curXaId = xaId;
+				this.#curXaIdAppendConn = false;
 				sql = `XA START '${xaId}'`;
 			}
 			else
-			{	this.curXaId = !protocol ? someXaId : someXaId + protocol.connectionId;
-				this.curXaIdAppendConn = !protocol;
-				sql = !protocol ? '' : `XA START '${this.curXaId}'`;
+			{	this.#curXaId = !protocol ? someXaId : someXaId + protocol.connectionId;
+				this.#curXaIdAppendConn = !protocol;
+				sql = !protocol ? '' : `XA START '${this.#curXaId}'`;
 			}
 		}
 		else
-		{	this.curXaId = '';
-			this.curXaIdAppendConn = false;
+		{	this.#curXaId = '';
+			this.#curXaIdAppendConn = false;
 			const readonly = options?.readonly;
 			sql = readonly ? "START TRANSACTION READ ONLY" : "START TRANSACTION";
 		}
-		debugAssert(!this.isXaPrepared); // because of `commit()` above
+		debugAssert(!this.#isXaPrepared); // because of `commit()` above
 		const {pendingTrxSql} = this;
 		if (pendingTrxSql.length > 1)
 		{	pendingTrxSql.length = 1;
@@ -337,13 +350,14 @@ export class MyConn
 		Usually, you want to prepare transactions on all servers, and immediately commit them if `prepareCommit()` succeeded, or rollback them if it failed.
 	 **/
 	async prepareCommit()
-	{	const {protocol, curXaId} = this;
-		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.isXaPrepared)
-		{	if (this.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-			{	await this.onBeforeCommit([this]);
+	{	const {protocol} = this;
+		const curXaId = this.#curXaId;
+		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.#isXaPrepared)
+		{	if (this.#onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+			{	await this.#onBeforeCommit([this]);
 			}
 			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
-			this.isXaPrepared = true;
+			this.#isXaPrepared = true;
 		}
 	}
 
@@ -355,7 +369,8 @@ export class MyConn
 		If `toPointId` was `0` (not for XAs), the transaction will be restarted after the disconnect if rollback failed.
 	 **/
 	async rollback(toPointId?: number)
-	{	const {protocol, curXaId} = this;
+	{	const {protocol} = this;
+		const curXaId = this.#curXaId;
 		if (typeof(toPointId)=='number' && toPointId!==0)
 		{	// Rollback to a savepoint, and leave the transaction started
 			const isOfSession = toPointId >= SAVEPOINT_ENUM_SESSION_FROM;
@@ -374,14 +389,14 @@ export class MyConn
 				}
 			}
 			if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	await this.doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId); // doQuery() will also flush this.pendingTrxSql
+			{	await this.#doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId); // doQuery() will also flush this.pendingTrxSql
 			}
 			else
 			{	throw new Error(`No such SAVEPOINT: ${isOfSession ? SAVEPOINT_ENUM_SESSION_FROM+toPointId : toPointId}`);
 			}
 		}
 		else
-		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || this.isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
+		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || this.#isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
 			{	try
 				{	if (typeof(toPointId) == 'number')
 					{	await protocol.sendComQuery(`ROLLBACK AND CHAIN`);
@@ -389,7 +404,7 @@ export class MyConn
 					else if (!curXaId)
 					{	await protocol.sendComQuery(`ROLLBACK`);
 					}
-					else if (this.isXaPrepared)
+					else if (this.#isXaPrepared)
 					{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
 					}
 					else
@@ -398,7 +413,7 @@ export class MyConn
 				}
 				catch (e)
 				{	const {inTrxReadonly} = this;
-					this.doEnd(false);
+					this.#doEnd(false);
 					protocol.logger.error(e);
 					if (typeof(toPointId) == 'number')
 					{	// want chain
@@ -407,9 +422,9 @@ export class MyConn
 					throw new ServerDisconnectedError(e.message);
 				}
 			}
-			this.curXaId = '';
-			this.curXaIdAppendConn = false;
-			this.isXaPrepared = false;
+			this.#curXaId = '';
+			this.#curXaIdAppendConn = false;
+			this.#isXaPrepared = false;
 			this.pendingTrxSql.length = 0;
 		}
 	}
@@ -420,7 +435,9 @@ export class MyConn
 		If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
 	 **/
 	async commit(andChain=false)
-	{	const {protocol, curXaId, isXaPrepared} = this;
+	{	const {protocol} = this;
+		const isXaPrepared = this.#isXaPrepared;
+		const curXaId = this.#curXaId;
 		let error;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
 		{	let sql;
@@ -434,8 +451,8 @@ export class MyConn
 				sql = `XA COMMIT '${curXaId}'`;
 			}
 			else
-			{	if (this.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-				{	await this.onBeforeCommit([this]);
+			{	if (this.#onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+				{	await this.#onBeforeCommit([this]);
 				}
 				sql = andChain ? `COMMIT AND CHAIN` : `COMMIT`;
 			}
@@ -448,16 +465,16 @@ export class MyConn
 				}
 				catch (e2)
 				{	protocol.logger.error(e2);
-					this.doEnd(false);
+					this.#doEnd(false);
 					protocol.logger.error(e);
 					throw new ServerDisconnectedError(e.message);
 				}
 				error = e;
 			}
 		}
-		this.curXaId = '';
-		this.curXaIdAppendConn = false;
-		this.isXaPrepared = false;
+		this.#curXaId = '';
+		this.#curXaIdAppendConn = false;
+		this.#isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
 		if (error)
 		{	throw error;
@@ -465,11 +482,11 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor) : sqlLogger, this.logger);
+	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor) : sqlLogger, this.#logger);
 		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
-	private async doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
+	async #doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
 		while (true)
@@ -485,14 +502,14 @@ export class MyConn
 			{	for (let i=0; i<pendingTrxSql.length; i++)
 				{	let sql = pendingTrxSql[i];
 					if (!sql)
-					{	if (this.curXaIdAppendConn)
-						{	this.curXaId += protocol.connectionId;
-							this.curXaIdAppendConn = false;
+					{	if (this.#curXaIdAppendConn)
+						{	this.#curXaId += protocol.connectionId;
+							this.#curXaIdAppendConn = false;
 						}
-						sql = `XA START '${this.curXaId}'`;
+						sql = `XA START '${this.#curXaId}'`;
 					}
 					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
-					{	this.doEnd(false);
+					{	this.#doEnd(false);
 						continue;
 					}
 				}
@@ -542,7 +559,7 @@ export class MyConn
 				}
 			}
 
-			this.doEnd(false);
+			this.#doEnd(false);
 			// redo
 		}
 	}
@@ -558,7 +575,7 @@ export class MyConn
 		// Prepare stmts with not less than 8 placeholders, and increase by magnitude of 8 (if 9 params, use 16 placeholders)
 		const pos = (paramKeys.length - 1) >> 3;
 		const nPlaceholders = (pos + 1) << 3;
-		const {preparedStmtsForParams} = this;
+		const preparedStmtsForParams = this.#preparedStmtsForParams;
 		let stmtId = preparedStmtsForParams[pos];
 		// SET @_yl_fk=?,@_yl_fl=?,@_yl_fm=?,...,@_yl_g0=?,@_yl_g1=?,...,@_yl_ga=?,@_yl_gb=?,...,@_ym_00=?,...
 		const query0 = typeof(stmtId)=='number' && stmtId!=-1 ? undefined : new Uint8Array(3 /*SET*/ + 10 /*,@_NN_NN=?*/ * nPlaceholders);

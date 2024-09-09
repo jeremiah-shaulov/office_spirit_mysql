@@ -75,29 +75,32 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	logger: Logger = console;
 
-	private warnings = 0;
-	private affectedRows: number|bigint = 0;
-	private lastInsertId: number|bigint = 0;
-	private statusInfo = '';
-	private timezoneMsecOffsetFromSystem = NaN;
+	#warnings = 0;
+	#affectedRows: number|bigint = 0;
+	#lastInsertId: number|bigint = 0;
+	#statusInfo = '';
+	#timezoneMsecOffsetFromSystem = NaN;
 
-	private state = ProtocolState.IDLE;
-	private initSchema = '';
-	private initSql = '';
-	private maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
-	private retryQueryTimes = DEFAULT_RETRY_QUERY_TIMES;
-	private onLoadFile?: OnLoadFile;
-	private sqlLogger: SafeSqlLogger | undefined;
+	#state = ProtocolState.IDLE;
+	#initSchema = '';
+	#initSql = '';
+	#maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
+	#retryQueryTimes = DEFAULT_RETRY_QUERY_TIMES;
+	#onLoadFile?: OnLoadFile;
+	#sqlLogger: SafeSqlLogger | undefined;
 
-	private curResultsets: ResultsetsInternal<unknown> | undefined;
-	private pendingCloseStmts: number[] = [];
-	private curLastColumnReader: Reader | RdStream | undefined;
-	private onEndSession: ((state: ProtocolState) => void) | undefined;
+	#curResultsets: ResultsetsInternal<unknown> | undefined;
+	#pendingCloseStmts = new Array<number>;
+	#curLastColumnReader: Reader | RdStream | undefined;
+	#onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	protected constructor(private conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
+	#conn;
+
+	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
 	{	const writer = conn.writable.getWriter();
 		const reader = conn.readable.getReader({mode: 'byob'});
 		super(writer, reader, decoder, useBuffer);
+		this.#conn = conn;
 	}
 
 	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger?: Logger): Promise<MyProtocol>
@@ -113,30 +116,30 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
 		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer, dsn);
-		protocol.initSchema = schema;
-		protocol.initSql = initSql;
+		protocol.#initSchema = schema;
+		protocol.#initSql = initSql;
 		if (maxColumnLen > 0)
-		{	protocol.maxColumnLen = maxColumnLen;
+		{	protocol.#maxColumnLen = maxColumnLen;
 		}
 		if (retryQueryTimes >= 0)
-		{	protocol.retryQueryTimes = retryQueryTimes;
+		{	protocol.#retryQueryTimes = retryQueryTimes;
 		}
-		protocol.onLoadFile = onLoadFile;
+		protocol.#onLoadFile = onLoadFile;
 		if (logger)
 		{	protocol.logger = logger;
 		}
 		try
-		{	const authPlugin = await protocol.readHandshake();
+		{	const authPlugin = await protocol.#readHandshake();
 			if (sqlLogger)
 			{	// connectionId is set after `readHandshake()`
-				protocol.sqlLogger = sqlLogger;
+				protocol.#sqlLogger = sqlLogger;
 				await sqlLogger.connect(protocol.connectionId);
 			}
-			await protocol.writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
-			const authPlugin2 = await protocol.readAuthResponse(password, authPlugin);
+			await protocol.#writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
+			const authPlugin2 = await protocol.#readAuthResponse(password, authPlugin);
 			if (authPlugin2)
-			{	await protocol.writeAuthSwitchResponse(password, authPlugin2);
-				await protocol.readAuthResponse(password, authPlugin2);
+			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
+				await protocol.#readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
 			{	await protocol.sendComQuery(initSql);
@@ -156,7 +159,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	/**	When connecting to a MySQL server, the server immediately sends handshake packet.
 	 **/
-	private async readHandshake()
+	async #readHandshake()
 	{	// header
 		this.readPacketHeader() || await this.readPacketHeaderAsync();
 		// payload
@@ -221,7 +224,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	/**	Write client's response to initial server handshake packet.
 	 **/
-	private async writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean)
+	async #writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean)
 	{	// apply client capabilities
 		this.capabilityFlags &=
 		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
@@ -299,7 +302,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		But server can ask to switch auth method (EOF) or request plugin auth.
 		This function returns different authPlugin if auth switch required.
 	 **/
-	private async readAuthResponse(password: string, authPlugin: AuthPlugin)
+	async #readAuthResponse(password: string, authPlugin: AuthPlugin)
 	{	this.readPacketHeader() || await this.readPacketHeaderAsync();
 		let type = this.readUint8() ?? await this.readUint8Async();
 		switch (type)
@@ -325,7 +328,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			default: // Use plugin for authentication
 			{	let data = this.readShortEofBytes() ?? await this.readShortEofBytesAsync();
 				while (!await authPlugin.progress(password, type, data, this))
-				{	type = await this.readPacket();
+				{	type = await this.#readPacket();
 					if (type != PacketType.OK)
 					{	data = this.readShortEofBytes() ?? await this.readShortEofBytesAsync();
 					}
@@ -336,7 +339,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	/**	Respond to second auth attempt, after got AuthSwitchRequest.
 	 **/
-	private async writeAuthSwitchResponse(password: string, authPlugin: AuthPlugin)
+	async #writeAuthSwitchResponse(password: string, authPlugin: AuthPlugin)
 	{	this.startWritingNewPacket();
 		if (password)
 		{	const auth = await authPlugin.quickAuth(password);
@@ -351,7 +354,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		Else, returns the packet type, and leaves the caller responsible to read the packet to the end.
 		In case of ReadPacketMode.PREPARED_STMT, an OK or an EOF packet must be read by the caller (because it has different format after COM_STMT_PREPARE).
 	 **/
-	private async readPacket(mode=ReadPacketMode.REGULAR)
+	async #readPacket(mode=ReadPacketMode.REGULAR)
 	{	let type = 0;
 		if (mode != ReadPacketMode.PREPARED_STMT_OK_CONTINUATION)
 		{	debugAssert(this.isAtEndOfPacket());
@@ -366,7 +369,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				}
 				if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
 				{	if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
-					{	this.warnings = this.readUint16() ?? await this.readUint16Async();
+					{	this.#warnings = this.readUint16() ?? await this.readUint16Async();
 						this.statusFlags = this.readUint16() ?? await this.readUint16Async();
 					}
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
@@ -376,18 +379,18 @@ export class MyProtocol extends MyProtocolReaderWriter
 			}
 			case PacketType.OK:
 			{	if (mode!=ReadPacketMode.PREPARED_STMT || type==PacketType.EOF)
-				{	this.affectedRows = this.readLenencInt() ?? await this.readLenencIntAsync();
-					this.lastInsertId = this.readLenencInt() ?? await this.readLenencIntAsync();
+				{	this.#affectedRows = this.readLenencInt() ?? await this.readLenencIntAsync();
+					this.#lastInsertId = this.readLenencInt() ?? await this.readLenencIntAsync();
 					if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
 					{	this.statusFlags = this.readUint16() ?? await this.readUint16Async();
-						this.warnings = this.readUint16() ?? await this.readUint16Async();
+						this.#warnings = this.readUint16() ?? await this.readUint16Async();
 					}
 					else if (this.capabilityFlags & CapabilityFlags.CLIENT_TRANSACTIONS)
 					{	this.statusFlags = this.readUint16() ?? await this.readUint16Async();
 					}
 					if (!this.isAtEndOfPacket())
 					{	if (this.capabilityFlags & CapabilityFlags.CLIENT_SESSION_TRACK)
-						{	this.statusInfo = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
+						{	this.#statusInfo = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 							if (this.statusFlags & StatusFlags.SERVER_SESSION_STATE_CHANGED)
 							{	const sessionStateChangesLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
 								const to = this.packetOffset + sessionStateChangesLen;
@@ -399,13 +402,13 @@ export class MyProtocol extends MyProtocolReaderWriter
 											const name = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 											const value = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 											if (name == 'character_set_client')
-											{	this.setCharacterSetClient(value);
+											{	this.#setCharacterSetClient(value);
 											}
 											else if (name == 'character_set_results')
-											{	this.setCharacterSetResults(value);
+											{	this.#setCharacterSetResults(value);
 											}
 											else if (name == 'time_zone')
-											{	this.setTimeZone(value);
+											{	this.#setTimeZone(value);
 											}
 											break;
 										}
@@ -421,7 +424,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 							this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 						}
 						else
-						{	this.statusInfo = this.readShortEofString() ?? await this.readShortEofStringAsync();
+						{	this.#statusInfo = this.readShortEofString() ?? await this.readShortEofStringAsync();
 						}
 					}
 				}
@@ -443,13 +446,13 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private setCharacterSetClient(value: string)
+	#setCharacterSetClient(value: string)
 	{	if (value.slice(0, 4) != 'utf8')
 		{	throw new Error(`Cannot use this value for character_set_client: ${value}. Can only use utf8.`);
 		}
 	}
 
-	private setCharacterSetResults(value: string)
+	#setCharacterSetResults(value: string)
 	{	if (value.slice(0, 4) == 'utf8')
 		{	this.decoder = new TextDecoder('utf-8');
 		}
@@ -487,11 +490,11 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 	}
 
-	private setTimeZone(value: string)
-	{	this.timezoneMsecOffsetFromSystem = 0;
+	#setTimeZone(value: string)
+	{	this.#timezoneMsecOffsetFromSystem = 0;
 		if (value != 'SYSTEM')
 		{	try
-			{	this.timezoneMsecOffsetFromSystem = getTimezoneMsecOffsetFromSystem(value);
+			{	this.#timezoneMsecOffsetFromSystem = getTimezoneMsecOffsetFromSystem(value);
 			}
 			catch (e)
 			{	this.logger.warn(e);
@@ -503,53 +506,53 @@ export class MyProtocol extends MyProtocolReaderWriter
 	{	if (!this.dsn.correctDates)
 		{	return 0;
 		}
-		if (Number.isNaN(this.timezoneMsecOffsetFromSystem))
+		if (Number.isNaN(this.#timezoneMsecOffsetFromSystem))
 		{	this.logger.warn(`Using system timezone to convert dates, that can lead to distortion if MySQL and Deno use different timezones. To respect MySQL timezone, execute "SET time_zone = '...'" statement as part of connection initialization. However this library can recognize such statement only if you're using MySQL 5.7+, and this doesn't work on MariaDB (at least up to 10.7).`);
-			this.timezoneMsecOffsetFromSystem = 0;
+			this.#timezoneMsecOffsetFromSystem = 0;
 		}
-		return this.timezoneMsecOffsetFromSystem;
+		return this.#timezoneMsecOffsetFromSystem;
 	}
 
 	authSendUint8Packet(value: number)
-	{	debugAssert(this.state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
+	{	debugAssert(this.#state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
 		this.startWritingNewPacket();
 		this.writeUint8(value);
 		return this.send();
 	}
 
 	authSendBytesPacket(value: Uint8Array)
-	{	debugAssert(this.state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
+	{	debugAssert(this.#state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
 		this.startWritingNewPacket();
 		this.writeBytes(value);
 		return this.send();
 	}
 
-	private initResultsets(resultsets: ResultsetsInternal<unknown>)
-	{	resultsets.lastInsertId = this.lastInsertId;
-		resultsets.warnings = this.warnings;
-		resultsets.statusInfo = this.statusInfo;
+	#initResultsets(resultsets: ResultsetsInternal<unknown>)
+	{	resultsets.lastInsertId = this.#lastInsertId;
+		resultsets.warnings = this.#warnings;
+		resultsets.statusInfo = this.#statusInfo;
 		resultsets.noGoodIndexUsed = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_GOOD_INDEX_USED) != 0;
 		resultsets.noIndexUsed = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_INDEX_USED) != 0;
 		resultsets.isSlowQuery = (this.statusFlags & StatusFlags.SERVER_QUERY_WAS_SLOW) != 0;
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_FOUND_ROWS)
-		{	resultsets.foundRows = this.affectedRows;
+		{	resultsets.foundRows = this.#affectedRows;
 		}
 		else
-		{	resultsets.affectedRows = this.affectedRows;
+		{	resultsets.affectedRows = this.#affectedRows;
 		}
 	}
 
-	private async readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false)
+	async #readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false)
 	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
 		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
-		{	const type = await this.readPacket(mode);
+		{	const type = await this.#readPacket(mode);
 			let nColumns: number|bigint = 0;
 			let nPlaceholders = 0;
 			switch (type)
 			{	case PacketType.OK:
 				{	if (mode == ReadPacketMode.REGULAR)
-					{	this.initResultsets(resultsets);
+					{	this.#initResultsets(resultsets);
 						nColumns = 0;
 					}
 					else
@@ -558,7 +561,7 @@ L:		while (true)
 						nColumns = this.readUint16() ?? await this.readUint16Async();
 						nPlaceholders = this.readUint16() ?? await this.readUint16Async();
 						this.readUint8() ?? await this.readUint8Async(); // skip reserved1
-						this.warnings = this.readUint16() ?? await this.readUint16Async();
+						this.#warnings = this.readUint16() ?? await this.readUint16Async();
 						this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 					}
 					break;
@@ -566,10 +569,10 @@ L:		while (true)
 				case PacketType.NULL_OR_LOCAL_INFILE:
 				{	const filename = this.readShortEofString() ?? await this.readShortEofStringAsync();
 					debugAssert(this.isAtEndOfPacket());
-					if (!this.onLoadFile)
+					if (!this.#onLoadFile)
 					{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
 					}
-					const reader = await this.onLoadFile(filename);
+					const reader = await this.#onLoadFile(filename);
 					if (!reader)
 					{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
 					}
@@ -645,7 +648,7 @@ L:		while (true)
 
 			// Read sequence of ColumnDefinition packets
 			if (nPlaceholders > 0)
-			{	await this.skipColumnDefinitionPackets(nPlaceholders);
+			{	await this.#skipColumnDefinitionPackets(nPlaceholders);
 			}
 			resultsets.nPlaceholders = nPlaceholders;
 			if (nColumnsNum == 0)
@@ -653,17 +656,17 @@ L:		while (true)
 			}
 			else if (skipColumns)
 			{	resultsets.columns = [];
-				await this.skipColumnDefinitionPackets(nColumnsNum);
+				await this.#skipColumnDefinitionPackets(nColumnsNum);
 			}
 			else
-			{	resultsets.columns = await this.readColumnDefinitionPackets(nColumnsNum);
+			{	resultsets.columns = await this.#readColumnDefinitionPackets(nColumnsNum);
 			}
 
 			return nColumnsNum!=0 ? ProtocolState.HAS_MORE_ROWS : this.statusFlags&StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
 		}
 	}
 
-	private async skipColumnDefinitionPackets(nPackets: number)
+	async #skipColumnDefinitionPackets(nPackets: number)
 	{	debugAssert(nPackets > 0);
 		for (let i=0; i<nPackets; i++)
 		{	// Read ColumnDefinition41 packet
@@ -672,13 +675,13 @@ L:		while (true)
 		}
 		if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
 		{	// Read EOF after columns list
-			const type = await this.readPacket();
+			const type = await this.#readPacket();
 			debugAssert(type == PacketType.OK);
 		}
 	}
 
-	private async readColumnDefinitionPackets(nPackets: number)
-	{	const columns: Column[] = [];
+	async #readColumnDefinitionPackets(nPackets: number)
+	{	const columns = new Array<Column>;
 		if (nPackets > 0)
 		{	if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
 			{	for (let i=0; i<nPackets; i++)
@@ -736,15 +739,15 @@ L:		while (true)
 			}
 			if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
 			{	// Read EOF after columns list
-				const type = await this.readPacket();
+				const type = await this.#readPacket();
 				debugAssert(type == PacketType.OK);
 			}
 		}
 		return columns;
 	}
 
-	private setQueryingState()
-	{	switch (this.state)
+	#setQueryingState()
+	{	switch (this.#state)
 		{	case ProtocolState.QUERYING:
 				throw new BusyError('Previous operation is still in progress');
 			case ProtocolState.HAS_MORE_ROWS:
@@ -756,35 +759,35 @@ L:		while (true)
 			case ProtocolState.ERROR:
 				throw new Error('Protocol error');
 			case ProtocolState.IDLE_IN_POOL:
-				this.state = ProtocolState.QUERYING;
+				this.#state = ProtocolState.QUERYING;
 				return true;
 			default:
-				debugAssert(this.state == ProtocolState.IDLE);
-				this.state = ProtocolState.QUERYING;
+				debugAssert(this.#state == ProtocolState.IDLE);
+				this.#state = ProtocolState.QUERYING;
 				return false;
 		}
 	}
 
-	private rethrowError(error: Error): never
+	#rethrowError(error: Error): never
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
-			{	this.conn.close();
+			{	this.#conn.close();
 			}
 			catch (e)
 			{	this.logger.error(e);
 			}
 			state = ProtocolState.ERROR;
 		}
-		this.setState(state);
+		this.#setState(state);
 		throw error;
 	}
 
-	private rethrowErrorIfFatal(error: Error, isFromPool=false)
+	#rethrowErrorIfFatal(error: Error, isFromPool=false)
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
-			{	this.conn.close();
+			{	this.#conn.close();
 			}
 			catch (e)
 			{	this.logger.error(e);
@@ -794,38 +797,38 @@ L:		while (true)
 			}
 			state = ProtocolState.ERROR;
 		}
-		this.setState(state);
+		this.#setState(state);
 		throw error;
 	}
 
-	private setState(state: ProtocolState)
-	{	if (this.onEndSession)
-		{	this.onEndSession(state);
+	#setState(state: ProtocolState)
+	{	if (this.#onEndSession)
+		{	this.#onEndSession(state);
 		}
 		else
-		{	this.state = state;
+		{	this.#state = state;
 		}
 	}
 
 	/**	Call this before entering ProtocolState.IDLE.
 	 **/
-	private async doPending()
-	{	const {pendingCloseStmts} = this;
+	async #doPending()
+	{	const pendingCloseStmts = this.#pendingCloseStmts;
 		debugAssert(pendingCloseStmts.length != 0);
-		this.state = ProtocolState.QUERYING;
+		this.#state = ProtocolState.QUERYING;
 		for (let i=0; i<pendingCloseStmts.length; i++)
-		{	await this.sendComStmtClose(pendingCloseStmts[i]);
+		{	await this.#sendComStmtClose(pendingCloseStmts[i]);
 		}
 		pendingCloseStmts.length = 0;
 	}
 
 	setSqlLogger(sqlLogger?: SafeSqlLogger)
-	{	this.sqlLogger = sqlLogger;
+	{	this.#sqlLogger = sqlLogger;
 	}
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	private async sendComResetConnectionAndInitDb(schema: string)
+	async #sendComResetConnectionAndInitDb(schema: string)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_RESET_CONNECTION);
 		if (schema)
@@ -835,7 +838,7 @@ L:		while (true)
 		}
 		await this.send();
 		try
-		{	await this.readPacket();
+		{	await this.#readPacket();
 		}
 		catch (e)
 		{	if ((e instanceof SqlError) && e.message=='Unknown command')
@@ -844,15 +847,15 @@ L:		while (true)
 			throw e;
 		}
 		if (schema)
-		{	await this.readPacket();
+		{	await this.#readPacket();
 		}
 	}
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	private async sendComStmtClose(stmtId: number)
-	{	if (this.sqlLogger)
-		{	await this.sqlLogger.deallocatePrepare(this.connectionId, stmtId);
+	async #sendComStmtClose(stmtId: number)
+	{	if (this.#sqlLogger)
+		{	await this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId);
 		}
 		this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_CLOSE);
@@ -865,14 +868,14 @@ L:		while (true)
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
 	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
-	{	const isFromPool = this.setQueryingState();
+	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
-		let nRetry = this.retryQueryTimes;
+		let nRetry = this.#retryQueryTimes;
 		while (true)
 		{	try
-			{	if (this.sqlLogger)
-				{	sqlLoggerQuery = await this.sqlLogger.query(this.connectionId, false, noBackslashEscapes);
+			{	if (this.#sqlLogger)
+				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
 				this.startWritingNewPacket(true);
 				this.writeUint8(Command.COM_QUERY);
@@ -881,20 +884,20 @@ L:		while (true)
 				{	await sqlLoggerQuery.start();
 				}
 				const resultsets = new ResultsetsInternal<Row>(rowType);
-				let state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+				let state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 				if (state != ProtocolState.IDLE)
 				{	resultsets.protocol = this;
 					resultsets.hasMoreInternal = true;
-					this.curResultsets = resultsets;
+					this.#curResultsets = resultsets;
 					if (rowType == RowType.VOID)
 					{	// discard resultsets
-						state = await this.doDiscard(state);
+						state = await this.#doDiscard(state);
 					}
 				}
-				else if (this.pendingCloseStmts.length != 0)
-				{	await this.doPending();
+				else if (this.#pendingCloseStmts.length != 0)
+				{	await this.#doPending();
 				}
-				this.setState(state);
+				this.#setState(state);
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.end(resultsets, -1);
 				}
@@ -909,7 +912,7 @@ L:		while (true)
 					nRetry--;
 					continue;
 				}
-				this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+				this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 			}
 			break;
 		}
@@ -925,14 +928,14 @@ L:		while (true)
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
 	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
-	{	const isFromPool = this.setQueryingState();
+	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
-		let nRetry = this.retryQueryTimes;
+		let nRetry = this.#retryQueryTimes;
 		while (true)
 		{	try
-			{	if (this.sqlLogger)
-				{	sqlLoggerQuery = await this.sqlLogger.query(this.connectionId, false, noBackslashEscapes);
+			{	if (this.#sqlLogger)
+				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
 				// Send preStmt
 				if (preStmtId >= 0)
@@ -940,7 +943,7 @@ L:		while (true)
 					if (sqlLoggerQuery)
 					{	await sqlLoggerQuery.setStmtId(preStmtId);
 					}
-					await this.sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams, sqlLoggerQuery);
+					await this.#sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams, sqlLoggerQuery);
 				}
 				// Send prequery
 				if (prequery)
@@ -963,11 +966,11 @@ L:		while (true)
 				}
 				// Read result of preStmt
 				if (preStmtId >= 0)
-				{	const rowNColumns = await this.readPacket(ReadPacketMode.PREPARED_STMT);
+				{	const rowNColumns = await this.#readPacket(ReadPacketMode.PREPARED_STMT);
 					debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
 					debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
 					if (!this.isAtEndOfPacket())
-					{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 					}
 				}
 				// Read result of prequery
@@ -976,7 +979,7 @@ L:		while (true)
 				let error;
 				if (prequery)
 				{	try
-					{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+					{	state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 					}
 					catch (e)
 					{	if (ignorePrequeryError && (e instanceof SqlError))
@@ -990,7 +993,7 @@ L:		while (true)
 				debugAssert(state == ProtocolState.IDLE);
 				// Read result of sql
 				try
-				{	state = await this.readQueryResponse(resultsets, ReadPacketMode.REGULAR);
+				{	state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 					if (sqlLoggerQuery)
 					{	await sqlLoggerQuery.end(resultsets, -1);
 					}
@@ -1010,16 +1013,16 @@ L:		while (true)
 				if (state != ProtocolState.IDLE)
 				{	resultsets.protocol = this;
 					resultsets.hasMoreInternal = true;
-					this.curResultsets = resultsets;
+					this.#curResultsets = resultsets;
 					if (rowType == RowType.VOID)
 					{	// discard resultsets
-						state = await this.doDiscard(state);
+						state = await this.#doDiscard(state);
 					}
 				}
-				else if (this.pendingCloseStmts.length != 0)
-				{	await this.doPending();
+				else if (this.#pendingCloseStmts.length != 0)
+				{	await this.#doPending();
 				}
-				this.setState(state);
+				this.#setState(state);
 				return resultsets;
 			}
 			catch (e)
@@ -1030,7 +1033,7 @@ L:		while (true)
 					prequery = undefined;
 					continue;
 				}
-				this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+				this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 			}
 			break;
 		}
@@ -1041,12 +1044,12 @@ L:		while (true)
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
 	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
-	{	const isFromPool = this.setQueryingState();
+	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		try
-		{	if (this.sqlLogger)
-			{	sqlLoggerQuery = await this.sqlLogger.query(this.connectionId, true, noBackslashEscapes);
+		{	if (this.#sqlLogger)
+			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, true, noBackslashEscapes);
 			}
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
@@ -1055,12 +1058,12 @@ L:		while (true)
 			{	await sqlLoggerQuery.start();
 			}
 			const resultsets = new ResultsetsInternal<Row>(rowType);
-			await this.readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
+			await this.#readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
-			if (this.pendingCloseStmts.length != 0)
-			{	await this.doPending();
+			if (this.#pendingCloseStmts.length != 0)
+			{	await this.#doPending();
 			}
-			this.setState(ProtocolState.IDLE);
+			this.#setState(ProtocolState.IDLE);
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(resultsets, resultsets.stmtId);
 			}
@@ -1070,23 +1073,23 @@ L:		while (true)
 		{	if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(e, -1);
 			}
-			this.rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+			this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 		}
 	}
 
 	/**	This function can be called at any time. If the connection is busy, the operation will be performed later.
 	 **/
 	async disposePreparedStmt(stmtId: number)
-	{	const {state} = this;
+	{	const state = this.#state;
 		if (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL)
-		{	this.state = ProtocolState.QUERYING;
+		{	this.#state = ProtocolState.QUERYING;
 			try
-			{	await this.sendComStmtClose(stmtId);
-				this.setState(ProtocolState.IDLE);
+			{	await this.#sendComStmtClose(stmtId);
+				this.#setState(ProtocolState.IDLE);
 			}
 			catch (error)
 			{	try
-				{	this.rethrowError(error);
+				{	this.#rethrowError(error);
 				}
 				catch (e)
 				{	this.logger.error(e);
@@ -1094,11 +1097,11 @@ L:		while (true)
 			}
 		}
 		else if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
-		{	this.pendingCloseStmts.push(stmtId);
+		{	this.#pendingCloseStmts.push(stmtId);
 		}
 	}
 
-	private async sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined)
+	async #sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined)
 	{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
 		let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
 		const placeholdersSent = new Set<number>;
@@ -1441,20 +1444,20 @@ L:		while (true)
 		if (stmtId < 0)
 		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
 		}
-		this.setQueryingState();
+		this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		try
 		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
-			if (this.sqlLogger)
-			{	sqlLoggerQuery = await this.sqlLogger.query(this.connectionId, false, noBackslashEscapes);
+			if (this.#sqlLogger)
+			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.setStmtId(stmtId);
 				}
 			}
-			await this.sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery);
+			await this.#sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery);
 			// Read Binary Protocol Resultset
-			const type = await this.readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
+			const type = await this.#readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
@@ -1468,31 +1471,31 @@ L:		while (true)
 				rowNColumns = Number(value);
 			}
 			if (rowNColumns > 0)
-			{	resultsets.columns = await this.readColumnDefinitionPackets(rowNColumns);
+			{	resultsets.columns = await this.#readColumnDefinitionPackets(rowNColumns);
 				resultsets.protocol = this;
 				resultsets.hasMoreInternal = true;
-				this.curResultsets = resultsets;
-				this.setState(ProtocolState.HAS_MORE_ROWS);
+				this.#curResultsets = resultsets;
+				this.#setState(ProtocolState.HAS_MORE_ROWS);
 			}
 			else if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
 			{	resultsets.protocol = this;
 				resultsets.hasMoreInternal = true;
 				if (!this.isAtEndOfPacket())
-				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
-					this.initResultsets(resultsets);
+				{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					this.#initResultsets(resultsets);
 				}
-				this.curResultsets = resultsets;
-				this.setState(ProtocolState.HAS_MORE_RESULTSETS);
+				this.#curResultsets = resultsets;
+				this.#setState(ProtocolState.HAS_MORE_RESULTSETS);
 			}
 			else
 			{	if (!this.isAtEndOfPacket())
-				{	await this.readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
-					this.initResultsets(resultsets);
+				{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+					this.#initResultsets(resultsets);
 				}
-				if (this.pendingCloseStmts.length != 0)
-				{	await this.doPending();
+				if (this.#pendingCloseStmts.length != 0)
+				{	await this.#doPending();
 				}
-				this.setState(ProtocolState.IDLE);
+				this.#setState(ProtocolState.IDLE);
 			}
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(resultsets, -1);
@@ -1502,12 +1505,12 @@ L:		while (true)
 		{	if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(e, -1);
 			}
-			this.rethrowError(e);
+			this.#rethrowError(e);
 		}
 	}
 
 	async fetch<Row>(rowType: RowType): Promise<Row | undefined>
-	{	switch (this.state)
+	{	switch (this.#state)
 		{	case ProtocolState.IDLE:
 			case ProtocolState.IDLE_IN_POOL:
 			case ProtocolState.HAS_MORE_RESULTSETS:
@@ -1517,28 +1520,28 @@ L:		while (true)
 			case ProtocolState.TERMINATED:
 				throw new CanceledError('Connection terminated');
 		}
-		debugAssert(this.state == ProtocolState.HAS_MORE_ROWS);
-		debugAssert(this.curResultsets?.hasMoreInternal); // because we're in ProtocolState.HAS_MORE_ROWS
-		this.state = ProtocolState.QUERYING;
+		debugAssert(this.#state == ProtocolState.HAS_MORE_ROWS);
+		debugAssert(this.#curResultsets?.hasMoreInternal); // because we're in ProtocolState.HAS_MORE_ROWS
+		this.#state = ProtocolState.QUERYING;
 		try
-		{	const {curResultsets} = this;
+		{	const curResultsets = this.#curResultsets;
 			const {isPreparedStmt, stmtId, columns} = curResultsets;
 			const nColumns = columns.length;
-			const type = await this.readPacket(isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+			const type = await this.#readPacket(isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
 			if (type == (isPreparedStmt ? PacketType.EOF : PacketType.OK))
 			{	if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
-				{	this.setState(ProtocolState.HAS_MORE_RESULTSETS);
+				{	this.#setState(ProtocolState.HAS_MORE_RESULTSETS);
 				}
 				else
 				{	if (stmtId < 0)
 					{	curResultsets.protocol = undefined;
 					}
 					curResultsets.hasMoreInternal = false;
-					this.curResultsets = undefined;
-					if (this.pendingCloseStmts.length != 0)
-					{	await this.doPending();
+					this.#curResultsets = undefined;
+					if (this.#pendingCloseStmts.length != 0)
+					{	await this.#doPending();
 					}
-					this.setState(ProtocolState.IDLE);
+					this.#setState(ProtocolState.IDLE);
 				}
 				return undefined;
 			}
@@ -1575,7 +1578,7 @@ L:		while (true)
 					{	if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
 						{	lastColumnReaderLen = len;
 						}
-						else if (len>this.maxColumnLen || rowType==RowType.VOID)
+						else if (len>this.#maxColumnLen || rowType==RowType.VOID)
 						{	this.readVoid(len) || this.readVoidAsync(len);
 						}
 						else
@@ -1755,7 +1758,7 @@ L:		while (true)
 								if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
 								{	lastColumnReaderLen = len;
 								}
-								else if (len>this.maxColumnLen || rowType==RowType.VOID)
+								else if (len>this.#maxColumnLen || rowType==RowType.VOID)
 								{	this.readVoid(len) || this.readVoidAsync(len);
 								}
 								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
@@ -1816,13 +1819,13 @@ L:		while (true)
 				const reader =
 				{	async read(dest: Uint8Array)
 					{	if (isReading != IsReading.NO)
-						{	if (isReading==IsReading.YES && that.onEndSession)
+						{	if (isReading==IsReading.YES && that.#onEndSession)
 							{	isReading = IsReading.YES_BY_END_SESSION;
 								return null; // assume: `session[Symbol.dispose]()` called me (maybe in parallel with user's reader)
 							}
 							throw new BusyError('Data is being read by another reader');
 						}
-						isReading = that.onEndSession ? IsReading.YES_BY_END_SESSION : IsReading.YES;
+						isReading = that.#onEndSession ? IsReading.YES_BY_END_SESSION : IsReading.YES;
 						let n = 0;
 						try
 						{	while (true)
@@ -1834,15 +1837,15 @@ L:		while (true)
 										debugAssert((that.payloadLength as Any) == 0);
 									}
 									// discard next rows and resultsets
-									await that.doDiscard(ProtocolState.HAS_MORE_ROWS);
-									debugAssert(!that.curResultsets);
+									await that.#doDiscard(ProtocolState.HAS_MORE_ROWS);
+									debugAssert(!that.#curResultsets);
 									// done
-									that.curLastColumnReader = undefined;
-									if (that.pendingCloseStmts.length != 0)
-									{	await that.doPending();
+									that.#curLastColumnReader = undefined;
+									if (that.#pendingCloseStmts.length != 0)
+									{	await that.#doPending();
 									}
-									that.setState(ProtocolState.IDLE);
-									if (that.onEndSession)
+									that.#setState(ProtocolState.IDLE);
+									if (that.#onEndSession)
 									{	throw new CanceledError('Connection terminated');
 									}
 									return null;
@@ -1861,13 +1864,13 @@ L:		while (true)
 								dest.set(data);
 								dataInCurPacketLen -= n;
 								lastColumnReaderLen -= n;
-								if (!that.onEndSession)
+								if (!that.#onEndSession)
 								{	break;
 								}
 							}
 						}
 						catch (e)
-						{	that.rethrowError(e);
+						{	that.#rethrowError(e);
 						}
 						finally
 						{	isReading = IsReading.NO;
@@ -1878,22 +1881,22 @@ L:		while (true)
 				const value = rowType==RowType.LAST_COLUMN_READER ? reader : new RdStream(reader);
 				const columnName = columns[columns.length - 1].name;
 				row[columnName] = value;
-				this.curLastColumnReader = value;
+				this.#curLastColumnReader = value;
 			}
 			else
-			{	this.setState(ProtocolState.HAS_MORE_ROWS);
+			{	this.#setState(ProtocolState.HAS_MORE_ROWS);
 			}
 			return row;
 		}
 		catch (e)
-		{	this.rethrowError(e);
+		{	this.#rethrowError(e);
 		}
 	}
 
 	/**	If `onlyRows` is false returns `ProtocolState.IDLE`. Else can also return `ProtocolState.HAS_MORE_RESULTSETS`.
 	 **/
-	private async doDiscard(state: ProtocolState, onlyRows=false)
-	{	const {curResultsets} = this;
+	async #doDiscard(state: ProtocolState, onlyRows=false)
+	{	const curResultsets = this.#curResultsets;
 		debugAssert(curResultsets);
 		const {isPreparedStmt, stmtId} = curResultsets;
 		const mode = isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR;
@@ -1901,7 +1904,7 @@ L:		while (true)
 		while (true)
 		{	if (state == ProtocolState.HAS_MORE_ROWS)
 			{	while (true)
-				{	const type = await this.readPacket(mode);
+				{	const type = await this.#readPacket(mode);
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 					if (type == okType)
 					{	state = this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
@@ -1910,7 +1913,7 @@ L:		while (true)
 				}
 			}
 			if (!onlyRows && state==ProtocolState.HAS_MORE_RESULTSETS)
-			{	state = await this.readQueryResponse(curResultsets, mode);
+			{	state = await this.#readQueryResponse(curResultsets, mode);
 			}
 			else
 			{	break;
@@ -1922,13 +1925,13 @@ L:		while (true)
 			{	curResultsets.protocol = undefined;
 			}
 			curResultsets.hasMoreInternal = false;
-			this.curResultsets = undefined;
+			this.#curResultsets = undefined;
 		}
 		return state;
 	}
 
 	async nextResultset(ignoreTerminated=false)
-	{	let {state} = this;
+	{	let state = this.#state;
 		switch (state)
 		{	case ProtocolState.IDLE:
 			case ProtocolState.IDLE_IN_POOL:
@@ -1945,31 +1948,31 @@ L:		while (true)
 		}
 		try
 		{	if (state == ProtocolState.HAS_MORE_ROWS)
-			{	this.state = ProtocolState.QUERYING;
-				state = await this.doDiscard(state, true);
+			{	this.#state = ProtocolState.QUERYING;
+				state = await this.#doDiscard(state, true);
 			}
 			let yes = false;
 			if (state == ProtocolState.HAS_MORE_RESULTSETS)
 			{	yes = true;
-				this.state = ProtocolState.QUERYING;
-				const {curResultsets} = this;
+				this.#state = ProtocolState.QUERYING;
+				const curResultsets = this.#curResultsets;
 				debugAssert(curResultsets?.hasMoreInternal);
 				const {isPreparedStmt, stmtId} = curResultsets;
 				curResultsets.resetFields();
-				state = await this.readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+				state = await this.#readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
 				if (state == ProtocolState.IDLE)
 				{	if (stmtId < 0)
 					{	curResultsets.protocol = undefined;
 					}
 					curResultsets.hasMoreInternal = false;
-					this.curResultsets = undefined;
+					this.#curResultsets = undefined;
 				}
 			}
-			this.setState(state);
+			this.#setState(state);
 			return yes;
 		}
 		catch (e)
-		{	this.rethrowError(e);
+		{	this.#rethrowError(e);
 		}
 	}
 
@@ -1979,19 +1982,19 @@ L:		while (true)
 		This function doesn't throw errors (errors can be considered fatal).
 	 **/
 	async end(rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
-	{	let {state} = this;
+	{	let state = this.#state;
 		let buffer: Uint8Array|undefined;
 		if (state != ProtocolState.TERMINATED)
-		{	this.state = ProtocolState.TERMINATED;
+		{	this.#state = ProtocolState.TERMINATED;
 			if (state == ProtocolState.QUERYING)
-			{	const promise = new Promise<ProtocolState>(y => {this.onEndSession = y});
+			{	const promise = new Promise<ProtocolState>(y => {this.#onEndSession = y});
 				try
-				{	if (this.curLastColumnReader instanceof RdStream)
-					{	await this.curLastColumnReader.cancel();
+				{	if (this.#curLastColumnReader instanceof RdStream)
+					{	await this.#curLastColumnReader.cancel();
 					}
 					else
 					{	while (true)
-						{	if (!await this.curLastColumnReader?.read(BUFFER_FOR_END_SESSION))
+						{	if (!await this.#curLastColumnReader?.read(BUFFER_FOR_END_SESSION))
 							{	break;
 							}
 						}
@@ -2003,24 +2006,24 @@ L:		while (true)
 					}
 				}
 				state = await promise;
-				debugAssert(!this.curLastColumnReader);
-				this.onEndSession = undefined;
+				debugAssert(!this.#curLastColumnReader);
+				this.#onEndSession = undefined;
 			}
-			const {curResultsets} = this;
+			const curResultsets = this.#curResultsets;
 			if (curResultsets)
 			{	debugAssert(state==ProtocolState.HAS_MORE_ROWS || state==ProtocolState.HAS_MORE_RESULTSETS);
 				try
 				{	debugAssert(curResultsets.hasMoreInternal);
-					state = await this.doDiscard(state);
+					state = await this.#doDiscard(state);
 					debugAssert(!curResultsets.hasMoreInternal && (!curResultsets.protocol || curResultsets.stmtId>=0));
 					curResultsets.hasMoreInternal = true; // mark this resultset as cancelled (hasMoreProtocol && !protocol)
 				}
 				catch (e)
 				{	this.logger.error(e);
 					recycleConnection = false;
-					this.curResultsets = undefined;
+					this.#curResultsets = undefined;
 				}
-				debugAssert(!this.curResultsets);
+				debugAssert(!this.#curResultsets);
 			}
 			if (rollbackPreparedXaId)
 			{	try
@@ -2036,37 +2039,38 @@ L:		while (true)
 				{	this.logger.error(e);
 				}
 			}
-			this.curLastColumnReader = undefined;
-			this.onEndSession = undefined;
+			this.#curLastColumnReader = undefined;
+			this.#onEndSession = undefined;
 			buffer = this.recycleBuffer();
 			this.reader.releaseLock();
 			this.writer.releaseLock();
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.conn, this.decoder, buffer, this.dsn);
+				const protocol = new MyProtocol(this.#conn, this.decoder, buffer, this.dsn);
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
-				protocol.initSchema = this.initSchema;
-				protocol.initSql = this.initSql;
-				protocol.maxColumnLen = this.maxColumnLen;
-				protocol.retryQueryTimes = this.retryQueryTimes;
-				protocol.onLoadFile = this.onLoadFile;
+				protocol.#initSchema = this.#initSchema;
+				protocol.#initSql = this.#initSql;
+				protocol.#maxColumnLen = this.#maxColumnLen;
+				protocol.#retryQueryTimes = this.#retryQueryTimes;
+				protocol.#onLoadFile = this.#onLoadFile;
 				protocol.logger = this.logger;
-				const {initSchema, initSql} = this;
+				const initSchema = this.#initSchema;
+				const initSql = this.#initSql;
 				try
-				{	if (this.sqlLogger)
-					{	await this.sqlLogger.resetConnection(this.connectionId);
+				{	if (this.#sqlLogger)
+					{	await this.#sqlLogger.resetConnection(this.connectionId);
 						if (withDisposeSqlLogger)
-						{	await this.sqlLogger.dispose();
+						{	await this.#sqlLogger.dispose();
 						}
 					}
-					await protocol.sendComResetConnectionAndInitDb(initSchema);
+					await protocol.#sendComResetConnectionAndInitDb(initSchema);
 					if (initSql)
 					{	await protocol.sendComQuery(initSql);
 					}
-					debugAssert(protocol.state == ProtocolState.IDLE);
-					protocol.state = ProtocolState.IDLE_IN_POOL;
+					debugAssert(protocol.#state == ProtocolState.IDLE);
+					protocol.#state = ProtocolState.IDLE_IN_POOL;
 					return protocol;
 				}
 				catch (e)
@@ -2076,16 +2080,16 @@ L:		while (true)
 			// don't recycle connection (only buffer)
 			if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
 			{	try
-				{	this.conn.close();
+				{	this.#conn.close();
 				}
 				catch (e)
 				{	this.logger.error(e);
 				}
 			}
-			if (this.sqlLogger)
-			{	await this.sqlLogger.disconnect(this.connectionId);
+			if (this.#sqlLogger)
+			{	await this.#sqlLogger.disconnect(this.connectionId);
 				if (withDisposeSqlLogger)
-				{	await this.sqlLogger.dispose();
+				{	await this.#sqlLogger.dispose();
 				}
 			}
 		}

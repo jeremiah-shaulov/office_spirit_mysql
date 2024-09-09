@@ -72,45 +72,51 @@ export interface SafeSqlLoggerQuery
 }
 
 export class SafeSqlLogger
-{	constructor(private dsn: Dsn, private underlying: SqlLogger, private logger: Logger)
-	{
+{	#dsn;
+	#underlying;
+	#logger;
+
+	constructor(dsn: Dsn, underlying: SqlLogger, logger: Logger)
+	{	this.#dsn = dsn;
+		this.#underlying = underlying;
+		this.#logger = logger;
 	}
 
 	connect(connectionId: number)
 	{	try
-		{	return this.underlying.connect?.(this.dsn, connectionId) || Promise.resolve();
+		{	return this.#underlying.connect?.(this.#dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 		return Promise.resolve();
 	}
 
 	resetConnection(connectionId: number)
 	{	try
-		{	return this.underlying.resetConnection?.(this.dsn, connectionId) || Promise.resolve();
+		{	return this.#underlying.resetConnection?.(this.#dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 		return Promise.resolve();
 	}
 
 	disconnect(connectionId: number)
 	{	try
-		{	return this.underlying.disconnect?.(this.dsn, connectionId) || Promise.resolve();
+		{	return this.#underlying.disconnect?.(this.#dsn, connectionId) || Promise.resolve();
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 		return Promise.resolve();
 	}
 
 	async query(connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean): Promise<SafeSqlLoggerQuery| undefined>
 	{	try
-		{	const underlyingQuery = await this.underlying.query?.(this.dsn, connectionId, isPrepare, noBackslashEscapes);
+		{	const underlyingQuery = await this.#underlying.query?.(this.#dsn, connectionId, isPrepare, noBackslashEscapes);
 			if (underlyingQuery)
-			{	const {logger} = this;
+			{	const logger = this.#logger;
 				let curNParam = -1;
 				const query =
 				{	appendToQuery(data: Uint8Array)
@@ -191,26 +197,26 @@ export class SafeSqlLogger
 			}
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 	}
 
 	deallocatePrepare(connectionId: number, stmtId: number)
 	{	try
-		{	return this.underlying.deallocatePrepare?.(this.dsn, connectionId, stmtId) || Promise.resolve();
+		{	return this.#underlying.deallocatePrepare?.(this.#dsn, connectionId, stmtId) || Promise.resolve();
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 		return Promise.resolve();
 	}
 
 	dispose()
 	{	try
-		{	return this.underlying.dispose?.() || Promise.resolve();
+		{	return this.#underlying.dispose?.() || Promise.resolve();
 		}
 		catch (e)
-		{	this.logger.error(e);
+		{	this.#logger.error(e);
 		}
 		return Promise.resolve();
 	}

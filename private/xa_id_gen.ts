@@ -1,21 +1,21 @@
 const RE_XA_ID = /^([0-9a-z]{6})\.\d+@([0-9a-z]+)(?:>([0-9a-z]*))?-(\d*)$/;
 
 export class XaIdGen
-{	private lastTime = 0;
-	private lastEnum = 0;
-	private pid = Deno.pid;
+{	#lastTime = 0;
+	#lastEnum = 0;
+	#pid = Deno.pid;
 
 	next(xaInfoTableHash?: number)
 	{	const curTime = Math.floor(Date.now()/1000);
 		let curEnum = 0;
-		if (curTime == this.lastTime)
-		{	curEnum = ++this.lastEnum;
+		if (curTime == this.#lastTime)
+		{	curEnum = ++this.#lastEnum;
 		}
 		else
-		{	this.lastTime = curTime;
-			this.lastEnum = 0;
+		{	this.#lastTime = curTime;
+			this.#lastEnum = 0;
 		}
-		let v = curTime.toString(36)+'.'+curEnum.toString(36)+'@'+this.pid.toString(36);
+		let v = curTime.toString(36)+'.'+curEnum.toString(36)+'@'+this.#pid.toString(36);
 		if (xaInfoTableHash != undefined)
 		{	v += '>'+xaInfoTableHash.toString(36);
 		}
