@@ -326,7 +326,7 @@ export class MySession
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
 	{	if (sqlLogger === true)
-		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor); // want to pass the same object instance to each conn
+		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#logger); // want to pass the same object instance to each conn
 		}
 		this.#sqlLogger = sqlLogger;
 		for (const conn of this.connsArr)

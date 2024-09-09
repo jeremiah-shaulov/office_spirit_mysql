@@ -6,6 +6,7 @@ import {SqlLogToWritableBase} from "./sql_log_to_writer_base.ts";
 import {SqlWordsList} from "./sql_words_list.ts";
 import {Colors} from './deps.ts';
 import {Writer} from "./deno_ifaces.ts";
+import {Logger} from "./my_protocol.ts";
 
 const DEFAULT_QUERY_MAX_BYTES = 10_000;
 const DEFAULT_PARAM_MAX_BYTES = 3_000;
@@ -50,8 +51,9 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 		protected queryMaxBytes = DEFAULT_QUERY_MAX_BYTES,
 		protected paramMaxBytes = DEFAULT_PARAM_MAX_BYTES,
 		protected maxLines = DEFAULT_MAX_LINES,
+		logger: Logger = console,
 	)
-	{	super(writer);
+	{	super(writer, logger);
 		if (withColor)
 		{	this.#msgOk = Colors.green('OK');
 			this.#msgError = Colors.red('ERROR:');

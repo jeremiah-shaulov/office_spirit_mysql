@@ -853,14 +853,13 @@ L:		while (true)
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	async #sendComStmtClose(stmtId: number)
-	{	if (this.#sqlLogger)
-		{	await this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId);
-		}
+	#sendComStmtClose(stmtId: number): Promise<unknown>
+	{	const loggerPromise = !this.#sqlLogger ? undefined : this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId);
 		this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_CLOSE);
 		this.writeUint32(stmtId);
-		return await this.send();
+		const promise = this.send();
+		return !loggerPromise ? promise : Promise.all([loggerPromise, promise]);
 	}
 
 	/**	On success returns ResultsetsProtocol<Row>.

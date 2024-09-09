@@ -17,7 +17,7 @@ interface ToSqlBytes
 export type SqlSource =
 	string |
 	Uint8Array |
-	(Reader | {readonly readable: ReadableStream<Uint8Array>}) & (Seeker | {readonly size: number}) |
+	({readonly readable: ReadableStream<Uint8Array>} | Reader) & ({readonly size: number} | Seeker) |
 	ToSqlBytes;
 
 const encoder = new TextEncoder;
@@ -255,17 +255,17 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			if (data.buffer == this.buffer.buffer)
 			{	this.bufferEnd += data.length;
 				debugAssert(!canWait); // after sending Sql queries response always follows
-				if (logData)
-				{	await logData(data);
+				if (!logData)
+				{	await this.send();
 				}
-				await this.send();
+				else
+				{	await Promise.all([logData(data), this.send()]);
+				}
 				return false;
 			}
 		}
 		if (data instanceof Uint8Array)
-		{	if (logData)
-			{	await logData(data);
-			}
+		{	const logPromise = !logData ? undefined : logData(data);
 			const packetSize = this.bufferEnd - this.bufferStart - 4 + data.length;
 			try
 			{	let packetSizeRemaining = packetSize;
@@ -305,6 +305,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			catch (e)
 			{	throw new SendWithDataError(e.message, packetSize);
 			}
+			finally
+			{	if (logPromise)
+				{	await logPromise;
+				}
+			}
 		}
 		else if (typeof(data) == 'string')
 		{	const maxByteLen = data.length * 4;
@@ -312,13 +317,18 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	// short string
 				const from = this.bufferEnd;
 				this.writeString(data);
-				if (logData)
-				{	await logData(this.buffer.subarray(from, this.bufferEnd));
-				}
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-				{	return true;
+				{	if (logData)
+					{	await logData(this.buffer.subarray(from, this.bufferEnd));
+					}
+					return true;
 				}
-				await this.send();
+				if (!logData)
+				{	await this.send();
+				}
+				else
+				{	await Promise.all([logData(this.buffer.subarray(from, this.bufferEnd)), this.send()]);
+				}
 				return false;
 			}
 			else
@@ -338,10 +348,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
 							data = data.slice(read);
 							const part = forEncode.subarray(0, written);
-							if (logData)
-							{	await logData(part);
+							if (!logData)
+							{	await this.writer.write(part);
 							}
-							await this.writer.write(part);
+							else
+							{	await Promise.all([logData(part), this.writer.write(part)]);
+							}
 							dataChunkLen -= written;
 						}
 						this.bufferStart = 0;
@@ -354,14 +366,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						debugAssert(read == data.length);
 						debugAssert(written == dataLength);
 						this.bufferEnd += written;
-						if (logData)
-						{	logData(this.buffer.subarray(0, this.bufferEnd));
-						}
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-						{	return true;
+						{	if (logData)
+							{	await logData(this.buffer.subarray(0, this.bufferEnd));
+							}
+							return true;
 						}
 						this.#setHeader(packetSizeRemaining);
-						await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+						if (!logData)
+						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+						}
+						else
+						{	await Promise.all([logData(this.buffer.subarray(0, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
+						}
 					}
 					else
 					{	this.#setHeader(packetSizeRemaining);
@@ -371,10 +388,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							data = data.slice(read);
 							dataLength -= written;
 							const part = forEncode.subarray(0, written);
-							if (logData)
-							{	await logData(part);
+							if (!logData)
+							{	await this.writer.write(part);
 							}
-							await this.writer.write(part);
+							else
+							{	await Promise.all([logData(part), this.writer.write(part)]);
+							}
 						}
 					}
 				}
@@ -440,11 +459,13 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	throw new Error(`Unexpected end of stream`);
 				}
 				this.buffer = new Uint8Array(value.buffer);
-				if (logData)
-				{	await logData(value);
-				}
 				try
-				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length));
+				{	if (!logData)
+					{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length));
+					}
+					else
+					{	await Promise.all([logData(value), this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length))]);
+					}
 				}
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
