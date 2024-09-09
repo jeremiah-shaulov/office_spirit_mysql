@@ -1771,7 +1771,7 @@ L:		while (true)
 					{	if (isReading != IsReading.NO)
 						{	if (isReading==IsReading.YES && that.onEndSession)
 							{	isReading = IsReading.YES_BY_END_SESSION;
-								return null; // assume: endSession() called me (maybe in parallel with user's reader)
+								return null; // assume: `session[Symbol.dispose]()` called me (maybe in parallel with user's reader)
 							}
 							throw new BusyError('Data is being read by another reader');
 						}

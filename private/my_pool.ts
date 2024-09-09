@@ -3,7 +3,7 @@ import {Dsn} from './dsn.ts';
 import {ServerDisconnectedError} from "./errors.ts";
 import {DEFAULT_MAX_CONNS, MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
 import {MyProtocol, OnLoadFile, Logger} from './my_protocol.ts';
-import {MySession, MySessionInternal} from "./my_session.ts";
+import {MySession} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 import {SafeSqlLogger} from "./sql_logger.ts";
 import {crc32} from "./deps.ts";
@@ -58,8 +58,9 @@ export class MyPool
 	private onLoadFile: OnLoadFile|undefined;
 	private onBeforeCommit: OnBeforeCommit|undefined;
 
-	private getConnFunc = this.getConn.bind(this);
-	private returnConnFunc = this.returnConn.bind(this);
+	private getConnFromPoolFunc = this.getConnFromPool.bind(this);
+	private returnConnToPoolFunc = this.returnConnToPool.bind(this);
+	private decSessionsOrConnsFunc = this.decSessionsOrConns.bind(this);
 
 	constructor(options?: Dsn | string | MyPoolOptions)
 	{	this.xaTask = new XaTask(this);
@@ -181,24 +182,37 @@ export class MyPool
 		return true;
 	}
 
-	async session<T>(callback: (session: MySession) => Promise<T>)
+	getSession()
 	{	if (this.isShuttingDown)
 		{	throw new Error(`Connections pool is shut down`);
 		}
-		const session = new MySessionInternal(this, this.dsn, this.xaTask.xaInfoTables, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
-		try
-		{	this.nSessionsOrConns++;
-			return await callback(session);
-		}
-		finally
-		{	session.endSession();
-			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
-			{	this.onend?.();
-			}
-		}
+		const session = new MySession
+		(	this,
+			this.dsn,
+			this.xaTask.xaInfoTables,
+			this.xaTask.logger,
+			this.getConnFromPoolFunc,
+			this.returnConnToPoolFunc,
+			this.onBeforeCommit,
+			this.decSessionsOrConnsFunc,
+		);
+		this.nSessionsOrConns++;
+		return session;
 	}
 
-	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
+	async forSession<T>(callback: (session: MySession) => Promise<T>)
+	{	using session = this.getSession();
+		return await callback(session);
+	}
+
+	/**	Deprecated alias of `forSession()`.
+		@deprecated
+	 **/
+	session<T>(callback: (session: MySession) => Promise<T>)
+	{	return this.forSession(callback);
+	}
+
+	getConn(dsn?: Dsn|string): MyConn
 	{	if (this.isShuttingDown && this.nSessionsOrConns==0)
 		{	throw new Error(`Connections pool is shut down`);
 		}
@@ -211,16 +225,27 @@ export class MyPool
 		else if (typeof(dsn) == 'string')
 		{	dsn = new Dsn(dsn);
 		}
-		const conn = new MyConnInternal(dsn, undefined, this.xaTask.logger, this.getConnFunc, this.returnConnFunc, this.onBeforeCommit);
-		try
-		{	this.nSessionsOrConns++;
-			return await callback(conn);
-		}
-		finally
-		{	conn.endAndDisposeSqlLogger();
-			if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
-			{	this.onend?.();
-			}
+		const conn = new MyConnInternal
+		(	dsn,
+			undefined,
+			this.xaTask.logger,
+			this.getConnFromPoolFunc,
+			this.returnConnToPoolFunc,
+			this.onBeforeCommit,
+			this.decSessionsOrConnsFunc,
+		);
+		this.nSessionsOrConns++;
+		return conn;
+	}
+
+	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
+	{	using conn = this.getConn(dsn);
+		return await callback(conn);
+	}
+
+	private decSessionsOrConns()
+	{	if (--this.nSessionsOrConns==0 && this.nBusyAll==0)
+		{	this.onend?.();
 		}
 	}
 
@@ -310,7 +335,7 @@ export class MyPool
 		}
 	}
 
-	private async getConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
+	private async getConnFromPool(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.nIdleAll>=0 && this.nBusyAll>=0);
 		// 1. Find connsPool
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
@@ -377,7 +402,7 @@ export class MyPool
 		}
 	}
 
-	private returnConn(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	private returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
 		(	protocolOrBuffer =>
 			{	let conns = this.connsPool.get(dsn.hash);
@@ -396,7 +421,7 @@ export class MyPool
 					}
 				}
 				if (!conns || i==-1)
-				{	// assume: returnConn() already called for this connection
+				{	// assume: returnConnToPool() already called for this connection
 					return;
 				}
 				debugAssert(this.nIdleAll>=0 && this.nBusyAll>=1);
@@ -489,7 +514,7 @@ class XaTask
 		this.xaTaskBusy = true;
 
 		try
-		{	await this.pool.session
+		{	await this.pool.forSession
 			(	async session =>
 				{	// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 					type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};

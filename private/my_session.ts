@@ -1,5 +1,5 @@
 import {Dsn} from './dsn.ts';
-import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFunc, ReturnConnFunc, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
+import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFromPoolFunc, ReturnConnToPoolFunc, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
 import {SqlLogger} from "./sql_logger.ts";
@@ -9,22 +9,35 @@ import {XaIdGen} from "./xa_id_gen.ts";
 const xaIdGen = new XaIdGen;
 
 export class MySession
-{	protected connsArr: MyConnInternal[] = [];
+{	protected connsArr = new Array<MyConnInternal>;
 	private savepointEnum = 0;
 	private trxOptions: {readonly: boolean, xaId1: string} | undefined;
 	private curXaInfoTable: XaInfoTable | undefined;
 	private sqlLogger: SqlLogger | true | undefined;
+	private isDisposed = false;
 
 	constructor
 	(	private pool: MyPool,
 		private dsn: Dsn|undefined,
-		private xaInfoTables: XaInfoTable[] = [],
+		private xaInfoTables = new Array<XaInfoTable>,
 		private logger: Logger,
-		private getConnFunc: GetConnFunc,
-		private returnConnFunc: ReturnConnFunc,
+		private getConnFromPoolFunc: GetConnFromPoolFunc,
+		private returnConnToPoolFunc: ReturnConnToPoolFunc,
 		private onBeforeCommit?: OnBeforeCommit,
+		private onDispose?: VoidFunction,
 	)
 	{
+	}
+
+	[Symbol.dispose]()
+	{	const {onDispose, connsArr} = this;
+		this.onDispose = undefined;
+		this.isDisposed = true;
+		this.connsArr = [];
+		for (const conn of connsArr)
+		{	conn[Symbol.dispose]();
+		}
+		onDispose?.();
 	}
 
 	get conns(): readonly MyConn[]
@@ -32,7 +45,10 @@ export class MySession
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
-	{	if (dsn == undefined)
+	{	if (this.isDisposed)
+		{	throw new Error(`This session object is already disposed of`);
+		}
+		if (dsn == undefined)
 		{	dsn = this.dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
@@ -46,7 +62,7 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.trxOptions, this.logger, this.getConnFunc, this.returnConnFunc, undefined);
+		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.trxOptions, this.logger, this.getConnFromPoolFunc, this.returnConnToPoolFunc, undefined);
 		if (this.sqlLogger)
 		{	conn.setSqlLogger(this.sqlLogger);
 		}
@@ -296,17 +312,6 @@ export class MySession
 		this.sqlLogger = sqlLogger;
 		for (const conn of this.connsArr)
 		{	conn.setSqlLogger(sqlLogger);
-		}
-	}
-}
-
-/**	This library creates sessions as MySessionInternal object, but exposes them as MySession.
-	Methods that don't exist on MySession are for internal use.
- **/
-export class MySessionInternal extends MySession
-{	endSession()
-	{	for (const conn of this.connsArr)
-		{	conn.endAndDisposeSqlLogger();
 		}
 	}
 }

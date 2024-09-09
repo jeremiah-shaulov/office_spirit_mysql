@@ -10,8 +10,8 @@ import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
 import {SqlLogToWritable} from "./sql_log_to_writer.ts";
 import {Reader} from './deno_ifaces.ts';
 
-export type GetConnFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
-export type ReturnConnFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
+export type GetConnFromPoolFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
+export type ReturnConnToPoolFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
 export type OnBeforeCommit = (conns: readonly MyConn[]) => Promise<void>;
 
 export const DEFAULT_MAX_CONNS = 250;
@@ -46,14 +46,16 @@ export class MyConn
 	private isXaPrepared = false;
 	protected pendingTrxSql: string[] = []; // empty string means XA START (because full XA ID was not known)
 	private preparedStmtsForParams: number[] = [];
+	private isDisposed = false;
 
 	constructor
 	(	readonly dsn: Dsn,
 		trxOptions: {readonly: boolean, xaId1: string} | undefined,
 		private logger: Logger,
-		private getConnFunc: GetConnFunc,
-		private returnConnFunc: ReturnConnFunc,
+		private getConnFromPoolFunc: GetConnFromPoolFunc,
+		private returnConnToPoolFunc: ReturnConnToPoolFunc,
 		private onBeforeCommit?: OnBeforeCommit,
+		private onDispose?: VoidFunction,
 	)
 	{	if (trxOptions)
 		{	this.startTrx(trxOptions);
@@ -103,11 +105,14 @@ export class MyConn
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
 		if (!this.protocol)
-		{	this.isConnecting = true;
+		{	if (this.isDisposed)
+			{	throw new Error(`This connection object is already disposed of`);
+			}
+			this.isConnecting = true;
 			try
-			{	const protocol = await this.getConnFunc(this.dsn, this.sqlLogger);
+			{	const protocol = await this.getConnFromPoolFunc(this.dsn, this.sqlLogger);
 				if (!this.isConnecting) // end() called
-				{	this.returnConnFunc(this.dsn, protocol, '', false);
+				{	this.returnConnToPoolFunc(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
@@ -122,7 +127,15 @@ export class MyConn
 	{	this.doEnd(false);
 	}
 
-	protected doEnd(withDisposeSqlLogger: boolean)
+	[Symbol.dispose]()
+	{	const {onDispose} = this;
+		this.onDispose = undefined;
+		this.isDisposed = true;
+		this.doEnd(true);
+		onDispose?.();
+	}
+
+	private doEnd(withDisposeSqlLogger: boolean)
 	{	const {protocol, curXaId, isXaPrepared} = this;
 		this.isConnecting = false;
 		this.savepointEnum = 0;
@@ -133,7 +146,7 @@ export class MyConn
 		this.preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.returnConnFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.returnConnToPoolFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
@@ -660,11 +673,7 @@ export class MyConn
 	Methods that don't exist on MyConn are for internal use.
  **/
 export class MyConnInternal extends MyConn
-{	endAndDisposeSqlLogger()
-	{	this.doEnd(true);
-	}
-
-	sessionSavepoint(pointId: number)
+{	sessionSavepoint(pointId: number)
 	{	this.pendingTrxSql.push(`SAVEPOINT s${pointId}`);
 	}
 }
