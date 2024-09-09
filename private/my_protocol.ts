@@ -605,11 +605,9 @@ L:		while (true)
 								{	await this.send();
 									break;
 								}
-								else
-								{	buffer = new Uint8Array(value.buffer);
-									this.writeBytes(value);
-									await this.send();
-								}
+								buffer = new Uint8Array(value.buffer);
+								this.writeBytes(value);
+								await this.send();
 							}
 						}
 						finally
@@ -1165,6 +1163,55 @@ L:		while (true)
 						}
 						else
 						{	extraSpaceForParams -= param.byteLength;
+						}
+					}
+					else if (param instanceof ReadableStream)
+					{	const reader = param.getReader({mode: 'byob'});
+						try
+						{	let buffer = new Uint8Array(this.buffer.length);
+							sqlLoggerQuery?.paramStart(i);
+							let isNotEmpty = false;
+							while (true)
+							{	this.startWritingNewPacket(!isNotEmpty, true);
+								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+								this.writeUint32(stmtId);
+								this.writeUint16(i);
+								const from = this.bufferEnd;
+								const {value, done} = await reader.read(buffer.subarray(0, this.buffer.length - from));
+								if (done)
+								{	this.discardPacket();
+									break;
+								}
+								buffer = new Uint8Array(value.buffer);
+								this.writeBytes(value);
+								if (sqlLoggerQuery)
+								{	await sqlLoggerQuery.appendToParam(this.buffer.subarray(from, this.bufferEnd));
+								}
+								await this.send();
+								isNotEmpty = true;
+							}
+							if (sqlLoggerQuery)
+							{	await sqlLoggerQuery.paramEnd();
+							}
+							if (isNotEmpty)
+							{	placeholdersSent.add(i);
+							}
+							/*while (true)
+							{	this.startWritingNewPacket();
+								const {value, done} = await reader.read(buffer.subarray(0, this.buffer.length - this.bufferEnd));
+								if (done)
+								{	await this.send();
+									break;
+								}
+								else
+								{	buffer = new Uint8Array(value.buffer);
+									this.writeBytes(value);
+									await this.send();
+								}
+							}*/
+						}
+						finally
+						{	reader.releaseLock();
 						}
 					}
 					else if (typeof(param.read) == 'function')
