@@ -19,10 +19,10 @@ Basic example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example1.ts~)' > /tmp/example1.ts
 // deno run --allow-env --allow-net /tmp/example1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -98,9 +98,10 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 - `foundRows` (boolean, default `false`) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
 - `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
 - `multiStatements` (boolean, default `false`) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky
-- `retryQueryTimes` - (number, default `0`) Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or "lock wait timeout" in both modes. Please note, that this will also rerun queries like `CALL`.
+- `retryLockWaitTimeout` (boolean, default `false`) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
+- `retryQueryTimes` - (number, default `0`) Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes. Please note, that this will also rerun queries like `CALL`.
 - `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
-- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7.
+- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
 
 ## Connections
 
@@ -123,7 +124,7 @@ MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Pro
 The following is essentially the same:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -132,7 +133,7 @@ console.log(version);
 ```
 And:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 const version = await pool.forConn
@@ -146,7 +147,7 @@ console.log(version);
 
 If the promise that `pool.forConn()` returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 pool.forConn
@@ -202,10 +203,10 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
 using session = pool.getSession();
@@ -261,10 +262,10 @@ You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example3.ts~)' > /tmp/example3.ts
 // deno run --allow-env --allow-net /tmp/example3.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -287,10 +288,10 @@ And it skips all further rows, if they exist.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example4.ts~)' > /tmp/example4.ts
 // deno run --allow-env --allow-net /tmp/example4.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -315,10 +316,10 @@ ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|un
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example5.ts~)' > /tmp/example5.ts
 // deno run --allow-env --allow-net /tmp/example5.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -349,10 +350,10 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example6.ts~)' > /tmp/example6.ts
 // deno run --allow-env --allow-net /tmp/example6.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -389,10 +390,10 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example7.ts~)' > /tmp/example7.ts
 // deno run --allow-env --allow-net /tmp/example7.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -417,10 +418,10 @@ If you're sure about column types, you can override the column type with `any` (
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.ts~)' > /tmp/example8.ts
 // deno run --allow-env --allow-net /tmp/example8.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -496,17 +497,17 @@ This library can correct dates by adding and subtracting the difference between 
 
 - Set the `correctDates` parameter.
 - Explicitly execute `SET` SQL statement that sets `time_zone` system variable, like `SET time_zone='UTC'` or equivalent. You can include it in `Dsn.initSql`, or execute through `conn.query()` before dates conversion is needed. The value that you provide to the `time_zone` variable must be recognizeable by both MySQL and Javascript `Intl.DateTimeFormat` object.
-- Use MySQL 5.7+. This feature doesn't work on MariaDB at least up to v10.7 (as it requires variables notification functionality).
+- Use MySQL 5.7+ or MariaDB 10.3+
 
 Consider the following example:
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.1.ts~)' > /tmp/example8.1.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.1.ts~)' > /tmp/example8.1.ts
 // deno run --allow-env --allow-net /tmp/example8.1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -526,10 +527,10 @@ But with `correctDates` parameter set 2 equal dates are always printed, because 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.2.ts~)' > /tmp/example8.2.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example8.2.ts~)' > /tmp/example8.2.ts
 // deno run --allow-env --allow-net /tmp/example8.2.ts
 
-import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 dsn.correctDates = true; // THE DIFFERENCE IS HERE
@@ -563,10 +564,10 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example9.ts~)' > /tmp/example9.ts
 // deno run --allow-env --allow-net /tmp/example9.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -587,10 +588,10 @@ Parameter names will override session variables with the same names.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example10.ts~)' > /tmp/example10.ts
 // deno run --allow-env --allow-net /tmp/example10.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -643,10 +644,10 @@ Example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example11.ts~)' > /tmp/example11.ts
 // deno run --allow-env --allow-net /tmp/example11.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 // 1. Define the generator
 
@@ -746,10 +747,10 @@ Let's measure how fast is all that.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example12.ts~)' > /tmp/example12.ts
 // deno run --allow-env --allow-net /tmp/example12.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 const N_ROWS = 100;
 const N_QUERIES = 800;
@@ -843,10 +844,10 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example13.ts~)' > /tmp/example13.ts
 // deno run --allow-env --allow-net /tmp/example13.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -891,10 +892,10 @@ This library tries to have everything needed in real life usage. It's possible t
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example14.ts~)' > /tmp/example14.ts
 // deno run --allow-env --allow-net /tmp/example14.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -904,7 +905,7 @@ await conn.query("INSERT INTO t_log SET `time`=Now(), message='long long message
 
 const row = await conn.makeLastColumnReadable("SELECT `time`, message FROM t_log WHERE id=1");
 if (row?.message instanceof ReadableStream)
-{	await row.message.pipeTo(Deno.stdout.writable);
+{	await row.message.pipeTo(Deno.stdout.writable, {preventClose: true});
 }
 ```
 
@@ -915,10 +916,10 @@ Query parameter values can be of various types, including `ReadableStream<Uint8A
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example15.ts~)' > /tmp/example15.ts
 // deno run --allow-env --allow-net /tmp/example15.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -932,7 +933,7 @@ await conn.queryVoid("INSERT INTO t_log SET `time`=Now(), message=?", [file.read
 // Read the contents back from db
 const row = await conn.makeLastColumnReadable("SELECT `time`, message FROM t_log WHERE id=1");
 if (row?.message instanceof ReadableStream)
-{	await row.message.pipeTo(Deno.stdout.writable);
+{	await row.message.pipeTo(Deno.stdout.writable, {preventClose: true});
 }
 ```
 
@@ -953,14 +954,15 @@ This allows to read SQL from files.
 
 ```ts
 // To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests?multiStatements'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example16.ts~)' > /tmp/example16.ts
 // deno run --allow-env --allow-net /tmp/example16.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
-// Don't forget `?multiStatements`
-await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
+const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+dsn.multiStatements = true;
+await using pool = new MyPool(dsn);
 using conn = pool.getConn();
 
 const filename = await Deno.makeTempFile();
@@ -990,10 +992,10 @@ If this feature is enabled on your server, you can register a custom handler tha
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example17.ts~)' > /tmp/example17.ts
 // deno run --allow-env --allow-net /tmp/example17.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 import {dirname} from "https://deno.land/std@0.224.0/path/mod.ts";
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1079,14 +1081,15 @@ And you must read or discard all the resultsets before being able to issue next 
 
 ```ts
 // To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests?multiStatements'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
+// export DSN='mysql://root:hello@localhost/tests'
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example18.ts~)' > /tmp/example18.ts
 // deno run --allow-env --allow-net /tmp/example18.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
-// Don't forget `?multiStatements`
-await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests?multiStatements');
+const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+dsn.multiStatements = true;
+await using pool = new MyPool(dsn);
 using conn = pool.getConn();
 
 const resultsets = await conn.query
@@ -1148,10 +1151,10 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example19.ts~)' > /tmp/example19.ts
 // deno run --allow-env --allow-net /tmp/example19.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1262,10 +1265,10 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example20.ts~)' > /tmp/example20.ts
 // deno run --allow-env --allow-net --allow-write /tmp/example20.ts
 
-import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -1326,7 +1329,7 @@ To view the color-highlighted file we can do:
 less -r /tmp/sql.log
 ```
 
-You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.15.0/private/sql_log_to_writer.ts) how `SqlLogToWriter` class is implemented,
+You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.15.1/private/sql_log_to_writer.ts) how `SqlLogToWriter` class is implemented,
 and you can override it's public and protected methods to customize it's behavior.
 
 ## Transactions
@@ -1382,10 +1385,10 @@ To start a regular transaction call `startTrx()` without parameters. Then you ca
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example21.ts~)' > /tmp/example21.ts
 // deno run --allow-env --allow-net /tmp/example21.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1543,10 +1546,10 @@ If you wish you can add a timestamp column for your own use (transactions manage
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.0/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.15.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
 // deno run --allow-env --allow-net /tmp/example22.ts
 
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.15.0/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.15.1/mod.ts';
 
 const dsn1 = new Dsn('mysql://app:app@localhost/test1');
 const dsn2 = new Dsn('mysql://app:app@localhost/test2');

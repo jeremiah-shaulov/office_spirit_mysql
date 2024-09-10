@@ -45,7 +45,7 @@ export class SqlLogToWritableBase implements SqlLogger
 		// byConn
 		let byConn = this.#pending.get(dsn);
 		if (!byConn)
-		{	byConn = new Map();
+		{	byConn = new Map;
 			this.#pending.set(dsn, byConn);
 		}
 		// buf

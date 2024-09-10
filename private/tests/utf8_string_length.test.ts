@@ -4,7 +4,7 @@ import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.t
 Deno.test
 (	'Basic',
 	() =>
-	{	const encoder = new TextEncoder();
+	{	const encoder = new TextEncoder;
 
 		const strs =
 		[	'',

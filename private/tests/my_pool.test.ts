@@ -7,7 +7,7 @@ import {withDocker} from "./with_docker.ts";
 import {RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
-import {Reader, Writer} from '../deno_ifaces.ts';
+import {Reader} from '../deno_ifaces.ts';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -64,21 +64,6 @@ async function readAll(reader: Reader)
 		{	const buffer2 = new Uint8Array(buffer.length*2);
 			buffer2.set(buffer);
 			buffer = buffer2;
-		}
-	}
-}
-
-async function copy(reader: Reader, writer: Writer)
-{	const buffer = new Uint8Array(64*1024);
-	while (true)
-	{	const r = await reader.read(buffer);
-		if (!r)
-		{	return;
-		}
-		let rem = 0;
-		while (rem < r)
-		{	const w = await writer.write(buffer.subarray(rem, r));
-			rem += w;
 		}
 	}
 }
@@ -425,7 +410,7 @@ async function testBasic(dsnStr: string)
 			for (const id of [5, 6])
 			{	const filename = await Deno.makeTempFile();
 				try
-				{	const fh = await Deno.open(filename, {write: true, read: true});
+				{	using fh = await Deno.open(filename, {write: true, read: true});
 					const writer = fh.writable.getWriter();
 					try
 					{	await writer.write(new TextEncoder().encode(id==6 ? '' : 'Message '+id));
@@ -438,7 +423,6 @@ async function testBasic(dsnStr: string)
 					}
 					finally
 					{	writer.releaseLock();
-						fh.close();
 					}
 				}
 				finally
@@ -1729,7 +1713,7 @@ async function testLoadBigDump(dsnStr: string)
 
 					const filename = await Deno.makeTempFile();
 					try
-					{	const fh = await Deno.open(filename, {write: true, read: true});
+					{	using fh = await Deno.open(filename, {write: true, read: true});
 						const writer = fh.writable.getWriter();
 						try
 						{	// Write INSERT query to file
@@ -1794,37 +1778,33 @@ async function testLoadBigDump(dsnStr: string)
 							// SELECT from table to new file
 							const filename2 = await Deno.makeTempFile();
 							try
-							{	const fh2 = await Deno.open(filename2, {write: true, read: true});
-								try
-								{	const row = await conn.makeLastColumnReader("SELECT message FROM t_log WHERE id="+recordId);
-									await copy(row?.message as Any, fh2);
+							{	using fh2 = await Deno.open(filename2, {write: true, read: true});
+								const row = await conn.makeLastColumnReadable("SELECT message FROM t_log WHERE id="+recordId);
+								assert(row?.message instanceof ReadableStream);
+								await row.message.pipeTo(fh2.writable, {preventClose: true});
 
-									// Validate the new file size
-									let size2 = await fh2.seek(0, Deno.SeekMode.End);
-									assertEquals(size2, SIZE);
-									await fh2.seek(0, Deno.SeekMode.Start);
+								// Validate the new file size
+								let size2 = await fh2.seek(0, Deno.SeekMode.End);
+								assertEquals(size2, SIZE);
+								await fh2.seek(0, Deno.SeekMode.Start);
 
-									// Validate the new file contents
-									const since = Date.now();
-									console.log('Started validating');
-									const buffer2 = new Uint8Array(buffer.length);
-									while (size2 > 0)
-									{	let pos = 0;
-										const len = Math.min(buffer2.length, size2);
-										while (pos < len)
-										{	const n = await fh2.read(buffer2.subarray(pos, len));
-											assert(n != null);
-											pos += n;
-										}
-
-										assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
-										size2 -= len;
+								// Validate the new file contents
+								const since = Date.now();
+								console.log('Started validating');
+								const buffer2 = new Uint8Array(buffer.length);
+								while (size2 > 0)
+								{	let pos = 0;
+									const len = Math.min(buffer2.length, size2);
+									while (pos < len)
+									{	const n = await fh2.read(buffer2.subarray(pos, len));
+										assert(n != null);
+										pos += n;
 									}
-									console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
+
+									assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
+									size2 -= len;
 								}
-								finally
-								{	fh2.close();
-								}
+								console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
 							}
 							finally
 							{	await Deno.remove(filename2);
@@ -1832,7 +1812,6 @@ async function testLoadBigDump(dsnStr: string)
 						}
 						finally
 						{	writer.releaseLock();
-							fh.close();
 						}
 					}
 					finally
