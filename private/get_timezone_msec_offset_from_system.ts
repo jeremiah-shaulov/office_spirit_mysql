@@ -5,12 +5,12 @@
 	```
  **/
 export function getTimezoneMsecOffsetFromSystem(timeZone='UTC')
-{	const sysDate = new Date();
+{	const sysDate = new Date;
 	const sysDay = sysDate.getDate();
 	const sysHour = sysDate.getHours();
 	const sysMinute = sysDate.getMinutes();
 
-	const refParts = new Intl.DateTimeFormat('ISO', {timeZone, day: 'numeric', hour: 'numeric', minute: 'numeric'}).formatToParts(sysDate);
+	const refParts = new Intl.DateTimeFormat('fr', {timeZone, day: 'numeric', hour: 'numeric', minute: 'numeric'}).formatToParts(sysDate);
 	const refDay = Number(refParts.find(p => p.type == 'day')?.value) || 0;
 	const refHour = Number(refParts.find(p => p.type == 'hour')?.value) || 0;
 	const refMinute = Number(refParts.find(p => p.type == 'minute')?.value) || 0;
