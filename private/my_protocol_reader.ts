@@ -13,18 +13,15 @@ export class MyProtocolReader
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
 
-	#origBuffer: Uint8Array;
-
 	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(INIT_BUFFER_LEN);
-		this.#origBuffer = this.buffer;
 		debugAssert(this.buffer.length == INIT_BUFFER_LEN);
 	}
 
 	recycleBuffer()
-	{	const origBuffer = this.#origBuffer;
-		this.#origBuffer = this.buffer = STUB;
-		return origBuffer.length==INIT_BUFFER_LEN ? origBuffer : undefined; // this buffer can be recycled
+	{	const buffer = this.buffer;
+		this.buffer = STUB;
+		return buffer.length==INIT_BUFFER_LEN ? buffer : undefined; // this buffer can be recycled
 	}
 
 	protected ensureRoom(room: number)
