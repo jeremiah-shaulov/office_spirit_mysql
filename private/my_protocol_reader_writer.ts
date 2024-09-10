@@ -6,7 +6,6 @@ import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
-const BUFFER_FOR_ENCODE_MAX_LEN = 1*1024*1024;
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -337,7 +336,6 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
 				try
 				{	let packetSizeRemaining = packetSize;
-					const forEncode = this.bufferStart+4+packetSize <= this.buffer.length ? this.buffer : new Uint8Array(Math.min(dataLength, BUFFER_FOR_ENCODE_MAX_LEN));
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
 						this.#setHeader(0xFFFFFF);
@@ -345,9 +343,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
 						while (dataChunkLen > 0)
-						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataChunkLen, forEncode.length)));
+						{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, dataChunkLen));
 							data = data.slice(read);
-							const part = forEncode.subarray(0, written);
+							const part = this.buffer.subarray(0, written);
 							if (!logData)
 							{	await this.writer.write(part);
 							}
@@ -384,10 +382,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	this.#setHeader(packetSizeRemaining);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						while (dataLength > 0)
-						{	const {read, written} = encoder.encodeInto(data, forEncode.subarray(0, Math.min(dataLength, forEncode.length)));
+						{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(dataLength, this.buffer.length)));
 							data = data.slice(read);
 							dataLength -= written;
-							const part = forEncode.subarray(0, written);
+							const part = this.buffer.subarray(0, written);
 							if (!logData)
 							{	await this.writer.write(part);
 							}
