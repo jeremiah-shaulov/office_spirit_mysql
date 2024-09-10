@@ -92,13 +92,11 @@ export class MyProtocol extends MyProtocolReaderWriter
 	#curLastColumnReader: Reader | RdStream | undefined;
 	#onEndSession: ((state: ProtocolState) => void) | undefined;
 
-	#conn;
+	#closer;
 
-	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
-	{	const writer = conn.writable.getWriter();
-		const reader = conn.readable.getReader({mode: 'byob'});
-		super(writer, reader, decoder, useBuffer);
-		this.#conn = conn;
+	protected constructor(reader: ReadableStreamBYOBReader, writer: WritableStreamDefaultWriter<Uint8Array>, closer: Disposable, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
+	{	super(writer, reader, decoder, useBuffer);
+		this.#closer = closer;
 	}
 
 	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
@@ -113,7 +111,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	throw new SqlError('Schema name is too long');
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
-		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
+		const reader = conn.readable.getReader({mode: 'byob'});
+		const writer = conn.writable.getWriter();
+		const protocol = new MyProtocol(reader, writer, conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
 		protocol.#initSchema = schema;
 		protocol.#initSql = initSql;
 		if (maxColumnLen > 0)
@@ -767,7 +767,7 @@ L:		while (true)
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
-			{	this.#conn.close();
+			{	this.#closer[Symbol.dispose]();
 			}
 			catch (e)
 			{	this.logger.error(e);
@@ -782,7 +782,7 @@ L:		while (true)
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
-			{	this.#conn.close();
+			{	this.#closer[Symbol.dispose]();
 			}
 			catch (e)
 			{	this.logger.error(e);
@@ -849,12 +849,24 @@ L:		while (true)
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
 	#sendComStmtClose(stmtId: number): Promise<unknown>
-	{	const loggerPromise = !this.#sqlLogger ? undefined : this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId);
-		this.startWritingNewPacket(true);
+	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_CLOSE);
 		this.writeUint32(stmtId);
 		const promise = this.send();
-		return !loggerPromise ? promise : Promise.all([loggerPromise, promise]);
+		if (!this.#sqlLogger)
+		{	return promise;
+		}
+		else
+		{	return Promise.all([promise, this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId)]);
+		}
+	}
+
+	/**	I assume that i'm in ProtocolState.IDLE.
+	 **/
+	#sendComQuit()
+	{	this.startWritingNewPacket(true);
+		this.writeUint8(Command.COM_QUIT);
+		return this.send();
 	}
 
 	/**	On success returns ResultsetsProtocol<Row>.
@@ -1977,7 +1989,6 @@ L:		while (true)
 	 **/
 	async end(rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
 	{	let state = this.#state;
-		let buffer: Uint8Array|undefined;
 		if (state != ProtocolState.TERMINATED)
 		{	this.#state = ProtocolState.TERMINATED;
 			if (state == ProtocolState.QUERYING)
@@ -2035,12 +2046,9 @@ L:		while (true)
 			}
 			this.#curLastColumnReader = undefined;
 			this.#onEndSession = undefined;
-			buffer = this.recycleBuffer();
-			this.reader.releaseLock();
-			this.writer.releaseLock();
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.#conn, this.decoder, buffer, this.dsn, this.logger);
+				const protocol = new MyProtocol(this.reader, this.writer, this.#closer, this.decoder, this.recycleBuffer(), this.dsn, this.logger);
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
@@ -2073,7 +2081,25 @@ L:		while (true)
 			// don't recycle connection (only buffer)
 			if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
 			{	try
-				{	this.#conn.close();
+				{	await this.#sendComQuit();
+				}
+				catch (e)
+				{	this.logger.error(e);
+				}
+				try
+				{	this.reader.releaseLock();
+				}
+				catch (e)
+				{	this.logger.error(e);
+				}
+				try
+				{	this.writer.releaseLock();
+				}
+				catch (e)
+				{	this.logger.error(e);
+				}
+				try
+				{	this.#closer[Symbol.dispose]();
 				}
 				catch (e)
 				{	this.logger.error(e);
@@ -2086,6 +2112,6 @@ L:		while (true)
 				}
 			}
 		}
-		return buffer;
+		return this.recycleBuffer();
 	}
 }
