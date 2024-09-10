@@ -1616,6 +1616,7 @@ async function testRetryQueryTimes(dsnStr: string)
 
 			// Parallel connection
 			const dsn2 = new Dsn(dsnStr);
+			dsn2.retryLockWaitTimeout = true;
 			dsn2.retryQueryTimes = 2;
 			await pool.forConn
 			(	async conn2 =>

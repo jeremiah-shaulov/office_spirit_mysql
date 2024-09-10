@@ -21,7 +21,8 @@ type Any = any;
 	`foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
 	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
 	`multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky;
-	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or "lock wait timeout" in both modes;
+	`retryLockWaitTimeout` (boolean) - if set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
+	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` is set) "lock wait timeout" in both modes;
 	`datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
 	`correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
  **/
@@ -44,6 +45,7 @@ export class Dsn
 	#ignoreSpace: boolean;
 	/** SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky */
 	#multiStatements: boolean;
+	#retryLockWaitTimeout: boolean;
 	#retryQueryTimes: number;
 	#datesAsString: boolean;
 	#correctDates: boolean;
@@ -177,6 +179,14 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	get retryLockWaitTimeout()
+	{	return this.#retryLockWaitTimeout;
+	}
+	set retryLockWaitTimeout(value: boolean)
+	{	this.#retryLockWaitTimeout = value;
+		this.#updateNameAndHash();
+	}
+
 	get retryQueryTimes()
 	{	return this.#retryQueryTimes;
 	}
@@ -234,6 +244,7 @@ export class Dsn
 			this.#foundRows = dsn.#foundRows;
 			this.#ignoreSpace = dsn.#ignoreSpace;
 			this.#multiStatements = dsn.#multiStatements;
+			this.#retryLockWaitTimeout = dsn.#retryLockWaitTimeout;
 			this.#retryQueryTimes = dsn.#retryQueryTimes;
 			this.#datesAsString = dsn.#datesAsString;
 			this.#correctDates = dsn.#correctDates;
@@ -272,6 +283,7 @@ export class Dsn
 			const foundRows = url.searchParams.get('foundRows');
 			const ignoreSpace = url.searchParams.get('ignoreSpace');
 			const multiStatements = url.searchParams.get('multiStatements');
+			const retryLockWaitTimeout = url.searchParams.get('retryLockWaitTimeout');
 			const retryQueryTimes = url.searchParams.get('retryQueryTimes');
 			const datesAsString = url.searchParams.get('datesAsString');
 			const correctDates = url.searchParams.get('correctDates');
@@ -284,6 +296,7 @@ export class Dsn
 			this.#foundRows = foundRows != null;
 			this.#ignoreSpace = ignoreSpace != null;
 			this.#multiStatements = multiStatements != null;
+			this.#retryLockWaitTimeout = retryLockWaitTimeout != null;
 			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
@@ -308,6 +321,7 @@ export class Dsn
 			(this.#foundRows ? '&foundRows' : '') +
 			(this.#ignoreSpace ? '&ignoreSpace' : '') +
 			(this.#multiStatements ? '&multiStatements' : '') +
+			(this.#retryLockWaitTimeout ? '&retryLockWaitTimeout' : '') +
 			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '') +
 			(this.#datesAsString ? '&datesAsString' : '') +
 			(this.#correctDates ? '&correctDates' : '')

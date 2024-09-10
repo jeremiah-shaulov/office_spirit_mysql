@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags} from './constants.ts';
+import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags, ErrorCodes} from './constants.ts';
 import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
@@ -73,8 +73,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
 	useNTimes = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
 
-	logger: Logger = console;
-
 	#warnings = 0;
 	#affectedRows: number|bigint = 0;
 	#lastInsertId: number|bigint = 0;
@@ -96,14 +94,14 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	#conn;
 
-	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn)
+	protected constructor(conn: Deno.Conn, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
 	{	const writer = conn.writable.getWriter();
 		const reader = conn.readable.getReader({mode: 'byob'});
 		super(writer, reader, decoder, useBuffer);
 		this.#conn = conn;
 	}
 
-	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger?: Logger): Promise<MyProtocol>
+	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
@@ -115,7 +113,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	throw new SqlError('Schema name is too long');
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
-		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer, dsn);
+		const protocol = new MyProtocol(conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
 		protocol.#initSchema = schema;
 		protocol.#initSql = initSql;
 		if (maxColumnLen > 0)
@@ -125,9 +123,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 		{	protocol.#retryQueryTimes = retryQueryTimes;
 		}
 		protocol.#onLoadFile = onLoadFile;
-		if (logger)
-		{	protocol.logger = logger;
-		}
 		try
 		{	const authPlugin = await protocol.#readHandshake();
 			if (sqlLogger)
@@ -906,7 +901,7 @@ L:		while (true)
 			{	if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.end(e, -1);
 				}
-				if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
+				if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY && !(e.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
 				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
 					nRetry--;
 					continue;
@@ -1025,7 +1020,7 @@ L:		while (true)
 				return resultsets;
 			}
 			catch (e)
-			{	if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY)
+			{	if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY && !(e.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
 				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
 					nRetry--;
 					preStmtId = -1;
@@ -2045,7 +2040,7 @@ L:		while (true)
 			this.writer.releaseLock();
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.#conn, this.decoder, buffer, this.dsn);
+				const protocol = new MyProtocol(this.#conn, this.decoder, buffer, this.dsn, this.logger);
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
@@ -2054,7 +2049,6 @@ L:		while (true)
 				protocol.#maxColumnLen = this.#maxColumnLen;
 				protocol.#retryQueryTimes = this.#retryQueryTimes;
 				protocol.#onLoadFile = this.#onLoadFile;
-				protocol.logger = this.logger;
 				const initSchema = this.#initSchema;
 				const initSql = this.#initSql;
 				try

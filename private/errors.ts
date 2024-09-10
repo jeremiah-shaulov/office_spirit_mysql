@@ -10,9 +10,9 @@ export const enum CanRetry
 }
 
 export class SqlError extends Error
-{	public canRetry = CanRetry.NONE;
+{	readonly canRetry;
 
-	constructor(message: string, public errorCode=0, public sqlState='', autocommit=false, inTrx=false)
+	constructor(message: string, readonly errorCode=0, public sqlState='', autocommit=false, inTrx=false)
 	{	super(message);
 		if (errorCode == ErrorCodes.ER_LOCK_WAIT_TIMEOUT)
 		{	this.canRetry = CanRetry.QUERY;
@@ -22,6 +22,9 @@ export class SqlError extends Error
 		}
 		else if (errorCode == ErrorCodes.ER_SERVER_SHUTDOWN)
 		{	this.canRetry = CanRetry.CONN;
+		}
+		else
+		{	this.canRetry = CanRetry.NONE;
 		}
 	}
 }
