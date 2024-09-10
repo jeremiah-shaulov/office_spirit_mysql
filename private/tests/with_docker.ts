@@ -94,6 +94,12 @@ export async function withDocker(imageName: string, withPassword: boolean, withS
 			catch
 			{	// ok
 			}
+			try
+			{	await hDb.status;
+			}
+			catch
+			{	// ok
+			}
 		}
 	}
 }

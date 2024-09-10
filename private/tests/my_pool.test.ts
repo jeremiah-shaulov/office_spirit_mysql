@@ -101,6 +101,7 @@ else if (WITH_DOCKER === 'latest')
 	(	'All',
 		async () =>
 		{	await withDocker('mysql:latest', true, true, ['--innodb-idle-flush-pct=0', '--local-infile'], tests);
+			await withDocker('mariadb:latest', false, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], tests);
 		}
 	);
 }
@@ -126,13 +127,25 @@ else if (WITH_DOCKER === 'all')
 		}
 	);
 }
+else if (WITH_DOCKER)
+{	console.log("%cEnvironment variable WITH_DOCKER is set to %c%s%c, so i'll download and run this Docker image", 'color:blue', 'color:blue; font-weight:bold', WITH_DOCKER, 'color:blue');
+
+	Deno.test
+	(	'All',
+		async () =>
+		{	await withDocker(WITH_DOCKER, true, true, ['--innodb-idle-flush-pct=0', '--local-infile'], tests);
+		}
+	);
+}
 else
 {	console.log('%cPlease, set one of environment variables: TESTS_DSN or WITH_DOCKER.', 'color:blue');
 	console.log('TESTS_DSN="mysql://..." deno test ...');
-	console.log('Or');
-	console.log('WITH_DOCKER=latest deno test ...');
-	console.log('Or');
+	console.log('Or (to test on all known docker images)');
 	console.log('WITH_DOCKER=all deno test ...');
+	console.log('Or (to test on latest MySQL and latest MariaDB)');
+	console.log('WITH_DOCKER=latest deno test ...');
+	console.log('Or (to test on specific docker image)');
+	console.log('WITH_DOCKER=mysql:9.0 deno test ...');
 }
 
 async function tests(dsnStr: string)
