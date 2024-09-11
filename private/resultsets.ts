@@ -46,6 +46,11 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		await resultsets.discard();
 		return result;
 	}
+
+	async *[Symbol.asyncIterator]()
+	{	const resultsets = await this;
+		yield *resultsets[Symbol.asyncIterator]();
+	}
 }
 
 export class Resultsets<Row>
