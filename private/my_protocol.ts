@@ -832,18 +832,27 @@ L:		while (true)
 			this.writeString(schema);
 		}
 		await this.send();
+		let isOk = true;
+		let error;
 		try
 		{	await this.#readPacket();
 		}
 		catch (e)
 		{	if ((e instanceof SqlError) && e.message=='Unknown command')
 			{	this.logger.warn(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
+				isOk = false;
 			}
-			throw e;
+			else
+			{	error = e;
+			}
 		}
 		if (schema)
 		{	await this.#readPacket();
 		}
+		if (error)
+		{	throw error;
+		}
+		return isOk;
 	}
 
 	/**	I assume that i'm in ProtocolState.IDLE.
@@ -2066,17 +2075,19 @@ L:		while (true)
 						{	await this.#sqlLogger.dispose();
 						}
 					}
-					await protocol.#sendComResetConnectionAndInitDb(initSchema);
-					if (initSql)
-					{	await protocol.sendComQuery(initSql);
+					if (await protocol.#sendComResetConnectionAndInitDb(initSchema))
+					{	if (initSql)
+						{	await protocol.sendComQuery(initSql);
+						}
+						debugAssert(protocol.#state == ProtocolState.IDLE);
+						protocol.#state = ProtocolState.IDLE_IN_POOL;
+						return protocol;
 					}
-					debugAssert(protocol.#state == ProtocolState.IDLE);
-					protocol.#state = ProtocolState.IDLE_IN_POOL;
-					return protocol;
 				}
 				catch (e)
 				{	this.logger.error(e);
 				}
+				this.buffer = protocol.buffer; // revert `this.recycleBuffer()`
 			}
 			// don't recycle connection (only buffer)
 			if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
