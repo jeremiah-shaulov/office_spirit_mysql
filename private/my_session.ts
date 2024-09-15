@@ -46,6 +46,9 @@ export class MySession
 		this.#onDispose = onDispose;
 	}
 
+	/**	Disposes all the connections in this session.
+		This method doesn't throw.
+	 **/
 	[Symbol.dispose]()
 	{	const onDispose = this.#onDispose;
 		const {connsArr} = this;

@@ -138,6 +138,9 @@ export class MyConn
 	{	this.#doEnd(false);
 	}
 
+	/**	Immediately places the connection back to it's pool where it gets eventually reset or disconnected.
+		This method doesn't throw.
+	 **/
 	[Symbol.dispose]()
 	{	const onDispose = this.#onDispose;
 		this.#onDispose = undefined;
