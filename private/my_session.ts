@@ -3,7 +3,7 @@ import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFromPoolFunc, ReturnConnT
 import {MyPool, XaInfoTable} from "./my_pool.ts";
 import {Logger} from "./my_protocol.ts";
 import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritable} from "./sql_log_to_writer.ts";
+import {SqlLogToWritable} from "./sql_log_to_writable.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 
 const xaIdGen = new XaIdGen;

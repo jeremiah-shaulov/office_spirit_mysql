@@ -7,7 +7,7 @@ import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts
 import type {Param, Params, ColumnValue} from './resultsets.ts';
 import {Dsn} from './dsn.ts';
 import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritable} from "./sql_log_to_writer.ts";
+import {SqlLogToWritable} from "./sql_log_to_writable.ts";
 import {Reader} from './deno_ifaces.ts';
 
 export type GetConnFromPoolFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;

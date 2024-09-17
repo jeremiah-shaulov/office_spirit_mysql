@@ -2,7 +2,7 @@ import {debugAssert} from "./debug_assert.ts";
 import {Resultsets} from "./resultsets.ts";
 import {Dsn} from "./dsn.ts";
 import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritableBase} from "./sql_log_to_writer_base.ts";
+import {SqlLogToWritableBase} from "./sql_log_to_writable_base.ts";
 import {SqlWordsList} from "./sql_words_list.ts";
 import {Colors} from './deps.ts';
 import {Writer} from "./deno_ifaces.ts";

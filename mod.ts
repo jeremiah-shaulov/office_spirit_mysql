@@ -9,4 +9,4 @@ export {Charset, MysqlType, ColumnFlags, ErrorCodes} from './private/constants.t
 export type {SqlSource} from './private/my_protocol_reader_writer.ts';
 export {SqlError, ServerDisconnectedError, BusyError, CanceledError, CanRetry} from './private/errors.ts';
 export type {SqlLogger} from './private/sql_logger.ts';
-export {SqlLogToWritable, SqlLogToWriter} from './private/sql_log_to_writer.ts';
+export {SqlLogToWritable, SqlLogToWriter} from './private/sql_log_to_writable.ts';
