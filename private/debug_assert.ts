@@ -1,4 +1,4 @@
-export const ASSERTIONS_ENABLED = false;
+export const ASSERTIONS_ENABLED = true;
 
 export function debugAssert(expr: unknown): asserts expr
 {	if (ASSERTIONS_ENABLED && !expr)

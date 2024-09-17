@@ -20,7 +20,6 @@ type Any = any;
 	`maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
 	`foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
 	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
-	`multiStatements` (boolean) - if present, SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky;
 	`retryLockWaitTimeout` (boolean) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
 	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes; please note, that this will also rerun queries like `CALL`;
 	`datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
@@ -43,7 +42,9 @@ export class Dsn
 	#foundRows: boolean;
 	/** Parser on server can ignore spaces before '(' in built-in function names */
 	#ignoreSpace: boolean;
-	/** SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky */
+	/**	SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky.
+		@deprecated To execute multiple statements use `queriesVoid()` function and the such.
+	 **/
 	#multiStatements: boolean;
 	#retryLockWaitTimeout: boolean;
 	#retryQueryTimes: number;
@@ -171,6 +172,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky.
+		@deprecated To execute multiple statements use `queriesVoid()` function and the such.
+	 **/
 	get multiStatements()
 	{	return this.#multiStatements;
 	}

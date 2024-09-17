@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
-import {StatusFlags} from './constants.ts';
-import {MyProtocol, RowType, Logger} from './my_protocol.ts';
+import {SetOption, StatusFlags} from './constants.ts';
+import {MyProtocol, RowType, Logger, MultiStatements} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts';
@@ -169,7 +169,7 @@ export class MyConn
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT).then(y, n);
+			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
@@ -177,7 +177,7 @@ export class MyConn
 	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP).then(y, n);
+			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
@@ -185,7 +185,7 @@ export class MyConn
 	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY).then(y, n);
+			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
@@ -193,27 +193,63 @@ export class MyConn
 	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN).then(y, n);
+			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
 
 	queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, RowType.VOID);
+	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
+	}
+
+	queries<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Record<string, ColumnType>>
+		(	(y, n) =>
+			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			}
+		);
+	}
+
+	queriesMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<Map<string, ColumnType>>
+		(	(y, n) =>
+			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			}
+		);
+	}
+
+	queriesArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnType[]>
+		(	(y, n) =>
+			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			}
+		);
+	}
+
+	queriesCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	{	return new ResultsetsPromise<ColumnType>
+		(	(y, n) =>
+			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			}
+		);
+	}
+
+	queriesVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_ON);
 	}
 
 	/**	Alias of queryVoid().
 		@deprecated
 	 **/
 	execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, RowType.VOID);
+	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
 	}
 
 	/**	Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 		@deprecated As `Deno.Reader` is deprecated, this method is deprecated as well.
 	 **/
 	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.#doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER);
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER, SetOption.MULTI_STATEMENTS_OFF);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
@@ -222,14 +258,14 @@ export class MyConn
 	/**	Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 	 **/
 	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.#doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE);
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE, SetOption.MULTI_STATEMENTS_OFF);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
 	}
 
 	async forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT);
+	{	const prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
 		try
 		{	return await callback(prepared);
 		}
@@ -240,7 +276,7 @@ export class MyConn
 	}
 
 	async forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP);
+	{	const prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
 		try
 		{	return await callback(prepared);
 		}
@@ -251,7 +287,7 @@ export class MyConn
 	}
 
 	async forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY);
+	{	const prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
 		try
 		{	return await callback(prepared);
 		}
@@ -262,7 +298,7 @@ export class MyConn
 	}
 
 	async forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN);
+	{	const prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
 		try
 		{	return await callback(prepared);
 		}
@@ -273,7 +309,7 @@ export class MyConn
 	}
 
 	async forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<void>(sql, true, RowType.VOID);
+	{	const prepared = await this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
 		try
 		{	return await callback(prepared);
 		}
@@ -392,7 +428,7 @@ export class MyConn
 				}
 			}
 			if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	await this.#doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId); // doQuery() will also flush this.pendingTrxSql
+			{	await this.#doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId, undefined, RowType.VOID, MultiStatements.NO_MATTER); // doQuery() will also flush this.pendingTrxSql
 			}
 			else
 			{	throw new Error(`No such SAVEPOINT: ${isOfSession ? SAVEPOINT_ENUM_SESSION_FROM+toPointId : toPointId}`);
@@ -489,7 +525,7 @@ export class MyConn
 		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
-	async #doQuery<Row>(sql: SqlSource, params: Params|true=undefined, rowType=RowType.VOID): Promise<ResultsetsInternal<Row>>
+	async #doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType, multiStatements: SetOption|MultiStatements): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
 		while (true)
@@ -521,13 +557,16 @@ export class MyConn
 
 			if (!params)
 			{	// Text protocol query
-				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0);
+				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements);
 				if (resultsets)
 				{	return resultsets;
 				}
 			}
 			else if (params === true)
 			{	// Prepare for later execution
+				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
+				{	throw new Error(`Cannot prepare multiple statements`);
+				}
 				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0);
 				if (resultsets)
 				{	return resultsets;
@@ -535,6 +574,9 @@ export class MyConn
 			}
 			else if (Array.isArray(params))
 			{	// Prepare to execute immediately: positional parameters
+				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
+				{	throw new Error(`Cannot prepare multiple statements (however you can use named parameters)`);
+				}
 				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true);
 				if (resultsets)
 				{	try
@@ -553,8 +595,8 @@ export class MyConn
 				if (values)
 				{	const resultsets =
 					(	!query1 ?
-						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined) :
-						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined)
+						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements) :
+						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements)
 					);
 					if (resultsets)
 					{	return resultsets;

@@ -47,7 +47,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		return result;
 	}
 
-	async *[Symbol.asyncIterator]()
+	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
 	{	const resultsets = await this;
 		yield *resultsets[Symbol.asyncIterator]();
 	}

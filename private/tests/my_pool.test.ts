@@ -86,6 +86,7 @@ const TESTS =
 	testMaxConns,
 	testLoadBigDump,
 	testLoadFile,
+	testMultiStatements,
 ];
 
 if (TESTS_DSN)
@@ -1710,7 +1711,7 @@ async function testLoadBigDump(dsnStr: string)
 			await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
 
 			for (const sqlReadMode of [SqlReadMode.ToMemory, SqlReadMode.WithReader, SqlReadMode.WithReadableStream])
-			{	for (const SIZE of [100, 8*1024 + 100, 2**24 - 8, 2**24 + 8*1024 + 100])
+			{	for (const SIZE of [100, 2**24 - 8, 2**24 - 1, 2**24, 8*1024 + 100, 2**24 + 8*1024 + 100])
 				{	const maxAllowedPacket = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
 					if (maxAllowedPacket < SIZE+100)
 					{	let wantSize = SIZE + 100;
@@ -1911,5 +1912,35 @@ async function testLoadFile(dsnStr: string)
 				await conn.query("DROP DATABASE test1");
 			}
 		);
+	}
+}
+
+async function testMultiStatements(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	await using pool = new MyPool(dsn);
+
+	for (let i=0; i<4; i++)
+	{	let cid;
+		for (let j=0; j<2; j++)
+		{	{	using conn = pool.getConn();
+
+				let q = "SELECT @a, @b";
+				let row = await (i<2 ? conn.query(q) : conn.queries(q)).first();
+				assertEquals(row?.['@a'], null);
+				assertEquals(row?.['@b'], null);
+
+				await conn.queriesVoid("SET @a=1; SET @b=2");
+				q = "SELECT Connection_id() AS cid, @a, @b";
+				row = await (i%2==0 ? conn.query(q) : conn.queries(q)).first();
+				assertEquals(row?.['@a'], 1);
+				assertEquals(row?.['@b'], 2);
+				if (j == 1)
+				{	assertEquals(row?.cid, cid);
+				}
+				cid = row?.cid;
+			}
+
+			await new Promise(y => setTimeout(y, 200));
+		}
 	}
 }

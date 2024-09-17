@@ -156,6 +156,11 @@ export const enum Command
 	COM_END,
 }
 
+export const enum SetOption
+{	MULTI_STATEMENTS_ON = 0,
+	MULTI_STATEMENTS_OFF = 1,
+}
+
 export const enum CursorType
 {	NO_CURSOR = 0,
 	READ_ONLY = 1,

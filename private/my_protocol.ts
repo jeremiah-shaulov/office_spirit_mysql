@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags, ErrorCodes} from './constants.ts';
+import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags, ErrorCodes, SetOption} from './constants.ts';
 import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
@@ -62,6 +62,10 @@ const enum ProtocolState
 	TERMINATED,
 }
 
+export const enum MultiStatements
+{	NO_MATTER = 2
+}
+
 export class MyProtocol extends MyProtocolReaderWriter
 {	serverVersion = '';
 	connectionId = 0;
@@ -87,6 +91,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	#onLoadFile?: OnLoadFile;
 	#sqlLogger: SafeSqlLogger | undefined;
 
+	#curMultiStatements: SetOption | MultiStatements = SetOption.MULTI_STATEMENTS_OFF; // `MultiStatements.NO_MATTER` means that deprecated `multiStatements` setting was used, so the mode must not be changed
 	#curResultsets: ResultsetsInternal<unknown> | undefined;
 	#pendingCloseStmts = new Array<number>;
 	#curLastColumnReader: Reader | RdStream | undefined;
@@ -94,7 +99,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	#closer;
 
-	protected constructor(reader: ReadableStreamBYOBReader, writer: WritableStreamDefaultWriter<Uint8Array>, closer: Disposable, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
+	protected constructor(writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, closer: Disposable, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
 	{	super(writer, reader, decoder, useBuffer);
 		this.#closer = closer;
 	}
@@ -113,12 +118,13 @@ export class MyProtocol extends MyProtocolReaderWriter
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
 		const reader = conn.readable.getReader({mode: 'byob'});
 		const writer = conn.writable.getWriter();
-		const protocol = new MyProtocol(reader, writer, conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
+		const protocol = new MyProtocol(writer, reader, conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
 		protocol.#initSchema = schema;
 		protocol.#initSql = initSql;
 		if (maxColumnLen > 0)
 		{	protocol.#maxColumnLen = maxColumnLen;
 		}
+		protocol.#curMultiStatements = multiStatements ? MultiStatements.NO_MATTER : initSql ? SetOption.MULTI_STATEMENTS_ON : SetOption.MULTI_STATEMENTS_OFF; // `multiStatements` setting is deprecated
 		if (retryQueryTimes >= 0)
 		{	protocol.#retryQueryTimes = retryQueryTimes;
 		}
@@ -130,14 +136,14 @@ export class MyProtocol extends MyProtocolReaderWriter
 				protocol.#sqlLogger = sqlLogger;
 				await sqlLogger.connect(protocol.connectionId);
 			}
-			await protocol.#writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements);
+			await protocol.#writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements || !!initSql);
 			const authPlugin2 = await protocol.#readAuthResponse(password, authPlugin);
 			if (authPlugin2)
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.#readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
-			{	await protocol.sendComQuery(initSql);
+			{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 			}
 			return protocol;
 		}
@@ -878,23 +884,48 @@ L:		while (true)
 		return this.send();
 	}
 
+	#maybeSetOption(multiStatements: SetOption|MultiStatements, canBeContinuation=false)
+	{	if (multiStatements==SetOption.MULTI_STATEMENTS_ON && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_OFF || multiStatements==SetOption.MULTI_STATEMENTS_OFF && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_ON)
+		{	this.startWritingNewPacket(true, canBeContinuation);
+			this.writeUint8(Command.COM_SET_OPTION);
+			this.writeUint16(multiStatements);
+			return true;
+		}
+		return false;
+	}
+
 	/**	On success returns ResultsetsProtocol<Row>.
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		let nRetry = this.#retryQueryTimes;
 		while (true)
-		{	try
+		{	let error;
+			try
 			{	if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
-				this.startWritingNewPacket(true);
+				// Send COM_SET_OPTION
+				const wantSetOption = this.#maybeSetOption(multiStatements);
+				// Send query
+				this.startWritingNewPacket(true, wantSetOption);
 				this.writeUint8(Command.COM_QUERY);
 				await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery);
+				// Read COM_SET_OPTION result
+				if (wantSetOption)
+				{	try
+					{	await this.#readPacket();
+						this.#curMultiStatements = multiStatements;
+					}
+					catch (e)
+					{	error = e;
+					}
+				}
+				// Read query result
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.start();
 				}
@@ -916,18 +947,24 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.end(resultsets, -1);
 				}
+				if (error)
+				{	throw error;
+				}
 				return resultsets;
 			}
 			catch (e)
-			{	if (sqlLoggerQuery)
-				{	await sqlLoggerQuery.end(e, -1);
+			{	if (!error)
+				{	error = e;
 				}
-				if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY && !(e.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
-				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
+				if (sqlLoggerQuery)
+				{	await sqlLoggerQuery.end(error, -1);
+				}
+				if (nRetry>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
+				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
 					nRetry--;
 					continue;
 				}
-				this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+				this.#rethrowErrorIfFatal(error, isFromPool && letReturnUndefined);
 			}
 			break;
 		}
@@ -942,7 +979,7 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: Any[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false)
+	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -969,6 +1006,8 @@ L:		while (true)
 					this.writeUint8(Command.COM_QUERY);
 					await this.sendWithData(prequery, false, sqlLoggerQuery?.appendToQuery, true);
 				}
+				// Send COM_SET_OPTION
+				const wantSetOption = this.#maybeSetOption(multiStatements, true);
 				// Send sql
 				if (sqlLoggerQuery && (preStmtId>=0 || prequery))
 				{	await sqlLoggerQuery.nextQuery();
@@ -979,7 +1018,7 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.start();
 				}
-				// Read result of preStmt
+				// Read preStmt result
 				if (preStmtId >= 0)
 				{	const rowNColumns = await this.#readPacket(ReadPacketMode.PREPARED_STMT);
 					debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
@@ -988,7 +1027,7 @@ L:		while (true)
 					{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 					}
 				}
-				// Read result of prequery
+				// Read prequery result
 				const resultsets = new ResultsetsInternal<Row>(rowType);
 				let state = ProtocolState.IDLE;
 				let error;
@@ -1006,7 +1045,17 @@ L:		while (true)
 					}
 				}
 				debugAssert(state == ProtocolState.IDLE);
-				// Read result of sql
+				// Read COM_SET_OPTION result
+				if (wantSetOption)
+				{	try
+					{	await this.#readPacket();
+						this.#curMultiStatements = multiStatements;
+					}
+					catch (e)
+					{	error = e;
+					}
+				}
+				// Read sql result
 				try
 				{	state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 					if (sqlLoggerQuery)
@@ -2057,13 +2106,14 @@ L:		while (true)
 			this.#onEndSession = undefined;
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.reader, this.writer, this.#closer, this.decoder, this.recycleBuffer(), this.dsn, this.logger);
+				const protocol = new MyProtocol(this.writer, this.reader, this.#closer, this.decoder, this.recycleBuffer(), this.dsn, this.logger);
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
 				protocol.#initSchema = this.#initSchema;
 				protocol.#initSql = this.#initSql;
 				protocol.#maxColumnLen = this.#maxColumnLen;
+				protocol.#curMultiStatements = this.#curMultiStatements;
 				protocol.#retryQueryTimes = this.#retryQueryTimes;
 				protocol.#onLoadFile = this.#onLoadFile;
 				const initSchema = this.#initSchema;
@@ -2077,7 +2127,7 @@ L:		while (true)
 					}
 					if (await protocol.#sendComResetConnectionAndInitDb(initSchema))
 					{	if (initSql)
-						{	await protocol.sendComQuery(initSql);
+						{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 						}
 						debugAssert(protocol.#state == ProtocolState.IDLE);
 						protocol.#state = ProtocolState.IDLE_IN_POOL;
