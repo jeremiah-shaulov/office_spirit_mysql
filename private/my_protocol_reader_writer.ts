@@ -432,14 +432,15 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			// 4. Get reader
 			const reader = readable.getReader({mode: 'byob'});
 			// 5. Calc packet size
-			let alreadyFilled = this.bufferEnd - this.bufferStart - 4;
+			const alreadyFilled = this.bufferEnd - this.bufferStart - 4;
 			const packetSize = alreadyFilled + dataLength;
-			let packetSizeRemaining = packetSize;
-			let curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
-			packetSizeRemaining -= curLen;
-			this.#setHeader(curLen);
-			// 6. If there are previous packets pending (`bufferStart>0`), send them, because ReadableStream shamelessly transfers buffer, and those packets can be lost. Also if at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
-			if (this.bufferStart>0 || this.bufferEnd>this.buffer.length/2)
+			let canSend = Math.min(packetSize, 0xFFFFFF);
+			let packetSizeRemaining = packetSize - canSend;
+			this.#setHeader(canSend);
+			canSend -= alreadyFilled;
+			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
+			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
+			if (this.bufferEnd > this.buffer.length/2)
 			{	try
 				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
@@ -447,12 +448,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	throw new SendWithDataError(e.message, packetSize);
 				}
 				this.bufferEnd = 0;
-				curLen = dataLength;
 			}
 			// 7. Pipe
-			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
 			while (true)
-			{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd-alreadyFilled+curLen));
+			{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd+canSend));
 				if (done)
 				{	throw new Error(`Unexpected end of stream`);
 				}
@@ -468,20 +467,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				catch (e)
 				{	throw new SendWithDataError(e.message, packetSize);
 				}
-				curLen -= alreadyFilled + value.length;
-				if (curLen > 0)
+				canSend -= value.length;
+				if (canSend > 0)
 				{	this.bufferEnd = 0;
 				}
 				else
 				{	if (packetSizeRemaining == 0)
 					{	break;
 					}
-					curLen = Math.min(packetSizeRemaining, 0xFFFFFF);
-					packetSizeRemaining -= curLen;
-					this.#setHeader(curLen);
+					canSend = Math.min(packetSizeRemaining, 0xFFFFFF);
+					packetSizeRemaining -= canSend;
+					this.#setHeader(canSend);
 					this.bufferEnd = 4;
 				}
-				alreadyFilled = 0;
 			}
 		}
 		// prepare for reader
