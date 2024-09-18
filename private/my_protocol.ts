@@ -35,7 +35,7 @@ export interface Logger
 
 export const enum ReadPacketMode
 {	REGULAR,
-	PREPARED_STMT,
+	ROWS_OR_PREPARED_STMT,
 	PREPARED_STMT_OK_CONTINUATION,
 }
 
@@ -353,7 +353,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		If the packet type was OK or EOF, and ReadPacketMode.REGULAR, reads it to the end, and returns OK.
 		If it was ERR, reads it to the end, and throws SqlError.
 		Else, returns the packet type, and leaves the caller responsible to read the packet to the end.
-		In case of ReadPacketMode.PREPARED_STMT, an OK or an EOF packet must be read by the caller (because it has different format after COM_STMT_PREPARE).
+		In case of ReadPacketMode.ROWS_OR_PREPARED_STMT, an EOF packet must be read by the caller (because it has different format after COM_STMT_PREPARE).
 	 **/
 	async #readPacket(mode=ReadPacketMode.REGULAR)
 	{	let type = 0;
@@ -379,7 +379,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				// else fallthrough to OK
 			}
 			case PacketType.OK:
-			{	if (mode!=ReadPacketMode.PREPARED_STMT || type==PacketType.EOF)
+			{	if (mode!=ReadPacketMode.ROWS_OR_PREPARED_STMT || type==PacketType.EOF)
 				{	this.#affectedRows = this.readLenencInt() ?? await this.readLenencIntAsync();
 					this.#lastInsertId = this.readLenencInt() ?? await this.readLenencIntAsync();
 					if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
@@ -544,7 +544,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	}
 
 	async #readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false)
-	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.PREPARED_STMT);
+	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.ROWS_OR_PREPARED_STMT);
 		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
 		{	const type = await this.#readPacket(mode);
@@ -1020,7 +1020,7 @@ L:		while (true)
 				}
 				// Read preStmt result
 				if (preStmtId >= 0)
-				{	const rowNColumns = await this.#readPacket(ReadPacketMode.PREPARED_STMT);
+				{	const rowNColumns = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
 					debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
 					debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
 					if (!this.isAtEndOfPacket())
@@ -1122,7 +1122,7 @@ L:		while (true)
 			{	await sqlLoggerQuery.start();
 			}
 			const resultsets = new ResultsetsInternal<Row>(rowType);
-			await this.#readQueryResponse(resultsets, ReadPacketMode.PREPARED_STMT, skipColumns);
+			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
 			if (this.#pendingCloseStmts.length != 0)
 			{	await this.#doPending();
@@ -1521,7 +1521,7 @@ L:		while (true)
 			}
 			await this.#sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery);
 			// Read Binary Protocol Resultset
-			const type = await this.#readPacket(ReadPacketMode.PREPARED_STMT); // throw if ERR packet
+			const type = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT); // throw if ERR packet
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
@@ -1591,8 +1591,8 @@ L:		while (true)
 		{	const curResultsets = this.#curResultsets;
 			const {isPreparedStmt, stmtId, columns} = curResultsets;
 			const nColumns = columns.length;
-			const type = await this.#readPacket(isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
-			if (type == (isPreparedStmt ? PacketType.EOF : PacketType.OK))
+			const type = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
+			if (type == PacketType.EOF)
 			{	if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
 				{	this.#setState(ProtocolState.HAS_MORE_RESULTSETS);
 				}
@@ -1963,7 +1963,7 @@ L:		while (true)
 	{	const curResultsets = this.#curResultsets;
 		debugAssert(curResultsets);
 		const {isPreparedStmt, stmtId} = curResultsets;
-		const mode = isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR;
+		const mode = isPreparedStmt ? ReadPacketMode.ROWS_OR_PREPARED_STMT : ReadPacketMode.REGULAR;
 		const okType = isPreparedStmt ? PacketType.EOF : PacketType.OK;
 		while (true)
 		{	if (state == ProtocolState.HAS_MORE_ROWS)
@@ -2023,7 +2023,7 @@ L:		while (true)
 				debugAssert(curResultsets?.hasMoreInternal);
 				const {isPreparedStmt, stmtId} = curResultsets;
 				curResultsets.resetFields();
-				state = await this.#readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.PREPARED_STMT : ReadPacketMode.REGULAR);
+				state = await this.#readQueryResponse(curResultsets, isPreparedStmt ? ReadPacketMode.ROWS_OR_PREPARED_STMT : ReadPacketMode.REGULAR);
 				if (state == ProtocolState.IDLE)
 				{	if (stmtId < 0)
 					{	curResultsets.protocol = undefined;
