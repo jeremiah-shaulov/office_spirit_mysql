@@ -7,7 +7,7 @@ import {withDocker} from "./with_docker.ts";
 import {RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
-import {Reader} from '../deno_ifaces.ts';
+import {Reader, Seeker} from '../deno_ifaces.ts';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -27,11 +27,11 @@ class SqlSelectGenerator
 {	has_put_params_to = false;
 	buffer_size = -1;
 
-	constructor(private table: string, private column: string, private value: Any)
+	constructor(private table: string, private column: string, private value: unknown)
 	{
 	}
 
-	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: Any[]|undefined, _noBackslashEscapes: boolean, buffer: Uint8Array)
+	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: unknown[]|undefined, _noBackslashEscapes: boolean, buffer: Uint8Array)
 	{	this.buffer_size = buffer.length;
 		let sql;
 		if (putParamsTo)
@@ -263,10 +263,10 @@ async function testBasic(dsnStr: string)
 			assert(!conn.schema || conn.schema=='test2');
 
 			// Check simple query
-			assertEquals(await conn.queryCol<Any>("SELECT 123").first(), 123);
+			assertEquals(await conn.queryCol("SELECT 123").first(), 123);
 
 			// Check query with params
-			assertEquals(Number(await conn.queryCol<Any>("SELECT ?", [123]).first()), 123); // can return bigint
+			assertEquals(Number(await conn.queryCol("SELECT ?", [123]).first()), 123); // can return bigint
 
 			// CREATE TABLE
 			await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, `time` timestamp(3) NOT NULL, message text)");
@@ -303,7 +303,7 @@ async function testBasic(dsnStr: string)
 			);
 
 			// SELECT forEach
-			let rows = new Array<Record<string, Any>>;
+			let rows = new Array<Record<string, unknown>>;
 			const theHello = await conn.query("SELECT * FROM t_log").forEach
 			(	row =>
 				{	rows.push(row);
@@ -778,7 +778,7 @@ async function testVariousColumnTypes(dsnStr: string)
 
 				assertEquals(res.hasMore, true);
 				const row = await res.first();
-				const expectedRow: Record<string, Any> =
+				const expectedRow: Record<string, unknown> =
 				{	id: 1,
 					'c_null': null,
 
@@ -1180,7 +1180,7 @@ async function testManyPlaceholders2(dsnStr: string)
 			{	pp[i] = i;
 				sum += i;
 			}
-			const calcedSum = await conn.queryCol<Any>(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
+			const calcedSum = await conn.queryCol(`SELECT ?`+'+?'.repeat(pp.length-1), pp).first();
 			if (typeof(calcedSum) == 'bigint') // MySQL5.7 returns bigint, MySQL8.0 returns number
 			{	assertEquals(calcedSum, BigInt(sum));
 			}
@@ -1695,11 +1695,21 @@ async function testLoadBigDump(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
 	dsn.maxColumnLen = Number.MAX_SAFE_INTEGER;
 	await using pool = new MyPool(dsn);
-	const enum SqlReadMode
-	{	ToMemory,
-		WithReader,
-		WithReadableStream,
+	const enum DumpType
+	{	String,
+		Uint8Array,
+		Stream,
 	}
+	const CASES: [number, boolean, boolean, boolean][] =
+	[	[0, true, true, false],
+		[100, true, true, false],
+		[2**24 - 8, false, true, false],
+		[2**24 - 2, false, true, false],
+		[2**24 - 1, true, false, false],
+		[2**24, false, false, true],
+		[8*1024 + 100, true, true, true],
+		[2**24 + 8*1024 + 100, false, false, true],
+	];
 	pool.forConn
 	(	async conn =>
 		{	// Create and use db
@@ -1710,8 +1720,8 @@ async function testLoadBigDump(dsnStr: string)
 			// CREATE TABLE
 			await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
 
-			for (const sqlReadMode of [SqlReadMode.ToMemory, SqlReadMode.WithReader, SqlReadMode.WithReadableStream])
-			{	for (const SIZE of [100, 2**24 - 8, 2**24 - 1, 2**24, 8*1024 + 100, 2**24 + 8*1024 + 100])
+			for (const dumpType of [DumpType.String, DumpType.Uint8Array, DumpType.Stream])
+			{	for (const [SIZE, isReadableStream, isSeekable, useBinarySelect] of CASES)
 				{	const maxAllowedPacket = Number(await conn.queryCol("SELECT @@max_allowed_packet").first());
 					if (maxAllowedPacket < SIZE+100)
 					{	let wantSize = SIZE + 100;
@@ -1731,8 +1741,9 @@ async function testLoadBigDump(dsnStr: string)
 						const writer = fh.writable.getWriter();
 						try
 						{	// Write INSERT query to file
-							await writer.write(new TextEncoder().encode("INSERT INTO t_log SET message = '"));
-							const buffer = new Uint8Array(8*1024);
+							const queryPrefix = "INSERT INTO t_log SET message = '";
+							await writer.write(new TextEncoder().encode(queryPrefix));
+							const buffer = new Uint8Array(64*1024);
 							for (let i=0; i<buffer.length; i++)
 							{	let c = i & 0x7F;
 								if (c=="'".charCodeAt(0) || c=="\\".charCodeAt(0))
@@ -1753,24 +1764,21 @@ async function testLoadBigDump(dsnStr: string)
 							await conn.queryVoid("DELETE FROM t_log");
 
 							// Read INSERT from file
-							let insertStatus: Resultsets<Any>|undefined;
+							let insertStatus: Resultsets<unknown>|undefined;
 							try
-							{	if (sqlReadMode == SqlReadMode.ToMemory)
+							{	if (dumpType == DumpType.String)
 								{	const q = await Deno.readTextFile(filename);
-									if (SIZE == 2**24 - 8)
-									{	insertStatus = await conn.query(q);
-									}
-									else
-									{	insertStatus = await conn.query(new TextEncoder().encode(q));
-									}
+									insertStatus = await conn.query(q);
 								}
-								else if (sqlReadMode == SqlReadMode.WithReader)
-								{	await fh.seek(0, Deno.SeekMode.Start);
-									insertStatus = await conn.query(fh);
+								else if (dumpType == DumpType.Uint8Array)
+								{	const q = await Deno.readTextFile(filename);
+									insertStatus = await conn.query(new TextEncoder().encode(q));
 								}
 								else
 								{	await fh.seek(0, Deno.SeekMode.Start);
-									insertStatus = await conn.query({seek: (o, w) => fh.seek(o, w), readable: fh.readable});
+									const o1: {readonly size: number} | Seeker = isSeekable ? {seek: (o, w) => fh.seek(o, w)} : {size: queryPrefix.length + SIZE + 1};
+									const o2: {readonly readable: ReadableStream<Uint8Array>} | Reader = isReadableStream ? {readable: fh.readable} : {read: b => fh.read(b)};
+									insertStatus = await conn.query({...o1, ...o2});
 								}
 							}
 							catch (e)
@@ -1785,7 +1793,7 @@ async function testLoadBigDump(dsnStr: string)
 							// SELECT Length()
 							assertEquals(await conn.queryCol("SELECT Length(message) FROM t_log WHERE id="+recordId).first(), SIZE);
 
-							const row = await conn.query("SELECT message, id FROM t_log WHERE id="+recordId, sqlReadMode ? undefined : []).first();
+							const row = await conn.query("SELECT message, id FROM t_log WHERE id="+recordId, useBinarySelect ? [] : undefined).first();
 							assertEquals(typeof(row?.message)=='string' ? row.message.length : -1, SIZE);
 							assertEquals(row?.id, recordId);
 
@@ -1804,19 +1812,26 @@ async function testLoadBigDump(dsnStr: string)
 
 								// Validate the new file contents
 								const since = Date.now();
-								console.log('Started validating');
-								const buffer2 = new Uint8Array(buffer.length);
-								while (size2 > 0)
-								{	let pos = 0;
-									const len = Math.min(buffer2.length, size2);
-									while (pos < len)
-									{	const n = await fh2.read(buffer2.subarray(pos, len));
-										assert(n != null);
-										pos += n;
-									}
+								console.log(`Started validating (size=${SIZE}, type=${dumpType==DumpType.String ? 'string': dumpType==DumpType.Uint8Array ? 'Uint8Array' : isReadableStream ? 'ReadableStream' : 'Deno.Reader'}, isSeekable=${isSeekable}, useBinarySelect=${useBinarySelect})`);
+								let buffer2 = new Uint8Array(buffer.length);
+								const fh2r = fh2.readable.getReader({mode: 'byob'});
+								try
+								{	while (size2 > 0)
+									{	let pos = 0;
+										const len = Math.min(buffer2.length, size2);
+										while (pos < len)
+										{	const {value, done} = await fh2r.read(buffer2.subarray(pos, len));
+											assert(!done);
+											buffer2 = new Uint8Array(value.buffer);
+											pos += value.length;
+										}
 
-									assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
-									size2 -= len;
+										assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
+										size2 -= len;
+									}
+								}
+								finally
+								{	fh2r.releaseLock();
 								}
 								console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
 							}

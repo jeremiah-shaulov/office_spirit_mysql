@@ -19,6 +19,7 @@ const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
 const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
+const PACKET_NOT_READ_BIT = 256;
 
 export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
 
@@ -350,10 +351,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 	}
 
 	/**	Reads packet header, and packet type (first byte of the packet).
-		If the packet type was OK or EOF, and ReadPacketMode.REGULAR, reads it to the end, and returns OK.
+		If the packet type was OK (in all modes except ROWS_OR_PREPARED_STMT) or EOF (in all modes), reads it to the end, and returns either OK (in ReadPacketMode.REGULAR), or (in other modes) the read packet type (OK or EOF).
 		If it was ERR, reads it to the end, and throws SqlError.
-		Else, returns the packet type, and leaves the caller responsible to read the packet to the end.
-		In case of ReadPacketMode.ROWS_OR_PREPARED_STMT, an EOF packet must be read by the caller (because it has different format after COM_STMT_PREPARE).
+		Else, returns the packet type orred with PACKET_NOT_READ_BIT, and leaves the caller responsible to read the packet to the end.
 	 **/
 	async #readPacket(mode=ReadPacketMode.REGULAR)
 	{	let type = 0;
@@ -363,10 +363,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 			type = this.readUint8() ?? await this.readUint8Async();
 		}
 		switch (type)
-		{	// deno-lint-ignore no-fallthrough
-			case PacketType.EOF:
+		{	case PacketType.EOF:
 			{	if (this.payloadLength >= 9) // not a EOF packet. EOF packets are <9 bytes long, and if it's >=9, it's a lenenc int
-				{	return type;
+				{	return type|PACKET_NOT_READ_BIT;
 				}
 				if (!(this.capabilityFlags & CapabilityFlags.CLIENT_DEPRECATE_EOF))
 				{	if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
@@ -376,8 +375,8 @@ export class MyProtocol extends MyProtocolReaderWriter
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
 					return mode==ReadPacketMode.REGULAR ? PacketType.OK : type;
 				}
-				// else fallthrough to OK
 			}
+			// fallthrough to OK
 			case PacketType.OK:
 			{	if (mode!=ReadPacketMode.ROWS_OR_PREPARED_STMT || type==PacketType.EOF)
 				{	this.#affectedRows = this.readLenencInt() ?? await this.readLenencIntAsync();
@@ -428,8 +427,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 						{	this.#statusInfo = this.readShortEofString() ?? await this.readShortEofStringAsync();
 						}
 					}
+					return mode==ReadPacketMode.REGULAR ? PacketType.OK : type;
 				}
-				return mode==ReadPacketMode.REGULAR ? PacketType.OK : type;
+				return type|PACKET_NOT_READ_BIT;
 			}
 			case PacketType.ERR:
 			{	const errorCode = this.readUint16() ?? await this.readUint16Async();
@@ -442,7 +442,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				throw new SqlError(errorMessage, errorCode, sqlState);
 			}
 			default:
-			{	return type;
+			{	return type|PACKET_NOT_READ_BIT;
 			}
 		}
 	}
@@ -552,22 +552,21 @@ L:		while (true)
 			let nPlaceholders = 0;
 			switch (type)
 			{	case PacketType.OK:
-				{	if (mode == ReadPacketMode.REGULAR)
-					{	this.#initResultsets(resultsets);
-						nColumns = 0;
-					}
-					else
-					{	resultsets.isPreparedStmt = true;
-						resultsets.stmtId = this.readUint32() ?? await this.readUint32Async();
-						nColumns = this.readUint16() ?? await this.readUint16Async();
-						nPlaceholders = this.readUint16() ?? await this.readUint16Async();
-						this.readUint8() ?? await this.readUint8Async(); // skip reserved1
-						this.#warnings = this.readUint16() ?? await this.readUint16Async();
-						this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
-					}
+				{	this.#initResultsets(resultsets);
+					nColumns = 0;
 					break;
 				}
-				case PacketType.NULL_OR_LOCAL_INFILE:
+				case PACKET_NOT_READ_BIT:
+				{	resultsets.isPreparedStmt = true;
+					resultsets.stmtId = this.readUint32() ?? await this.readUint32Async();
+					nColumns = this.readUint16() ?? await this.readUint16Async();
+					nPlaceholders = this.readUint16() ?? await this.readUint16Async();
+					this.readUint8() ?? await this.readUint8Async(); // skip reserved1
+					this.#warnings = this.readUint16() ?? await this.readUint16Async();
+					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+					break;
+				}
+				case PacketType.NULL_OR_LOCAL_INFILE | PACKET_NOT_READ_BIT:
 				{	const filename = this.readShortEofString() ?? await this.readShortEofStringAsync();
 					debugAssert(this.isAtEndOfPacket());
 					if (!this.#onLoadFile)
@@ -626,20 +625,20 @@ L:		while (true)
 					}
 					continue L;
 				}
-				case PacketType.UINT16:
+				case PacketType.UINT16 | PACKET_NOT_READ_BIT:
 				{	nColumns = this.readUint16() ?? await this.readUint16Async();
 					break;
 				}
-				case PacketType.UINT24:
+				case PacketType.UINT24 | PACKET_NOT_READ_BIT:
 				{	nColumns = this.readUint24() ?? await this.readUint24Async();
 					break;
 				}
-				case PacketType.UINT64:
+				case PacketType.UINT64 | PACKET_NOT_READ_BIT:
 				{	nColumns = this.readUint64() ?? await this.readUint64Async();
 					break;
 				}
 				default:
-				{	nColumns = type;
+				{	nColumns = type & 0xFF; // clear PACKET_NOT_READ_BIT
 				}
 			}
 			if (nColumns > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
@@ -1021,7 +1020,7 @@ L:		while (true)
 				// Read preStmt result
 				if (preStmtId >= 0)
 				{	const rowNColumns = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
-					debugAssert(rowNColumns == 0); // preStmt must not return rows/columns
+					debugAssert(rowNColumns == PACKET_NOT_READ_BIT); // preStmt must not return rows/columns
 					debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
 					if (!this.isAtEndOfPacket())
 					{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
@@ -1525,9 +1524,9 @@ L:		while (true)
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
-			let rowNColumns = type;
-			if (type >= 0xFB)
-			{	this.unput(type);
+			let rowNColumns = type & 0xFF; // clear PACKET_NOT_READ_BIT
+			if (rowNColumns >= 0xFB)
+			{	this.unput(rowNColumns);
 				const value = this.readLenencInt() ?? await this.readLenencIntAsync();
 				if (value > Number.MAX_SAFE_INTEGER) // want cast bigint -> number
 				{	throw new Error(`Can't handle so many columns: ${value}`);
@@ -1629,7 +1628,7 @@ L:		while (true)
 			let lastColumnReaderLen = 0;
 			if (!isPreparedStmt)
 			{	// Text protocol row
-				this.unput(type);
+				this.unput(type & 0xFF); // clear PACKET_NOT_READ_BIT
 				for (let i=0; i<nColumns; i++)
 				{	const {typeId, flags, name} = columns[i];
 					let len = this.readLenencInt() ?? await this.readLenencIntAsync();
