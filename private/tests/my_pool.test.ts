@@ -3,7 +3,7 @@ import {ErrorCodes} from "../constants.ts";
 import {MyPool} from '../my_pool.ts';
 import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError, SqlError} from '../errors.ts';
-import {testWithDocker} from "./with_docker.ts";
+import {testWithDocker} from "./test_with_docker.ts";
 import {RdStream} from '../deps.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
