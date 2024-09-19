@@ -1,4 +1,107 @@
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+
+/*	Option 1. Run tests using already existing and running database server:
+		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
+
+	Option 2. Use docker to download and run various database servers during testing:
+		rm -r .vscode/coverage/profile; WITH_DOCKER=1 deno test --fail-fast --unstable --allow-all --coverage=.vscode/coverage/profile private/tests
+ */
+
+const {TESTS_DSN, WITH_DOCKER} = Deno.env.toObject();
+
 const decoder = new TextDecoder;
+
+export function testWithDocker(tests: Array<(dsnStr: string) => Promise<void>>)
+{	function doRunTests(dsnStr: string)
+	{	return runTests(dsnStr, tests);
+	}
+
+	if (TESTS_DSN)
+	{	console.log('%cEnvironment variable TESTS_DSN is set, so using DSN %s for tests', 'color:blue', TESTS_DSN);
+		for (const t of tests)
+		{	Deno.test(t.name, () => t(TESTS_DSN));
+		}
+	}
+	else if (WITH_DOCKER === 'latest')
+	{	console.log("%cEnvironment variable WITH_DOCKER is set to 'latest', so i'll download and run mysql:latest Docker image", 'color:blue');
+
+		Deno.test
+		(	'All',
+			async () =>
+			{	await withDocker('mysql:latest', true, true, ['--innodb-idle-flush-pct=0', '--local-infile'], doRunTests);
+				await withDocker('mariadb:latest', false, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], doRunTests);
+			}
+		);
+	}
+	else if (WITH_DOCKER === 'all')
+	{	console.log("%cEnvironment variable WITH_DOCKER is set, so i'll download and run Docker images", 'color:blue');
+
+		Deno.test
+		(	'All',
+			async () =>
+			{	await withDocker('mysql:latest', false, true, ['--innodb-idle-flush-pct=0'], doRunTests);
+				await withDocker('mysql:latest', true, false, ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], doRunTests);
+				await withDocker('mysql:8.0', true, true, ['--innodb-idle-flush-pct=0', '--default-authentication-plugin=mysql_native_password'], doRunTests);
+				await withDocker('mysql:5.7', true, false, ['--max-allowed-packet=67108864', '--local-infile'], doRunTests);
+				await withDocker('mysql:5.6', true, true, ['--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], doRunTests);
+
+				await withDocker('mariadb:latest', false, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864'], doRunTests);
+				await withDocker('mariadb:latest', true, false, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], doRunTests);
+				await withDocker('mariadb:10.7', true, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--default-authentication-plugin=mysql_native_password'], doRunTests);
+				await withDocker('mariadb:10.5', true, false, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], doRunTests);
+				await withDocker('mariadb:10.2', true, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], doRunTests);
+				await withDocker('cytopia/mariadb-10.0', true, false, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], doRunTests);
+				await withDocker('cytopia/mariadb-5.5', true, false, ['--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], doRunTests);
+			}
+		);
+	}
+	else if (WITH_DOCKER)
+	{	console.log("%cEnvironment variable WITH_DOCKER is set to %c%s%c, so i'll download and run this Docker image", 'color:blue', 'color:blue; font-weight:bold', WITH_DOCKER, 'color:blue');
+
+		Deno.test
+		(	'All',
+			async () =>
+			{	await withDocker(WITH_DOCKER, true, true, ['--innodb-idle-flush-pct=0', '--local-infile'], doRunTests);
+			}
+		);
+	}
+	else
+	{	console.log('%cPlease, set one of environment variables: TESTS_DSN or WITH_DOCKER.', 'color:blue');
+		console.log('TESTS_DSN="mysql://..." deno test ...');
+		console.log('Or (to test on all known docker images)');
+		console.log('WITH_DOCKER=all deno test ...');
+		console.log('Or (to test on latest MySQL and latest MariaDB)');
+		console.log('WITH_DOCKER=latest deno test ...');
+		console.log('Or (to test on specific docker image)');
+		console.log('WITH_DOCKER=mysql:9.0 deno test ...');
+	}
+}
+
+async function runTests(dsnStr: string, tests: Array<(dsnStr: string) => Promise<void>>)
+{	for (const t of tests)
+	{	console.log(`test ${t.name} ...`);
+		const since = Date.now();
+		let error;
+		try
+		{	const before = Object.assign({}, Deno.resources());
+			await t(dsnStr);
+			const after = Object.assign({}, Deno.resources());
+			assertEquals(before, after);
+		}
+		catch (e)
+		{	error = e;
+		}
+		const elapsed = Date.now() - since;
+		const elapsedStr = elapsed<60000 ? (elapsed/1000)+'s' : Math.floor(elapsed/60000)+'m'+(Math.floor(elapsed/1000)%60)+'s';
+		if (!error)
+		{	console.log('\t%cok %c(%s)', 'color:green', 'color:gray', elapsedStr);
+		}
+		else
+		{	console.log('\t%cFAILED %c(%s)', 'color:red', 'color:gray', elapsedStr);
+			throw error;
+		}
+	}
+}
 
 async function system(cmd: string, args: string[], stderr: 'inherit'|'null'='inherit')
 {	const output = await new Deno.Command(cmd, {args, stdout: 'piped', stderr}).output();
@@ -26,7 +129,7 @@ async function stopLeftRunning()
 	}
 }
 
-export async function withDocker(imageName: string, withPassword: boolean, withSchema: boolean, params: string[], cb: (dsnStr: string) => Promise<unknown>)
+async function withDocker(imageName: string, withPassword: boolean, withSchema: boolean, params: string[], cb: (dsnStr: string) => Promise<unknown>)
 {	await stopLeftRunning();
 	const containerName = `office_spirit_mysql_${Math.floor(Math.random() * 256)}`;
 	// Format command line
