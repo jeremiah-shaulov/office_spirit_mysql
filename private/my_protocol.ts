@@ -1642,7 +1642,7 @@ L:		while (true)
 						{	lastColumnReaderLen = len;
 						}
 						else if (len>this.#maxColumnLen || rowType==RowType.VOID)
-						{	this.readVoid(len) || this.readVoidAsync(len);
+						{	this.readVoid(len) || await this.readVoidAsync(len);
 						}
 						else
 						{	let v;
@@ -1822,7 +1822,7 @@ L:		while (true)
 								{	lastColumnReaderLen = len;
 								}
 								else if (len>this.#maxColumnLen || rowType==RowType.VOID)
-								{	this.readVoid(len) || this.readVoidAsync(len);
+								{	this.readVoid(len) || await this.readVoidAsync(len);
 								}
 								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
 								{	value = await this.readBytesToBuffer(new Uint8Array(len));
