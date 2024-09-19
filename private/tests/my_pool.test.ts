@@ -33,6 +33,7 @@ testWithDocker
 		testLoadBigDump,
 		testLoadFile,
 		testMultiStatements,
+		testBindBigParam,
 	]
 );
 
@@ -1098,402 +1099,404 @@ async function testManyPlaceholders2(dsnStr: string)
 }
 
 async function testTrx(dsnStr: string)
-{	await using pool = new MyPool(dsnStr);
-	pool.options({managedXaDsns: dsnStr});
-	const MY_XA_ID = '6294554977320077-';
+{	for (const managedXaDsns of [dsnStr, new Dsn(dsnStr), [dsnStr]])
+	{	await using pool = new MyPool(dsnStr);
+		pool.options({managedXaDsns});
+		const MY_XA_ID = '6294554977320077-';
 
-	await pool.forConn
-	(	async conn =>
-		{	// Recover
-			try
-			{	for await (const row of await conn.query(`XA RECOVER`).all())
-				{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
-					{	await conn.query(`XA ROLLBACK '${row.data}'`);
-						console.log('Rolled back dangling XA');
-					}
-					else
-					{	console.log("%cWarning: there's active XA:%c %s", 'background-color:black; color:yellow', 'font-weight:bold', row.data);
+		await pool.forConn
+		(	async conn =>
+			{	// Recover
+				try
+				{	for await (const row of await conn.query(`XA RECOVER`).all())
+					{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
+						{	await conn.query(`XA ROLLBACK '${row.data}'`);
+							console.log('Rolled back dangling XA');
+						}
+						else
+						{	console.log("%cWarning: there's active XA:%c %s", 'background-color:black; color:yellow', 'font-weight:bold', row.data);
+						}
 					}
 				}
-			}
-			catch (error)
-			{	if (!(error instanceof SqlError))
-				{	throw error;
+				catch (error)
+				{	if (!(error instanceof SqlError))
+					{	throw error;
+					}
+					// ok
 				}
-				// ok
+
+				// CREATE DATABASE
+				await conn.query("DROP DATABASE IF EXISTS test58168");
+				await conn.query("CREATE DATABASE `test58168`");
+
+				// USE
+				await conn.query("USE test58168");
+
+				// CREATE TABLE
+				await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
+
+				// rollback
+				await conn.startTrx();
+				await conn.query("INSERT INTO t_log SET a = 123");
+				assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first(), 123);
+				await conn.rollback();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				// end() before startTrx()
+				conn.end();
+				await conn.query("USE test58168");
+				await conn.startTrx();
+				let id = (await conn.query("INSERT INTO t_log SET a = 123")).lastInsertId;
+				assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=?", [id]).first(), 123);
+				await conn.rollback();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				// commit
+				await conn.startTrx();
+				id = (await conn.query("INSERT INTO t_log SET a = 123")).lastInsertId;
+				assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=?", [id]).first(), 123);
+				await conn.commit();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				await conn.rollback();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				let res = await conn.query("DELETE FROM t_log");
+				assertEquals(res.affectedRows, 1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				// savepoint
+				await conn.startTrx();
+				const point1 = await conn.savepoint();
+				await conn.query("INSERT INTO t_log SET a = 123");
+				const point2 = await conn.savepoint();
+				await conn.query("INSERT INTO t_log SET a = 456");
+				const point3 = await conn.savepoint();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+				await conn.rollback(point3);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+				await conn.rollback(point2);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				await conn.rollback(point2);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				await conn.rollback(point1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				await conn.rollback(point1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				await conn.rollback();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				// readonly
+				await conn.startTrx({readonly: true});
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				let error;
+				try
+				{	await conn.query("INSERT INTO t_log SET a = 123");
+				}
+				catch (e)
+				{	error = e;
+				}
+				assert(error?.message.indexOf(`Cannot execute statement in a READ ONLY transaction`) >= 0);
+				await conn.rollback();
+
+				// xa when regular trx active (must commit)
+				await conn.startTrx();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				await conn.query("INSERT INTO t_log SET a = 123");
+				error = undefined;
+				try
+				{	await conn.startTrx({xaId1: MY_XA_ID});
+				}
+				catch (e)
+				{	error = e;
+				}
+				assert(!error);
+				await conn.rollback();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				res = await conn.query("DELETE FROM t_log");
+				assertEquals(res.affectedRows, 1);
+
+				// xa when another xa active (must commit)
+				await conn.startTrx({xaId1: MY_XA_ID});
+				error = undefined;
+				try
+				{	await conn.startTrx({xaId1: MY_XA_ID});
+				}
+				catch (e)
+				{	error = e;
+				}
+				assert(!error);
+				await conn.rollback();
+
+				// xa
+				await conn.startTrx({xaId1: MY_XA_ID});
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				await conn.query("INSERT INTO t_log SET a = 123");
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				error = undefined;
+				try
+				{	await conn.commit();
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.message, `Please, prepare commit first`);
+				assertEquals((await conn.query("XA RECOVER").all()).length, 0);
+				await conn.prepareCommit();
+				assertEquals((await conn.query("XA RECOVER").all()).length, 1);
+				await conn.commit();
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				res = await conn.query("DELETE FROM t_log");
+				assertEquals(res.affectedRows, 1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 			}
+		);
 
-			// CREATE DATABASE
-			await conn.query("DROP DATABASE IF EXISTS test58168");
-			await conn.query("CREATE DATABASE `test58168`");
-
-			// USE
-			await conn.query("USE test58168");
-
-			// CREATE TABLE
-			await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
-
-			// rollback
-			await conn.startTrx();
-			await conn.query("INSERT INTO t_log SET a = 123");
-			assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first(), 123);
-			await conn.rollback();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			// end() before startTrx()
-			conn.end();
-			await conn.query("USE test58168");
-			await conn.startTrx();
-			let id = (await conn.query("INSERT INTO t_log SET a = 123")).lastInsertId;
-			assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=?", [id]).first(), 123);
-			await conn.rollback();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			// commit
-			await conn.startTrx();
-			id = (await conn.query("INSERT INTO t_log SET a = 123")).lastInsertId;
-			assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=?", [id]).first(), 123);
-			await conn.commit();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			await conn.rollback();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			let res = await conn.query("DELETE FROM t_log");
-			assertEquals(res.affectedRows, 1);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			// savepoint
-			await conn.startTrx();
-			const point1 = await conn.savepoint();
-			await conn.query("INSERT INTO t_log SET a = 123");
-			const point2 = await conn.savepoint();
-			await conn.query("INSERT INTO t_log SET a = 456");
-			const point3 = await conn.savepoint();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
-			await conn.rollback(point3);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
-			await conn.rollback(point2);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			await conn.rollback(point2);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			await conn.rollback(point1);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			await conn.rollback(point1);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			await conn.rollback();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			// readonly
-			await conn.startTrx({readonly: true});
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			let error;
-			try
-			{	await conn.query("INSERT INTO t_log SET a = 123");
+		// XA Info: create db
+		await pool.forConn
+		(	async conn =>
+			{	await conn.query("DROP DATABASE IF EXISTS test38743");
+				await conn.query("CREATE DATABASE `test38743`");
+				await conn.query("DROP DATABASE IF EXISTS test2");
+				await conn.query("CREATE DATABASE `test2`");
+				await conn.query("USE test2");
+				await conn.query("CREATE TABLE t_xa_info (xa_id char(40) PRIMARY KEY)");
+				await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(40), op enum('insert', 'delete'))");
+				await conn.query("CREATE TRIGGER t1 AFTER INSERT ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (NEW.xa_id, 'insert')");
+				await conn.query("CREATE TRIGGER t2 AFTER DELETE ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (OLD.xa_id, 'delete')");
 			}
-			catch (e)
-			{	error = e;
-			}
-			assert(error?.message.indexOf(`Cannot execute statement in a READ ONLY transaction`) >= 0);
-			await conn.rollback();
+		);
+		const xaInfoDsn = new Dsn(dsnStr);
+		xaInfoDsn.schema = 'test2';
+		pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
 
-			// xa when regular trx active (must commit)
-			await conn.startTrx();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			await conn.query("INSERT INTO t_log SET a = 123");
-			error = undefined;
-			try
-			{	await conn.startTrx({xaId1: MY_XA_ID});
-			}
-			catch (e)
-			{	error = e;
-			}
-			assert(!error);
-			await conn.rollback();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			res = await conn.query("DELETE FROM t_log");
-			assertEquals(res.affectedRows, 1);
-
-			// xa when another xa active (must commit)
-			await conn.startTrx({xaId1: MY_XA_ID});
-			error = undefined;
-			try
-			{	await conn.startTrx({xaId1: MY_XA_ID});
-			}
-			catch (e)
-			{	error = e;
-			}
-			assert(!error);
-			await conn.rollback();
-
-			// xa
-			await conn.startTrx({xaId1: MY_XA_ID});
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			await conn.query("INSERT INTO t_log SET a = 123");
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			error = undefined;
-			try
-			{	await conn.commit();
-			}
-			catch (e)
-			{	error = e;
-			}
-			assertEquals(error?.message, `Please, prepare commit first`);
-			assertEquals((await conn.query("XA RECOVER").all()).length, 0);
-			await conn.prepareCommit();
-			assertEquals((await conn.query("XA RECOVER").all()).length, 1);
-			await conn.commit();
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			res = await conn.query("DELETE FROM t_log");
-			assertEquals(res.affectedRows, 1);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-		}
-	);
-
-	// XA Info: create db
-	await pool.forConn
-	(	async conn =>
-		{	await conn.query("DROP DATABASE IF EXISTS test38743");
-			await conn.query("CREATE DATABASE `test38743`");
-			await conn.query("DROP DATABASE IF EXISTS test2");
-			await conn.query("CREATE DATABASE `test2`");
-			await conn.query("USE test2");
-			await conn.query("CREATE TABLE t_xa_info (xa_id char(40) PRIMARY KEY)");
-			await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(40), op enum('insert', 'delete'))");
-			await conn.query("CREATE TRIGGER t1 AFTER INSERT ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (NEW.xa_id, 'insert')");
-			await conn.query("CREATE TRIGGER t2 AFTER DELETE ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (OLD.xa_id, 'delete')");
-		}
-	);
-	const xaInfoDsn = new Dsn(dsnStr);
-	xaInfoDsn.schema = 'test2';
-	pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
-
-	// XA Info: test
-	await pool.forSession
-	(	async session =>
-		{	await session.startTrx({xa: true});
-			const conn = session.conn();
-			await conn.query("USE test58168");
-			await conn.query("INSERT INTO t_log SET a = 123");
-			await pool.forConn
-			(	async conn2 =>
-				{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-					assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info_sub").first(), 0);
-				},
-				xaInfoDsn
-			);
-			await session.commit();
-			await pool.forConn
-			(	async conn2 =>
-				{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-					assertEquals(await conn2.queryArr("SELECT Count(*), Count(DISTINCT op) FROM test2.t_xa_info_sub").first(), [2, 2]);
-				},
-				xaInfoDsn
-			);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			const res = await conn.query("DELETE FROM t_log");
-			assertEquals(res.affectedRows, 1);
-			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-		}
-	);
-
-	// XA session
-	const xaInfoDsn1 = new Dsn(dsnStr);
-	xaInfoDsn1.schema = 'test58168';
-	const xaInfoDsn2 = new Dsn(dsnStr);
-	xaInfoDsn2.schema = 'test38743';
-	await pool.forSession
-	(	async session =>
-		{	const conn2 = session.conn(xaInfoDsn2);
-			assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
-			await conn2.query("CREATE TABLE t_log LIKE test58168.t_log");
-
-			// Start, insert, savepoint, insert, rollback to point, commit
-
-			await session.startTrx({xa: true});
-
-			const conn1 = session.conn(xaInfoDsn1);
-			assertEquals(conn1.connectionId, 0); // not yet connected
-			assertEquals(conn2.connectionId>0, true);
-			assertEquals(conn1.inTrx, true); // startTrx() pends the transaction start till actual connection
-			assertEquals(conn2.inTrx, true);
-			assertEquals(conn1.inXa, true);
-			assertEquals(conn2.inXa, true);
-			assertEquals(conn1.xaId, '');
-			assert(conn2.xaId != '');
-
-			assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test58168');
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			await conn1.query("INSERT INTO t_log SET a = 123");
-			await conn2.query("INSERT INTO t_log SET a = 123");
-
-			assertEquals(conn1.inXa, true);
-			assertEquals(conn2.inXa, true);
-			assert(conn1.xaId != '');
-			assert(conn2.xaId != '');
-
-			const p1 = session.savepoint();
-
-			await conn1.query("INSERT INTO t_log SET a = 234");
-			await conn2.query("INSERT INTO t_log SET a = 234");
-
-			assertEquals(conn1.inXa, true);
-			assertEquals(conn2.inXa, true);
-			assert(conn1.xaId != '');
-			assert(conn2.xaId != '');
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 2);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 2);
-
-			await session.rollback(p1);
-
-			assertEquals(conn1.inXa, true);
-			assertEquals(conn2.inXa, true);
-			assert(conn1.xaId != '');
-			assert(conn2.xaId != '');
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-
-			await session.commit();
-
-			assertEquals(conn1.inTrx, false);
-			assertEquals(conn2.inTrx, false);
-			assertEquals(conn1.inXa, false);
-			assertEquals(conn2.inXa, false);
-			assertEquals(conn1.xaId, '');
-			assertEquals(conn2.xaId, '');
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-
-			// Start delete, rollback
-
-			await session.startTrx({xa: true});
-			assertEquals(conn1.inTrx, true);
-			assertEquals(conn2.inTrx, true);
-
-			await conn1.query("DELETE FROM t_log");
-			await conn2.query("DELETE FROM t_log");
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			await session.rollback();
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-
-			// Start delete, break state, commit
-
-			await session.startTrx({xa: true});
-			assertEquals(conn1.inTrx, true);
-			assertEquals(conn2.inTrx, true);
-
-			await conn1.query("DELETE FROM t_log");
-			await conn2.query("DELETE FROM t_log");
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-			await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
-			console.log('%cThe following exceptions must be ignored', 'color:blue');
-
-			let error;
-			try
-			{	await session.commit();
-			}
-			catch (e)
-			{	error = e;
-			}
-			console.error(error);
-			assert(error);
-			assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-			await conn1.query("DELETE FROM t_log");
-			await conn2.query("DELETE FROM t_log");
-		}
-	);
-
-	for (let noXa=0; noXa<2; noXa++)
-	{	await pool.forSession
+		// XA Info: test
+		await pool.forSession
 		(	async session =>
-			{	const conn1 = session.conn(xaInfoDsn1);
-				const conn2 = session.conn(xaInfoDsn2);
-				await conn1.connect();
+			{	await session.startTrx({xa: true});
+				const conn = session.conn();
+				await conn.query("USE test58168");
+				await conn.query("INSERT INTO t_log SET a = 123");
+				await pool.forConn
+				(	async conn2 =>
+					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
+						assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info_sub").first(), 0);
+					},
+					xaInfoDsn
+				);
+				await session.commit();
+				await pool.forConn
+				(	async conn2 =>
+					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
+						assertEquals(await conn2.queryArr("SELECT Count(*), Count(DISTINCT op) FROM test2.t_xa_info_sub").first(), [2, 2]);
+					},
+					xaInfoDsn
+				);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				const res = await conn.query("DELETE FROM t_log");
+				assertEquals(res.affectedRows, 1);
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+			}
+		);
 
-				await session.startTrx(noXa ? undefined : {xa: true});
+		// XA session
+		const xaInfoDsn1 = new Dsn(dsnStr);
+		xaInfoDsn1.schema = 'test58168';
+		const xaInfoDsn2 = new Dsn(dsnStr);
+		xaInfoDsn2.schema = 'test38743';
+		await pool.forSession
+		(	async session =>
+			{	const conn2 = session.conn(xaInfoDsn2);
+				assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
+				await conn2.query("CREATE TABLE t_log LIKE test58168.t_log");
 
-				assertEquals(conn1.connectionId>0, true);
-				assertEquals(conn2.connectionId, 0); // not yet connected
-				assertEquals(conn1.inTrx, true);
-				assertEquals(conn2.inTrx, true); // startTrx() pends the transaction start till actual connection
-				assertEquals(conn1.inXa, noXa==0);
-				assertEquals(conn2.inXa, noXa==0);
+				// Start, insert, savepoint, insert, rollback to point, commit
 
-				await conn1.query("INSERT INTO t_log SET a = 123");
-				await conn2.query("INSERT INTO t_log SET a = 123");
+				await session.startTrx({xa: true});
 
-				assertEquals(conn1.connectionId>0, true);
+				const conn1 = session.conn(xaInfoDsn1);
+				assertEquals(conn1.connectionId, 0); // not yet connected
 				assertEquals(conn2.connectionId>0, true);
-				assertEquals(conn1.inTrx, true);
+				assertEquals(conn1.inTrx, true); // startTrx() pends the transaction start till actual connection
 				assertEquals(conn2.inTrx, true);
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assertEquals(conn1.xaId, '');
+				assert(conn2.xaId != '');
 
 				assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test58168');
-				assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
-				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-
-				await session.rollback(0);
-
-				assertEquals(conn1.inTrx, true);
-				assertEquals(conn2.inTrx, true);
-
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
 				await conn1.query("INSERT INTO t_log SET a = 123");
 				await conn2.query("INSERT INTO t_log SET a = 123");
 
-				session.savepoint();
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assert(conn1.xaId != '');
+				assert(conn2.xaId != '');
+
+				const p1 = session.savepoint();
 
 				await conn1.query("INSERT INTO t_log SET a = 234");
 				await conn2.query("INSERT INTO t_log SET a = 234");
 
-				assertEquals(conn1.inTrx, true);
-				assertEquals(conn2.inTrx, true);
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assert(conn1.xaId != '');
+				assert(conn2.xaId != '');
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 2);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 2);
 
-				await session.rollback(0);
+				await session.rollback(p1);
 
-				assertEquals(conn1.inTrx, true);
-				assertEquals(conn2.inTrx, true);
-
-				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-
-				await conn1.query("INSERT INTO t_log SET a = 123");
-				await conn2.query("INSERT INTO t_log SET a = 123");
-
+				assertEquals(conn1.inXa, true);
+				assertEquals(conn2.inXa, true);
+				assert(conn1.xaId != '');
+				assert(conn2.xaId != '');
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 
-				// don't commit or rollback
+				await session.commit();
+
+				assertEquals(conn1.inTrx, false);
+				assertEquals(conn2.inTrx, false);
+				assertEquals(conn1.inXa, false);
+				assertEquals(conn2.inXa, false);
+				assertEquals(conn1.xaId, '');
+				assertEquals(conn2.xaId, '');
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+				// Start delete, rollback
+
+				await session.startTrx({xa: true});
+				assertEquals(conn1.inTrx, true);
+				assertEquals(conn2.inTrx, true);
+
+				await conn1.query("DELETE FROM t_log");
+				await conn2.query("DELETE FROM t_log");
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				await session.rollback();
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+				// Start delete, break state, commit
+
+				await session.startTrx({xa: true});
+				assertEquals(conn1.inTrx, true);
+				assertEquals(conn2.inTrx, true);
+
+				await conn1.query("DELETE FROM t_log");
+				await conn2.query("DELETE FROM t_log");
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
+				console.log('%cThe following exceptions must be ignored', 'color:blue');
+
+				let error;
+				try
+				{	await session.commit();
+				}
+				catch (e)
+				{	error = e;
+				}
+				console.error(error);
+				assert(error);
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				await conn1.query("DELETE FROM t_log");
+				await conn2.query("DELETE FROM t_log");
 			}
 		);
 
-		await pool.forSession
-		(	async session =>
-			{	const conn1 = session.conn(xaInfoDsn1);
-				const conn2 = session.conn(xaInfoDsn2);
+		for (let noXa=0; noXa<2; noXa++)
+		{	await pool.forSession
+			(	async session =>
+				{	const conn1 = session.conn(xaInfoDsn1);
+					const conn2 = session.conn(xaInfoDsn2);
+					await conn1.connect();
 
-				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					await session.startTrx(noXa ? undefined : {xa: true});
+
+					assertEquals(conn1.connectionId>0, true);
+					assertEquals(conn2.connectionId, 0); // not yet connected
+					assertEquals(conn1.inTrx, true);
+					assertEquals(conn2.inTrx, true); // startTrx() pends the transaction start till actual connection
+					assertEquals(conn1.inXa, noXa==0);
+					assertEquals(conn2.inXa, noXa==0);
+
+					await conn1.query("INSERT INTO t_log SET a = 123");
+					await conn2.query("INSERT INTO t_log SET a = 123");
+
+					assertEquals(conn1.connectionId>0, true);
+					assertEquals(conn2.connectionId>0, true);
+					assertEquals(conn1.inTrx, true);
+					assertEquals(conn2.inTrx, true);
+
+					assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test58168');
+					assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+					await session.rollback(0);
+
+					assertEquals(conn1.inTrx, true);
+					assertEquals(conn2.inTrx, true);
+
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+					await conn1.query("INSERT INTO t_log SET a = 123");
+					await conn2.query("INSERT INTO t_log SET a = 123");
+
+					session.savepoint();
+
+					await conn1.query("INSERT INTO t_log SET a = 234");
+					await conn2.query("INSERT INTO t_log SET a = 234");
+
+					assertEquals(conn1.inTrx, true);
+					assertEquals(conn2.inTrx, true);
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+
+					await session.rollback(0);
+
+					assertEquals(conn1.inTrx, true);
+					assertEquals(conn2.inTrx, true);
+
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+					await conn1.query("INSERT INTO t_log SET a = 123");
+					await conn2.query("INSERT INTO t_log SET a = 123");
+
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+					// don't commit or rollback
+				}
+			);
+
+			await pool.forSession
+			(	async session =>
+				{	const conn1 = session.conn(xaInfoDsn1);
+					const conn2 = session.conn(xaInfoDsn2);
+
+					assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				}
+			);
+		}
+
+		// Drop databases that i created
+		await pool.forConn
+		(	async conn =>
+			{	await conn.query("DROP DATABASE test58168");
+				await conn.query("DROP DATABASE test38743");
+				await conn.query("DROP DATABASE test2");
 			}
 		);
 	}
-
-	// Drop databases that i created
-	await pool.forConn
-	(	async conn =>
-		{	await conn.query("DROP DATABASE test58168");
-			await conn.query("DROP DATABASE test38743");
-			await conn.query("DROP DATABASE test2");
-		}
-	);
 }
 
 async function testRetryQueryTimes(dsnStr: string)
@@ -1732,7 +1735,11 @@ async function testLoadBigDump(dsnStr: string)
 											pos += value.length;
 										}
 
-										assertEquals(buffer.subarray(0, len), buffer2.subarray(0, len));
+										for (let i=0; i<len; i++)
+										{	if (buffer[i] != buffer2[i])
+											{	assertEquals(buffer[i], buffer2[i]);
+											}
+										}
 										size2 -= len;
 									}
 								}
@@ -1864,4 +1871,60 @@ async function testMultiStatements(dsnStr: string)
 			await new Promise(y => setTimeout(y, 200));
 		}
 	}
+}
+
+async function testBindBigParam(dsnStr: string)
+{	const maxColumnLen = 0x1000000;
+	const dsn = new Dsn(dsnStr);
+	dsn.maxColumnLen = maxColumnLen;
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	// CREATE DATABASE
+	await conn.query("DROP DATABASE IF EXISTS test1");
+	await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
+
+	// USE
+	await conn.query("USE test1");
+
+	// CREATE TABLE
+	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)");
+
+	// INSERT
+	await conn.forQuery
+	(	"INSERT INTO t_log SET message=?",
+		async insert =>
+		{	await conn.forQuery
+			(	"SELECT message FROM t_log WHERE id=?",
+				async select =>
+				{	for (const selectBin of [false, true])
+					{	for (const size of [0, 10, 0xFF, 0x10000, maxColumnLen+1, maxColumnLen])
+						{	const data = new Uint8Array(size);
+							for (let i=0; i<size; i++)
+							{	data[i] = i & 0xFF;
+							}
+							const {lastInsertId} = await insert.exec([data]);
+							const row = await (selectBin ? conn.query("SELECT message FROM t_log WHERE id="+lastInsertId) : select.exec([lastInsertId])).first();
+							const message = row?.message;
+							if (size > maxColumnLen)
+							{	assertEquals(message, null);
+							}
+							else
+							{	assert(message instanceof Uint8Array);
+								assertEquals(message.length, size);
+								for (let i=0; i<size; i++)
+								{	if (message[i] != data[i])
+									{	assertEquals(message[i], data[i]);
+									}
+								}
+							}
+						}
+					}
+				}
+			);
+		}
+	);
+
+	// Drop database that i created
+	await conn.query("DROP DATABASE test1");
 }
