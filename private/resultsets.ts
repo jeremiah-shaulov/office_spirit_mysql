@@ -31,7 +31,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		const it = resultsets[Symbol.asyncIterator]();
 		const item = await it.next();
 		await resultsets.discard();
-		return item.done || item.value===undefined ? undefined : item.value; // void -> undefined
+		return item.done ? undefined : item.value; // void -> undefined
 	}
 
 	/**	Reads all rows in the first resultset, and calls the provided callback for each of them.
@@ -144,11 +144,11 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	{	super();
 	}
 
-	get hasMore(): boolean
+	get hasMore()
 	{	return this.hasMoreInternal;
 	}
 
-	exec(params: Param[]): ResultsetsPromise<Row>
+	exec(params: Param[])
 	{	return new ResultsetsPromise<Row>
 		(	(y, n) =>
 			{	if (!this.protocol)
@@ -178,7 +178,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		}
 	}
 
-	nextResultset(): Promise<boolean>
+	nextResultset()
 	{	if (!this.hasMoreInternal)
 		{	return Promise.resolve(false);
 		}

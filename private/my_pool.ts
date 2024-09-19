@@ -112,7 +112,7 @@ export class MyPool
 				}
 			}
 			// xaCheckEach
-			if (typeof(xaCheckEach)=='number')
+			if (typeof(xaCheckEach) == 'number')
 			{	this.#xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 			}
 			// xaInfoTables
