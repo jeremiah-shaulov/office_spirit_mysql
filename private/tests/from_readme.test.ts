@@ -1,10 +1,14 @@
+import {testWithDocker} from "./test_with_docker.ts";
+
 const readmeUrl = new URL('../../README.md', import.meta.url);
 const modUrl = new URL('../../mod.ts', import.meta.url);
 
-await runTestsFromReadme(readmeUrl, modUrl);
+Deno.env.set('DSN', Deno.env.get('TESTS_DSN') ?? '');
+testWithDocker(await getTestsFromReadme(readmeUrl, modUrl));
 
-async function runTestsFromReadme(readmeUrl: URL, modUrl: URL)
-{	for (const [name, code] of await extractTestsFromReadme(readmeUrl, modUrl))
+async function getTestsFromReadme(readmeUrl: URL, modUrl: URL)
+{	const tests = [];
+	for (const [name, code] of await extractTestsFromReadme(readmeUrl, modUrl))
 	{	const filename = await Deno.makeTempFile({suffix: `-${name}.ts`});
 		try
 		{	await Deno.writeTextFile(filename, code);
@@ -13,18 +17,18 @@ async function runTestsFromReadme(readmeUrl: URL, modUrl: URL)
 		{	await Deno.remove(filename);
 			throw e;
 		}
-		Deno.test
-		(	name,
-			async () =>
-			{	try
-				{	await import(filename);
-				}
-				finally
-				{	await Deno.remove(filename);
-				}
+		const func = async function()
+		{	try
+			{	await import(filename);
 			}
-		);
+			finally
+			{	await Deno.remove(filename);
+			}
+		};
+		Object.defineProperty(func, 'name', {value: name, writable: false});
+		tests.push(func);
 	}
+	return tests;
 }
 
 async function extractTestsFromReadme(readmeUrl: URL, modUrl: URL)

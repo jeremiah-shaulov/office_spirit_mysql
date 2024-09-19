@@ -213,24 +213,32 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.16.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example2.ts~)' > /tmp/example2.ts
 // deno run --allow-env --allow-net /tmp/example2.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
-await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root@localhost');
+const dsn1 = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost');
+const dsn2 = new Dsn(dsn1); // copy
+dsn2.schema = 'information_schema'; // change schema
+
+await using pool = new MyPool(dsn1); // `dsn1` will be the default DSN for this pool
 using session = pool.getSession();
 
 const conn1 = session.conn(); // default DSN
 const conn2 = session.conn(); // the same object
 const conn3 = session.conn(undefined, true); // another connection to default DSN
-const conn4 = session.conn('mysql://tests@localhost'); // connection to different DSN
+const conn4 = session.conn(dsn2); // connection to different DSN
 
-console.log(conn1 == conn2); // prints true
-console.log(conn2 != conn3); // prints true
+assert(conn1 == conn2);
+assert(conn2 != conn3);
 
 const connId2 = conn2.queryCol("SELECT Connection_id()").first();
 const connId3 = conn3.queryCol("SELECT Connection_id()").first();
 const connId4 = conn4.queryCol("SELECT Connection_id()").first();
 
-console.log(await Promise.all([connId2, connId3, connId4])); // prints 3 different connection ids
+const connIds = await Promise.all([connId2, connId3, connId4]);
+console.log(connIds); // prints 3 different connection ids
+assertEquals(new Set(connIds).size, 3);
 ```
 At the end of callback all active connections will be returned to the pool. However you can call `conn.end()` to free a connection earlier.
 
@@ -361,6 +369,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 // deno run --allow-env --allow-net /tmp/example6.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -370,6 +379,7 @@ await conn.queryVoid("INSERT INTO t_log (message) VALUES ('Message 1'), ('Messag
 
 const count = await conn.queryCol("SELECT Count(*) FROM t_log").first();
 console.log(count); // prints 3
+assertEquals(count, 3);
 ```
 
 Here is the complete definition of query functions:
@@ -401,6 +411,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 // deno run --allow-env --allow-net /tmp/example7.ts
 
 import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -417,6 +428,7 @@ if (row)
 	{	message = row.message;
 	}
 	console.log(message); // Prints 'Message 1'
+	assertEquals(message, 'Message 1');
 }
 ```
 
@@ -429,6 +441,7 @@ If you're sure about column types, you can override the column type with `any` (
 // deno run --allow-env --allow-net /tmp/example8.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -442,6 +455,7 @@ if (row)
 {	// The type of `row` here is `Record<string, any>`
 	const message: string = row.message;
 	console.log(message); // Prints 'Message 1'
+	assertEquals(message, 'Message 1');
 }
 ```
 
@@ -875,6 +889,7 @@ forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Pro
 // deno run --allow-env --allow-net /tmp/example13.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -893,7 +908,15 @@ await conn.forQuery
 );
 
 // SELECT
-console.log(await conn.query("SELECT * FROM t_messages").all());
+const rows = await conn.query("SELECT * FROM t_messages").all();
+console.log(rows);
+assertEquals
+(	rows,
+	[	{id: 1, message: 'Message 1'},
+		{id: 2, message: 'Message 2'},
+		{id: 3, message: 'Message 3'},
+	]
+);
 ```
 
 There's family of functions:
@@ -1111,6 +1134,7 @@ And you must read or discard all the resultsets before being able to issue next 
 // deno run --allow-env --allow-net /tmp/example18.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1124,13 +1148,13 @@ const resultsets = await conn.queries
 	`
 );
 
-console.log(resultsets.affectedRows); // prints 0
+assertEquals(resultsets.affectedRows, 0);
 
 await resultsets.nextResultset();
-console.log(resultsets.affectedRows); // prints 3
+assertEquals(resultsets.affectedRows, 3);
 
 await resultsets.nextResultset();
-console.log(resultsets.columns.length); // prints 2
+assertEquals(resultsets.columns.length, 2);
 
 for await (const row of resultsets)
 {	console.log(row);
@@ -1178,6 +1202,7 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 // deno run --allow-env --allow-net /tmp/example19.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1203,7 +1228,7 @@ const result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n
 // Drop database that i created
 await conn.query("DROP DATABASE test1");
 
-console.log(`Result: ${result}`);
+assertEquals(result, 'Message 1');
 ```
 
 ![image](./readme-assets/sql-logger-1.png)
@@ -1292,6 +1317,7 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 // deno run --allow-env --allow-net --allow-write /tmp/example20.ts
 
 import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
+import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
@@ -1343,7 +1369,8 @@ const result = await conn.queryCol("SELECT message FROM t_log WHERE id = @n", {n
 // Drop database that i created
 await conn.query("DROP DATABASE test1");
 
-console.log(`Result: ${result}`);
+assertEquals(result, 'Message 1');
+console.log(`See log in ${LOG_FILE}`);
 ```
 
 To view the color-highlighted file we can do:
@@ -1567,11 +1594,6 @@ Transactions manager tables must have one column called `xa_id`, as defined abov
 If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
 
 ```ts
-// To download and run this example:
-// export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.16.1/README.md' | perl -ne '$y=$1 if /^```(ts\b)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~^// deno .*?/example22.ts~)' > /tmp/example22.ts
-// deno run --allow-env --allow-net /tmp/example22.ts
-
 import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.16.1/mod.ts';
 
 const dsn1 = new Dsn('mysql://app:app@localhost/test1');
