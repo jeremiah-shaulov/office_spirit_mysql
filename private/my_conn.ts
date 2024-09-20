@@ -264,58 +264,84 @@ export class MyConn
 		return done ? undefined : value; // void -> undefined
 	}
 
-	async forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
-		try
-		{	return await callback(prepared);
-		}
-		finally
-		{	await prepared.discard();
-			await prepared.disposePreparedStmt();
-		}
+	prepare<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Record<string, ColumnType>>>
+	{	return this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
 	}
 
-	async forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
-		try
-		{	return await callback(prepared);
-		}
-		finally
-		{	await prepared.discard();
-			await prepared.disposePreparedStmt();
-		}
+	prepareMap<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Map<string, ColumnType>>>
+	{	return this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
 	}
 
-	async forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
-		try
-		{	return await callback(prepared);
-		}
-		finally
-		{	await prepared.discard();
-			await prepared.disposePreparedStmt();
-		}
+	prepareArr<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType[]>>
+	{	return this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
 	}
 
-	async forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
-		try
-		{	return await callback(prepared);
-		}
-		finally
-		{	await prepared.discard();
-			await prepared.disposePreparedStmt();
-		}
+	prepareCol<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType>>
+	{	return this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
 	}
 
-	async forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-	{	const prepared = await this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
-		try
-		{	return await callback(prepared);
-		}
-		finally
-		{	await prepared.disposePreparedStmt();
-		}
+	prepareVoid(sql: SqlSource): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
+	}
+
+	async forPrepared<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
+	{	await using prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
+		return await callback(prepared);
+	}
+
+	async forPreparedMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
+	{	await using prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
+		return await callback(prepared);
+	}
+
+	async forPreparedArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
+	{	await using prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
+		return await callback(prepared);
+	}
+
+	async forPreparedCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
+	{	await using prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
+		return await callback(prepared);
+	}
+
+	async forPreparedVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
+	{	await using prepared = await this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
+		return await callback(prepared);
+	}
+
+	/**	Deprecated alias of `forPrepared()`.
+		@deprecated
+	 **/
+	forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
+	{	return this.forPrepared(sql, callback);
+	}
+
+	/**	Deprecated alias of `forPreparedMap()`.
+		@deprecated
+	 **/
+	forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
+	{	return this.forPreparedMap(sql, callback);
+	}
+
+	/**	Deprecated alias of `forPreparedArr()`.
+		@deprecated
+	 **/
+	forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
+	{	return this.forPreparedArr(sql, callback);
+	}
+
+	/**	Deprecated alias of `forPreparedCol()`.
+		@deprecated
+	 **/
+	forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
+	{	return this.forPreparedCol(sql, callback);
+	}
+
+	/**	Deprecated alias of `forPreparedVoid()`.
+		@deprecated
+	 **/
+	forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
+	{	return this.forPreparedVoid(sql, callback);
 	}
 
 	/**	Commit current transaction (if any), and start new.
@@ -583,7 +609,7 @@ export class MyConn
 					{	await resultsets.exec(params);
 					}
 					finally
-					{	await resultsets.disposePreparedStmt();
+					{	resultsets.disposePreparedStmt();
 					}
 					return resultsets;
 				}

@@ -69,6 +69,12 @@ export class Resultsets<Row>
 	{
 	}
 
+	/**	Calls `this.discard()` and if this is a prepared statement, deallocates it.
+	 **/
+	[Symbol.asyncDispose]()
+	{	return this.discard();
+	}
+
 	/**	True if there are more rows or resultsets to read.
 	 **/
 	get hasMore()
@@ -144,6 +150,15 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	{	super();
 	}
 
+	/**	Calls `this.discard()` and if this is a prepared statement, deallocates it.
+	 **/
+	[Symbol.asyncDispose]()
+	{	if (this.stmtId != -1)
+		{	this.disposePreparedStmt();
+		}
+		return this.discard();
+	}
+
 	get hasMore()
 	{	return this.hasMoreInternal;
 	}
@@ -201,10 +216,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 			if (!this.hasMoreInternal)
 			{	this.protocol = undefined;
 			}
-			return protocol.disposePreparedStmt(stmtId);
-		}
-		else
-		{	return Promise.resolve();
+			protocol.disposePreparedStmt(stmtId);
 		}
 	}
 

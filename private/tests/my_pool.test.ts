@@ -181,7 +181,7 @@ async function testBasic(dsnStr: string)
 			// INSERT
 			let now = Date.now();
 			now -= now % 1000;
-			await conn.forQuery
+			await conn.forPrepared
 			(	"INSERT INTO t_log SET `time`=?, message=?",
 				async prepared =>
 				{	await prepared.exec([new Date(now+1000), 'Message 1']);
@@ -473,7 +473,7 @@ async function testPrepared(dsnStr: string)
 	// INSERT
 	let now = Date.now();
 	now -= now % 1000;
-	await conn.forQuery
+	await conn.forPrepared
 	(	"INSERT INTO t_log SET `time`=?, message=?",
 		async prepared =>
 		{	for (let i=1; i<=N_ROWS; i++)
@@ -483,7 +483,7 @@ async function testPrepared(dsnStr: string)
 	);
 
 	// SELECT no read at end
-	await conn.forQuery
+	await conn.forPrepared
 	(	"SELECT * FROM t_log WHERE id=?",
 		async prepared =>
 		{	await prepared.exec([1]);
@@ -492,7 +492,7 @@ async function testPrepared(dsnStr: string)
 	);
 
 	// SELECT
-	await conn.forQuery
+	await conn.forPrepared
 	(	"SELECT * FROM t_log WHERE id=?",
 		async prepared =>
 		{	for (let i=1; i<=N_ROWS; i++)
@@ -507,7 +507,7 @@ async function testPrepared(dsnStr: string)
 	// SELECT call end()
 	let error: Error|undefined;
 	let error2: Error|undefined;
-	await conn.forQuery
+	await conn.forPrepared
 	(	"SELECT * FROM t_log WHERE id=?",
 		async prepared =>
 		{	await prepared.exec([1]);
@@ -1891,39 +1891,30 @@ async function testBindBigParam(dsnStr: string)
 	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)");
 
 	// INSERT
-	await conn.forQuery
-	(	"INSERT INTO t_log SET message=?",
-		async insert =>
-		{	await conn.forQuery
-			(	"SELECT message FROM t_log WHERE id=?",
-				async select =>
-				{	for (const selectBin of [false, true])
-					{	for (const size of [0, 10, 0xFF, 0x10000, maxColumnLen+1, maxColumnLen])
-						{	const data = new Uint8Array(size);
-							for (let i=0; i<size; i++)
-							{	data[i] = i & 0xFF;
-							}
-							const {lastInsertId} = await insert.exec([data]);
-							const row = await (selectBin ? conn.query("SELECT message FROM t_log WHERE id="+lastInsertId) : select.exec([lastInsertId])).first();
-							const message = row?.message;
-							if (size > maxColumnLen)
-							{	assertEquals(message, null);
-							}
-							else
-							{	assert(message instanceof Uint8Array);
-								assertEquals(message.length, size);
-								for (let i=0; i<size; i++)
-								{	if (message[i] != data[i])
-									{	assertEquals(message[i], data[i]);
-									}
-								}
-							}
-						}
+	await using insert = await conn.prepareVoid("INSERT INTO t_log SET message=?");
+	await using select = await conn.prepareCol("SELECT message FROM t_log WHERE id=?");
+	for (const selectBin of [false, true])
+	{	for (const size of [0, 10, 0xFF, 0x10000, maxColumnLen+1, maxColumnLen])
+		{	const data = new Uint8Array(size);
+			for (let i=0; i<size; i++)
+			{	data[i] = i & 0xFF;
+			}
+			const {lastInsertId} = await insert.exec([data]);
+			const message = await (selectBin ? select.exec([lastInsertId]) : conn.queryCol("SELECT message FROM t_log WHERE id="+lastInsertId)).first();
+			if (size > maxColumnLen)
+			{	assertEquals(message, null);
+			}
+			else
+			{	assert(message instanceof Uint8Array);
+				assertEquals(message.length, size);
+				for (let i=0; i<size; i++)
+				{	if (message[i] != data[i])
+					{	assertEquals(message[i], data[i]);
 					}
 				}
-			);
+			}
 		}
-	);
+	}
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");

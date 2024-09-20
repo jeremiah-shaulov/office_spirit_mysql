@@ -748,7 +748,7 @@ When the `params` argument is specified, even if it's an empty array, the Binary
 
 If the `params` is an empty array, and the first argument (sqlSource) implements `ToSqlBytes` interface, then this empty array will be passed to `sqlSource.toSqlBytesWithParamsBackslashAndBuffer()` as the first argument, so the SQL generator can send parameters to the server through binary protocol by adding values to this array and generating `?` in the SQL string (see above about "Using external SQL generators").
 
-`conn.forQuery*()` functions (detailed below) always use the Binary Protocol.
+`conn.prepare*()` functions (detailed below) always use the Binary Protocol.
 
 Not all query types can be run in Binary Protocol - see [here](https://dev.mysql.com/worklog/task/?id=2871) what's supported by MySQL.
 
@@ -876,11 +876,12 @@ Positional params prepared once took 0.18 sec (random=38356)
 
 ## Prepared statements
 
-Function `conn.forQuery()` prepares an SQL statement, that you can execute multiple times, each time with different parameters.
-
+Function `conn.prepare()` prepares an SQL statement, that you can execute multiple times, each time with different parameters.
 ```ts
-forQuery<T>(sql: SqlSource, callback: (prepared: Resultsets) => Promise<T>): Promise<T>
+MyConn.prepare(sql: SqlSource): Promise<Resultsets>
 ```
+
+The returned object must be asynchronously disposed to free the prepared statement on the server.
 
 ```ts
 // To download and run this example:
@@ -898,14 +899,10 @@ using conn = pool.getConn();
 await conn.query("CREATE TEMPORARY TABLE t_messages (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
 
 // INSERT
-await conn.forQuery
-(	"INSERT INTO t_messages SET message=?",
-	async prepared =>
-	{	for (let i=1; i<=3; i++)
-		{	await prepared.exec(['Message '+i]);
-		}
-	}
-);
+await using prepared = await conn.prepare("INSERT INTO t_messages SET message=?");
+for (let i=1; i<=3; i++)
+{	await prepared.exec(['Message '+i]);
+}
 
 // SELECT
 const rows = await conn.query("SELECT * FROM t_messages").all();
@@ -921,18 +918,30 @@ assertEquals
 
 There's family of functions:
 
+
+
 ```ts
-MyConn.forQueryVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-MyConn.forQuery<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-MyConn.forQueryMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-MyConn.forQueryArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-MyConn.forQueryCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
+MyConn.prepareVoid(sql: SqlSource): Promise<Resultsets<void>>
+MyConn.prepare<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Record<string, ColumnType>>>
+MyConn.prepareMap<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Map<string, ColumnType>>>
+MyConn.prepareArr<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType[]>>
+MyConn.prepareCol<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType>>
 ```
 
-The difference between them is result type that `Resultsets.exec()` returns.
+The difference between them is the result type that `Resultsets.exec()` returns.
 
 ```ts
 Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
+```
+
+The same functions exist in variant with callbacks. They call your callback with the object that represents the prepared statement, and at the end of the callback they dispose the object.
+
+```ts
+MyConn.forPreparedVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
+MyConn.forPrepared<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
+MyConn.forPreparedMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
+MyConn.forPreparedArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
+MyConn.forPreparedCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
 ```
 
 ## Reading long BLOBs
@@ -1183,7 +1192,7 @@ for await (const row of resultsets)
 
 ## SQL logging
 
-You can use different API functions to execute queries (`conn.query*()`, `conn.forQuery*()`, etc.), and some queries are generated internally.
+You can use different API functions to execute queries (`conn.query*()`, `conn.prepare*()`, etc.), and some queries are generated internally.
 Also query SQL can be provided in various forms. Not only as string, but even `ReadableStream<Uint8Array>` is possible.
 To understand what's going on in your transaction, it's convenient to have a callback function, that catches all the queries.
 

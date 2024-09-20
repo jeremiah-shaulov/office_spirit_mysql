@@ -1140,26 +1140,11 @@ L:		while (true)
 		}
 	}
 
-	/**	This function can be called at any time. If the connection is busy, the operation will be performed later.
+	/**	This function can be called at any time, and the actual operation will be performed later when the connections enters idle state.
 	 **/
-	async disposePreparedStmt(stmtId: number)
+	disposePreparedStmt(stmtId: number)
 	{	const state = this.#state;
-		if (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL)
-		{	this.#state = ProtocolState.QUERYING;
-			try
-			{	await this.#sendComStmtClose(stmtId);
-				this.#setState(ProtocolState.IDLE);
-			}
-			catch (error)
-			{	try
-				{	this.#rethrowError(error);
-				}
-				catch (e)
-				{	this.logger.error(e);
-				}
-			}
-		}
-		else if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
+		if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
 		{	this.#pendingCloseStmts.push(stmtId);
 		}
 	}
