@@ -816,10 +816,7 @@ L:		while (true)
 	{	const pendingCloseStmts = this.#pendingCloseStmts;
 		debugAssert(pendingCloseStmts.length != 0);
 		this.#state = ProtocolState.QUERYING;
-		for (let i=0; i<pendingCloseStmts.length; i++)
-		{	await this.#sendComStmtClose(pendingCloseStmts[i]);
-		}
-		pendingCloseStmts.length = 0;
+		await this.#sendComStmtClose(pendingCloseStmts);
 	}
 
 	setSqlLogger(sqlLogger?: SafeSqlLogger)
@@ -862,16 +859,22 @@ L:		while (true)
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	#sendComStmtClose(stmtId: number): Promise<unknown>
-	{	this.startWritingNewPacket(true);
-		this.writeUint8(Command.COM_STMT_CLOSE);
-		this.writeUint32(stmtId);
-		const promise = this.send();
-		if (!this.#sqlLogger)
-		{	return promise;
-		}
-		else
-		{	return Promise.all([promise, this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId)]);
+	async #sendComStmtClose(stmtIds: number[]): Promise<void>
+	{	while (stmtIds.length > 0)
+		{	const promises = new Array<Promise<unknown>>;
+			let i = 0;
+			for (const iEnd=stmtIds.length; i<iEnd && this.bufferEnd+9<=this.buffer.length; i++)
+			{	this.startWritingNewPacket(true, i>0);
+				this.writeUint8(Command.COM_STMT_CLOSE);
+				const stmtId = stmtIds[i];
+				this.writeUint32(stmtId);
+				if (this.#sqlLogger)
+				{	promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
+				}
+			}
+			stmtIds.splice(0, i);
+			promises.push(this.send());
+			await Promise.all(promises);
 		}
 	}
 
