@@ -1,7 +1,7 @@
 import {debugAssert} from './debug_assert.ts';
 import {ServerDisconnectedError} from './errors.ts';
 
-const INIT_BUFFER_LEN = 8*1024;
+const BUFFER_LEN = 8*1024;
 
 const STUB = new Uint8Array;
 
@@ -14,28 +14,14 @@ export class MyProtocolReader
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
 
 	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
-	{	this.buffer = useBuffer ?? new Uint8Array(INIT_BUFFER_LEN);
-		debugAssert(this.buffer.length == INIT_BUFFER_LEN);
+	{	this.buffer = useBuffer ?? new Uint8Array(BUFFER_LEN);
+		debugAssert(this.buffer.length == BUFFER_LEN);
 	}
 
 	recycleBuffer()
 	{	const buffer = this.buffer;
 		this.buffer = STUB;
-		return buffer.length==INIT_BUFFER_LEN ? buffer : undefined; // this buffer can be recycled
-	}
-
-	protected ensureRoom(room: number)
-	{	const wantLen = this.bufferEnd + room;
-		if (wantLen > this.buffer.length)
-		{	debugAssert(Number.isFinite(wantLen));
-			let len = this.buffer.length * 2;
-			while (len < wantLen)
-			{	len *= 2;
-			}
-			const newBuffer = new Uint8Array(len);
-			newBuffer.set(this.buffer);
-			this.buffer = newBuffer;
-		}
+		return buffer.length==BUFFER_LEN ? buffer : undefined; // this buffer can be recycled
 	}
 
 	protected isAtEndOfPacket()

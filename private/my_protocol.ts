@@ -12,6 +12,7 @@ import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
 import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
 import {RdStream} from './deps.ts';
 import {Closer, Reader} from './deno_ifaces.ts';
+import {utf8StringLength} from './utf8_string_length.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
@@ -1157,16 +1158,31 @@ L:		while (true)
 	}
 
 	async #sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined)
-	{	const maxExpectedPacketSizeIncludingHeader = 15 + nPlaceholders*16; // packet header (4-byte) + COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 15; each placeholder can be Date (max 12 bytes) + param type (2-byte) + null mask (1-bit) <= 15
-		let extraSpaceForParams = Math.max(0, this.buffer.length - maxExpectedPacketSizeIncludingHeader);
-		const placeholdersSent = new Set<number>;
-		// First send COM_STMT_SEND_LONG_DATA params, as they must be sent before COM_STMT_EXECUTE
+	{	const bitmaskAndTypesSize = (nPlaceholders >> 3) + (nPlaceholders&7 ? 1 : 0) + (nPlaceholders << 1); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (0 or 1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
+		let payloadLength = 11 + bitmaskAndTypesSize; // COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 11
+		const emptyBlobs = new Array<number>;
 		for (let i=0; i<nPlaceholders; i++)
 		{	const param = params[i];
 			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-			{	if (typeof(param) == 'string')
-				{	const maxByteLen = 9 + param.length * 4; // lenenc string length (9 max bytes) + string byte length
-					if (maxByteLen > extraSpaceForParams)
+			{	if (typeof(param) == 'boolean')
+				{	payloadLength++;
+				}
+				else if (typeof(param) == 'number')
+				{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+					{	payloadLength += 4;
+					}
+					else
+					{	payloadLength += 8;
+					}
+				}
+				else if (typeof(param) == 'bigint')
+				{	payloadLength += 8;
+				}
+				else if (typeof(param) == 'string')
+				{	if (param.length < (0xFB >> 2)) // assume: max utf8 length is param.length*4, so max param.length must be < 0xFB/4
+					{	payloadLength += 1 + utf8StringLength(param); // lenenc string length (1 byte for < 0xFB data bytes) + string byte length
+					}
+					else
 					{	this.startWritingNewPacket(true);
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
@@ -1179,88 +1195,35 @@ L:		while (true)
 							await this.sendWithData(param, false, sqlLoggerQuery.appendToParam, true);
 							await sqlLoggerQuery.paramEnd();
 						}
-						placeholdersSent.add(i);
-					}
-					else
-					{	extraSpaceForParams -= maxByteLen;
 					}
 				}
-				else if (typeof(param) == 'object')
-				{	if (param instanceof Uint8Array)
-					{	if (param.byteLength > extraSpaceForParams)
-						{	this.startWritingNewPacket(true);
-							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-							this.writeUint32(stmtId);
-							this.writeUint16(i);
-							if (sqlLoggerQuery)
-							{	sqlLoggerQuery.paramStart(i);
-								await sqlLoggerQuery.appendToParam(param);
-								await sqlLoggerQuery.paramEnd();
-							}
-							await this.sendWithData(param, false, undefined, true);
-							placeholdersSent.add(i);
-						}
-						else
-						{	extraSpaceForParams -= param.byteLength;
-						}
+				else if (param instanceof Date)
+				{	const frac = param.getMilliseconds();
+					payloadLength += frac ? 12 : 8;
+				}
+				else if (param.buffer instanceof ArrayBuffer)
+				{	if (param.byteLength < 0xFB)
+					{	payloadLength += 1 + param.byteLength; // lenenc blob length (1 byte for < 0xFB data bytes) + blob byte length
 					}
-					else if (param.buffer instanceof ArrayBuffer)
-					{	if (param.byteLength > extraSpaceForParams)
-						{	this.startWritingNewPacket(true);
-							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-							this.writeUint32(stmtId);
-							this.writeUint16(i);
-							const data = new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
-							if (sqlLoggerQuery)
-							{	sqlLoggerQuery.paramStart(i);
-								await sqlLoggerQuery.appendToParam(data);
-								await sqlLoggerQuery.paramEnd();
-							}
-							await this.sendWithData(data, false, undefined, true);
-							placeholdersSent.add(i);
+					else
+					{	this.startWritingNewPacket(true);
+						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+						this.writeUint32(stmtId);
+						this.writeUint16(i);
+						const data = param instanceof Uint8Array ? param : new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
+						if (sqlLoggerQuery)
+						{	sqlLoggerQuery.paramStart(i);
+							await sqlLoggerQuery.appendToParam(data);
+							await sqlLoggerQuery.paramEnd();
 						}
-						else
-						{	extraSpaceForParams -= param.byteLength;
-						}
+						await this.sendWithData(data, false, undefined, true);
 					}
-					else if (param instanceof ReadableStream)
-					{	const reader = param.getReader({mode: 'byob'});
-						try
-						{	let buffer = new Uint8Array(this.buffer.length);
-							sqlLoggerQuery?.paramStart(i);
-							let isNotEmpty = false;
-							while (true)
-							{	this.startWritingNewPacket(!isNotEmpty);
-								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
-								this.writeUint32(stmtId);
-								this.writeUint16(i);
-								const from = this.bufferEnd;
-								const {value, done} = await reader.read(buffer.subarray(0, this.buffer.length - from));
-								if (done)
-								{	this.discardPacket();
-									break;
-								}
-								buffer = new Uint8Array(value.buffer);
-								this.writeBytes(value);
-								if (sqlLoggerQuery)
-								{	await sqlLoggerQuery.appendToParam(this.buffer.subarray(from, this.bufferEnd));
-								}
-								await this.send();
-								isNotEmpty = true;
-							}
-							if (sqlLoggerQuery)
-							{	await sqlLoggerQuery.paramEnd();
-							}
-							if (isNotEmpty)
-							{	placeholdersSent.add(i);
-							}
-						}
-						finally
-						{	reader.releaseLock();
-						}
-					}
-					else if (typeof(param.read) == 'function')
-					{	sqlLoggerQuery?.paramStart(i);
+				}
+				else if (param instanceof ReadableStream)
+				{	const reader = param.getReader({mode: 'byob'});
+					try
+					{	let buffer = new Uint8Array(this.buffer.length);
+						sqlLoggerQuery?.paramStart(i);
 						let isNotEmpty = false;
 						while (true)
 						{	this.startWritingNewPacket(!isNotEmpty);
@@ -1268,11 +1231,13 @@ L:		while (true)
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
 							const from = this.bufferEnd;
-							const n = await this.writeReadChunk(param);
-							if (n == null)
+							const {value, done} = await reader.read(buffer.subarray(0, this.buffer.length - from));
+							if (done)
 							{	this.discardPacket();
 								break;
 							}
+							buffer = new Uint8Array(value.buffer);
+							this.writeBytes(value);
 							if (sqlLoggerQuery)
 							{	await sqlLoggerQuery.appendToParam(this.buffer.subarray(from, this.bufferEnd));
 							}
@@ -1282,144 +1247,184 @@ L:		while (true)
 						if (sqlLoggerQuery)
 						{	await sqlLoggerQuery.paramEnd();
 						}
-						if (isNotEmpty)
-						{	placeholdersSent.add(i);
+						if (!isNotEmpty)
+						{	emptyBlobs.push(i);
 						}
 					}
-					else if (!(param instanceof Date))
-					{	this.startWritingNewPacket(true);
+					finally
+					{	reader.releaseLock();
+					}
+				}
+				else if (typeof(param.read) == 'function')
+				{	sqlLoggerQuery?.paramStart(i);
+					let isNotEmpty = false;
+					while (true)
+					{	this.startWritingNewPacket(!isNotEmpty);
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);
-						if (!sqlLoggerQuery)
-						{	await this.sendWithData(JSON.stringify(param), false, undefined, true);
+						const from = this.bufferEnd;
+						const n = await this.writeReadChunk(param);
+						if (n == null)
+						{	this.discardPacket();
+							break;
 						}
-						else
-						{	sqlLoggerQuery.paramStart(i);
-							await this.sendWithData(JSON.stringify(param), false, sqlLoggerQuery.appendToParam, true);
-							await sqlLoggerQuery.paramEnd();
+						if (sqlLoggerQuery)
+						{	await sqlLoggerQuery.appendToParam(this.buffer.subarray(from, this.bufferEnd));
 						}
-						placeholdersSent.add(i);
+						await this.send();
+						isNotEmpty = true;
+					}
+					if (sqlLoggerQuery)
+					{	await sqlLoggerQuery.paramEnd();
+					}
+					if (!isNotEmpty)
+					{	emptyBlobs.push(i);
+					}
+				}
+				else
+				{	// JSON-stringify object
+					this.startWritingNewPacket(true);
+					this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
+					this.writeUint32(stmtId);
+					this.writeUint16(i);
+					if (!sqlLoggerQuery)
+					{	await this.sendWithData(JSON.stringify(param), false, undefined, true);
+					}
+					else
+					{	sqlLoggerQuery.paramStart(i);
+						await this.sendWithData(JSON.stringify(param), false, sqlLoggerQuery.appendToParam, true);
+						await sqlLoggerQuery.paramEnd();
 					}
 				}
 			}
 		}
-		// Flush, if not enuogh space in buffer for the placeholders packet
-		if (this.bufferEnd > this.bufferStart && this.bufferEnd + maxExpectedPacketSizeIncludingHeader > this.buffer.length)
-		{	await this.send();
+		payloadLength += emptyBlobs.length; // empty blobs are sent as 0 byte (lenenc size of blob which is 0)
+		if (payloadLength >= 0xFFFFFF)
+		{	// Must not happen, because MySQL supports at most 2**16 parameters, and the longest inlined parameter i send is 0xFB bytes + 2-byte type + 1 bit (byte) nullBitMask = 254 bytes
+			// So 2**16 * 254 + 11-byte packet data = 0xFE000B, which is less than 0xFFFFFF
+			throw new Error("Couldn't send so many parameters");
 		}
-		// Send params in binary protocol
+		// Send COM_STMT_EXECUTE
 		this.startWritingNewPacket(true);
+		this.setHeader(payloadLength);
 		this.writeUint8(Command.COM_STMT_EXECUTE);
 		this.writeUint32(stmtId);
 		this.writeUint8(CursorType.NO_CURSOR);
 		this.writeUint32(1); // iteration_count
-		if (nPlaceholders > 0)
-		{	// Send null-bitmap for each param
-			this.ensureRoom((nPlaceholders >> 3) + 2 + (nPlaceholders << 1)); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (1 byte) + new_params_bound_flag (1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
-			let nullBits = 0;
-			let nullBitMask = 1;
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
-				{	nullBits |= nullBitMask;
-				}
-				if (nullBitMask != 0x80)
-				{	nullBitMask <<= 1;
-				}
-				else
-				{	this.writeUint8(nullBits);
-					nullBits = 0;
-					nullBitMask = 1;
-				}
+		// Send null-bitmap for each param
+		let nullBits = 0;
+		let nullBitMask = 1;
+		for (let i=0; i<nPlaceholders; i++)
+		{	const param = params[i];
+			if (param==null || typeof(param)=='function' || typeof(param)=='symbol') // if is NULL
+			{	nullBits |= nullBitMask;
 			}
-			if (nullBitMask != 1)
-			{	// partial byte
+			if (nullBitMask != 0x80)
+			{	nullBitMask <<= 1;
+			}
+			else
+			{	if (this.bufferEnd+3 >= this.buffer.length) // if cannot add `nullBits` + partial byte + new_params_bound_flag
+				{	// Flush the buffer
+					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+					this.bufferStart = 0;
+					this.bufferEnd = 0;
+				}
 				this.writeUint8(nullBits);
+				nullBits = 0;
+				nullBitMask = 1;
 			}
-			this.writeUint8(1); // new_params_bound_flag
-			// Send type of each param
-			let paramsLen = 0;
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				let type = MysqlType.MYSQL_TYPE_STRING;
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
-				{	if (typeof(param) == 'boolean')
-					{	type = MysqlType.MYSQL_TYPE_TINY;
-						paramsLen++;
+		}
+		if (nullBitMask != 1)
+		{	// partial byte
+			this.writeUint8(nullBits);
+		}
+		this.writeUint8(1); // new_params_bound_flag
+		// Send type of each param
+		for (let i=0; i<nPlaceholders; i++)
+		{	const param = params[i];
+			let type = MysqlType.MYSQL_TYPE_STRING;
+			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+			{	if (typeof(param) == 'boolean')
+				{	type = MysqlType.MYSQL_TYPE_TINY;
+				}
+				else if (typeof(param) == 'number')
+				{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+					{	type = MysqlType.MYSQL_TYPE_LONG;
 					}
-					else if (typeof(param) == 'number')
-					{	if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-						{	type = MysqlType.MYSQL_TYPE_LONG;
-							paramsLen += 4;
-						}
-						else
-						{	type = MysqlType.MYSQL_TYPE_DOUBLE;
-							paramsLen += 8;
-						}
-					}
-					else if (typeof(param) == 'bigint')
-					{	type = MysqlType.MYSQL_TYPE_LONGLONG;
-						paramsLen += 8;
-					}
-					else if (typeof(param) == 'string')
-					{	// no need to add to `paramsLen`, because strings must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
-					}
-					else if (param instanceof Date)
-					{	type = MysqlType.MYSQL_TYPE_DATETIME;
-						paramsLen += 12;
-					}
-					else if (param.buffer instanceof ArrayBuffer)
-					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-						// no need to add to `paramsLen`, because ArrayBuffer must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
-					}
-					else if (param instanceof ReadableStream)
-					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-						paramsLen++;
-					}
-					else if (typeof(param.read) == 'function')
-					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
-						paramsLen++;
+					else
+					{	type = MysqlType.MYSQL_TYPE_DOUBLE;
 					}
 				}
-				this.writeUint16(type);
+				else if (typeof(param) == 'bigint')
+				{	type = MysqlType.MYSQL_TYPE_LONGLONG;
+				}
+				else if (typeof(param) == 'string')
+				{	// MysqlType.MYSQL_TYPE_STRING
+				}
+				else if (param instanceof Date)
+				{	type = MysqlType.MYSQL_TYPE_DATETIME;
+				}
+				else if (param.buffer instanceof ArrayBuffer)
+				{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+				}
+				else if (param instanceof ReadableStream)
+				{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+				}
+				else if (typeof(param.read) == 'function')
+				{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+				}
 			}
-			// Send value of each param
-			this.ensureRoom(paramsLen);
-			for (let i=0; i<nPlaceholders; i++)
-			{	const param = params[i];
-				if (param!=null && typeof(param)!='function' && typeof(param)!='symbol' && !placeholdersSent.has(i)) // if is not NULL and not sent
-				{	if (typeof(param) == 'boolean')
-					{	const data = param ? 1 : 0;
-						if (sqlLoggerQuery)
-						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(data);
-							await sqlLoggerQuery.paramEnd();
-						}
-						this.writeUint8(data);
+			if (this.bufferEnd+2 >= this.buffer.length) // if cannot add the `type`
+			{	// Flush the buffer
+				await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+				this.bufferStart = 0;
+				this.bufferEnd = 0;
+			}
+			this.writeUint16(type);
+		}
+		// Send value of each param
+		for (let i=0; i<nPlaceholders; i++)
+		{	const param = params[i];
+			if (this.bufferEnd+0xFB >= this.buffer.length) // if cannot add the the longest possible value (1-byte lenenc length of blob + less than 0xFB bytes of the blob data)
+			{	// Flush the buffer
+				await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+				this.bufferStart = 0;
+				this.bufferEnd = 0;
+			}
+			if (param!=null && typeof(param)!='function' && typeof(param)!='symbol') // if is not NULL
+			{	if (typeof(param) == 'boolean')
+				{	const data = param ? 1 : 0;
+					if (sqlLoggerQuery)
+					{	sqlLoggerQuery.paramStart(i);
+						await sqlLoggerQuery.appendToParam(data);
+						await sqlLoggerQuery.paramEnd();
 					}
-					else if (typeof(param) == 'number')
-					{	if (sqlLoggerQuery)
-						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(param);
-							await sqlLoggerQuery.paramEnd();
-						}
-						if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
-						{	this.writeUint32(param);
-						}
-						else
-						{	this.writeDouble(param);
-						}
+					this.writeUint8(data);
+				}
+				else if (typeof(param) == 'number')
+				{	if (sqlLoggerQuery)
+					{	sqlLoggerQuery.paramStart(i);
+						await sqlLoggerQuery.appendToParam(param);
+						await sqlLoggerQuery.paramEnd();
 					}
-					else if (typeof(param) == 'bigint')
-					{	if (sqlLoggerQuery)
-						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(param);
-							await sqlLoggerQuery.paramEnd();
-						}
-						this.writeUint64(param);
+					if (Number.isInteger(param) && param>=-0x8000_0000 && param<=0x7FFF_FFFF)
+					{	this.writeUint32(param);
 					}
-					else if (typeof(param) == 'string')
+					else
+					{	this.writeDouble(param);
+					}
+				}
+				else if (typeof(param) == 'bigint')
+				{	if (sqlLoggerQuery)
+					{	sqlLoggerQuery.paramStart(i);
+						await sqlLoggerQuery.appendToParam(param);
+						await sqlLoggerQuery.paramEnd();
+					}
+					this.writeUint64(param);
+				}
+				else if (typeof(param) == 'string')
+				{	if (param.length < (0xFB >> 2)) // assume: max utf8 length is param.length*4, so max param.length must be < 0xFB/4
 					{	let from = this.bufferEnd;
 						this.writeLenencString(param);
 						if (sqlLoggerQuery)
@@ -1429,39 +1434,33 @@ L:		while (true)
 							await sqlLoggerQuery.paramEnd();
 						}
 					}
-					else if (param instanceof Date)
-					{	let date = param;
-						const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
-						if (timezoneMsecOffsetFromSystem != 0)
-						{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
-						}
-						if (sqlLoggerQuery)
-						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(dateToData(date));
-							await sqlLoggerQuery.paramEnd();
-						}
-						const frac = date.getMilliseconds();
-						this.writeUint8(frac ? 11 : 7); // length
-						this.writeUint16(date.getFullYear());
-						this.writeUint8(date.getMonth() + 1);
-						this.writeUint8(date.getDate());
-						this.writeUint8(date.getHours());
-						this.writeUint8(date.getMinutes());
-						this.writeUint8(date.getSeconds());
-						if (frac)
-						{	this.writeUint32(frac * 1000);
-						}
+				}
+				else if (param instanceof Date)
+				{	let date = param;
+					const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
+					if (timezoneMsecOffsetFromSystem != 0)
+					{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
 					}
-					else if (param instanceof Uint8Array)
-					{	if (sqlLoggerQuery)
-						{	sqlLoggerQuery.paramStart(i);
-							await sqlLoggerQuery.appendToParam(param);
-							await sqlLoggerQuery.paramEnd();
-						}
-						this.writeLenencBytes(param);
+					if (sqlLoggerQuery)
+					{	sqlLoggerQuery.paramStart(i);
+						await sqlLoggerQuery.appendToParam(dateToData(date));
+						await sqlLoggerQuery.paramEnd();
 					}
-					else if (param.buffer instanceof ArrayBuffer)
-					{	const data = new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
+					const frac = date.getMilliseconds();
+					this.writeUint8(frac ? 11 : 7); // length
+					this.writeUint16(date.getFullYear());
+					this.writeUint8(date.getMonth() + 1);
+					this.writeUint8(date.getDate());
+					this.writeUint8(date.getHours());
+					this.writeUint8(date.getMinutes());
+					this.writeUint8(date.getSeconds());
+					if (frac)
+					{	this.writeUint32(frac * 1000);
+					}
+				}
+				else if (param.buffer instanceof ArrayBuffer)
+				{	if (param.byteLength < 0xFB)
+					{	const data = param instanceof Uint8Array ? param : new Uint8Array(param.buffer, param.byteOffset, param.byteLength);
 						if (sqlLoggerQuery)
 						{	sqlLoggerQuery.paramStart(i);
 							await sqlLoggerQuery.appendToParam(data);
@@ -1469,10 +1468,10 @@ L:		while (true)
 						}
 						this.writeLenencBytes(data);
 					}
-					else
-					{	debugAssert(param instanceof ReadableStream || typeof(param.read)=='function');
-						// nothing written for this param (as it's not in placeholdersSent), so write empty string
-						if (sqlLoggerQuery)
+				}
+				else if (param instanceof ReadableStream || typeof(param.read)=='function')
+				{	if (emptyBlobs.findIndex(v => v == i) != -1)
+					{	if (sqlLoggerQuery)
 						{	sqlLoggerQuery.paramStart(i);
 							await sqlLoggerQuery.appendToParam(new Uint8Array);
 							await sqlLoggerQuery.paramEnd();
@@ -1482,7 +1481,12 @@ L:		while (true)
 				}
 			}
 		}
-		await this.send();
+		if (this.bufferEnd > 0) // if there's packet data remaining
+		{	// Flush the buffer
+			await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+			this.bufferStart = 0;
+			this.bufferEnd = 0;
+		}
 	}
 
 	async execStmt(resultsets: ResultsetsInternal<unknown>, params: Param[])

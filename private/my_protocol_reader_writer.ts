@@ -56,7 +56,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 		else
 		{	// continuation (queue another packet after existing not written one)
-			this.#setHeader(this.bufferEnd - this.bufferStart - 4);
+			this.setHeader(this.bufferEnd - this.bufferStart - 4);
 			this.bufferStart = this.bufferEnd;
 			this.bufferEnd += 4; // after header
 		}
@@ -228,14 +228,14 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		return n;
 	}
 
-	#setHeader(payloadLength: number)
+	setHeader(payloadLength: number)
 	{	const header = payloadLength | (this.sequenceId << 24);
 		this.sequenceId++;
 		new DataView(this.buffer.buffer).setUint32(this.bufferStart, header, true);
 	}
 
 	protected send()
-	{	this.#setHeader(this.bufferEnd - this.bufferStart - 4);
+	{	this.setHeader(this.bufferEnd - this.bufferStart - 4);
 		const n = this.bufferEnd;
 		// prepare for reader
 		this.bufferStart = 0;
@@ -269,7 +269,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	let packetSizeRemaining = packetSize;
 				while (packetSizeRemaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
-					this.#setHeader(0xFFFFFF);
+					this.setHeader(0xFFFFFF);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					const dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 					await this.writer.write(data.subarray(0, dataChunkLen));
@@ -285,11 +285,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	return true;
 					}
-					this.#setHeader(packetSizeRemaining);
+					this.setHeader(packetSizeRemaining);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
 				else
-				{	this.#setHeader(packetSizeRemaining);
+				{	this.setHeader(packetSizeRemaining);
 					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
 					if (canWait && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 					{	this.buffer.set(data);
@@ -339,7 +339,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	let packetSizeRemaining = packetSize;
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
-						this.#setHeader(0xFFFFFF);
+						this.setHeader(0xFFFFFF);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
@@ -371,7 +371,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							}
 							return true;
 						}
-						this.#setHeader(packetSizeRemaining);
+						this.setHeader(packetSizeRemaining);
 						if (!logData)
 						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 						}
@@ -380,7 +380,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						}
 					}
 					else
-					{	this.#setHeader(packetSizeRemaining);
+					{	this.setHeader(packetSizeRemaining);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
 						while (dataLength > 0)
 						{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(dataLength, this.buffer.length)));
@@ -437,7 +437,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			const packetSize = alreadyFilled + dataLength;
 			let canSend = Math.min(packetSize, 0xFFFFFF);
 			let packetSizeRemaining = packetSize - canSend;
-			this.#setHeader(canSend);
+			this.setHeader(canSend);
 			canSend -= alreadyFilled;
 			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
 			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
@@ -478,7 +478,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 					canSend = Math.min(packetSizeRemaining, 0xFFFFFF);
 					packetSizeRemaining -= canSend;
-					this.#setHeader(canSend);
+					this.setHeader(canSend);
 					this.bufferEnd = 4;
 				}
 			}
