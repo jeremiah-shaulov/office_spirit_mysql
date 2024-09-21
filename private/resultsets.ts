@@ -166,7 +166,10 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	exec(params: Param[])
 	{	return new ResultsetsPromise<Row>
 		(	(y, n) =>
-			{	if (!this.protocol)
+			{	if (params.length != this.nPlaceholders)
+				{	throw new Error(`Number of passed parameters (${params.length}) doesn't match the number of query placeholders (${this.nPlaceholders})`);
+				}
+				if (!this.protocol)
 				{	throw new CanceledError(`Connection terminated`);
 				}
 				let promise = this.protocol.execStmt(this, params);
