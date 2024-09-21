@@ -810,13 +810,43 @@ L:		while (true)
 		}
 	}
 
-	/**	Call this before entering ProtocolState.IDLE.
+	/**	This function adds to the buffer packets that deallocate all the prepared statements that are not in use anymore.
+		The server will not respond to these packets.
+		Call this before starting to send something else to the server,
+		so the deallocation will be sent together with other data, and no special sending operation will be required.
+		This function returns promise, if need to send the packets, or `undefined`.
+		After awaiting the returned promise, call this function again, until it returns `undefined`.
 	 **/
-	async #doPending()
+	#doPending(): Promise<unknown>|undefined
 	{	const pendingCloseStmts = this.#pendingCloseStmts;
-		debugAssert(pendingCloseStmts.length != 0);
-		this.#state = ProtocolState.QUERYING;
-		await this.#sendComStmtClose(pendingCloseStmts);
+		let promises: Promise<unknown>[] | undefined;
+		if (this.bufferEnd == this.bufferStart)
+		{	this.bufferStart = 0;
+			this.bufferEnd = 0;
+		}
+		let i = 0;
+		for (const iEnd=pendingCloseStmts.length; i<iEnd && this.bufferEnd+9<=this.buffer.length; i++)
+		{	this.startWritingNewPacket(true);
+			this.writeUint8(Command.COM_STMT_CLOSE);
+			const stmtId = pendingCloseStmts[i];
+			this.writeUint32(stmtId);
+			if (this.#sqlLogger)
+			{	if (!promises)
+				{	promises = [];
+				}
+				promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
+			}
+		}
+		pendingCloseStmts.splice(0, i);
+		if (this.bufferEnd > this.buffer.length/2)
+		{	if (!promises)
+			{	promises = [];
+			}
+			promises.push(this.send());
+		}
+		if (promises)
+		{	return promises.length==1 ? promises[0] : Promise.all(promises);
+		}
 	}
 
 	setSqlLogger(sqlLogger?: SafeSqlLogger)
@@ -829,7 +859,7 @@ L:		while (true)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_RESET_CONNECTION);
 		if (schema)
-		{	this.startWritingNewPacket(true, true);
+		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_INIT_DB);
 			this.writeString(schema);
 		}
@@ -859,36 +889,15 @@ L:		while (true)
 
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
-	async #sendComStmtClose(stmtIds: number[]): Promise<void>
-	{	while (stmtIds.length > 0)
-		{	const promises = new Array<Promise<unknown>>;
-			let i = 0;
-			for (const iEnd=stmtIds.length; i<iEnd && this.bufferEnd+9<=this.buffer.length; i++)
-			{	this.startWritingNewPacket(true, i>0);
-				this.writeUint8(Command.COM_STMT_CLOSE);
-				const stmtId = stmtIds[i];
-				this.writeUint32(stmtId);
-				if (this.#sqlLogger)
-				{	promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
-				}
-			}
-			stmtIds.splice(0, i);
-			promises.push(this.send());
-			await Promise.all(promises);
-		}
-	}
-
-	/**	I assume that i'm in ProtocolState.IDLE.
-	 **/
 	#sendComQuit()
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_QUIT);
 		return this.send();
 	}
 
-	#maybeSetOption(multiStatements: SetOption|MultiStatements, canBeContinuation=false)
+	#maybeSetOption(multiStatements: SetOption|MultiStatements)
 	{	if (multiStatements==SetOption.MULTI_STATEMENTS_ON && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_OFF || multiStatements==SetOption.MULTI_STATEMENTS_OFF && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_ON)
-		{	this.startWritingNewPacket(true, canBeContinuation);
+		{	this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_SET_OPTION);
 			this.writeUint16(multiStatements);
 			return true;
@@ -908,13 +917,17 @@ L:		while (true)
 		while (true)
 		{	let error;
 			try
-			{	if (this.#sqlLogger)
+			{	let promise;
+				while ((promise = this.#doPending()))
+				{	await promise;
+				}
+				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
 				// Send COM_SET_OPTION
 				const wantSetOption = this.#maybeSetOption(multiStatements);
 				// Send query
-				this.startWritingNewPacket(true, wantSetOption);
+				this.startWritingNewPacket(true);
 				this.writeUint8(Command.COM_QUERY);
 				await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery);
 				// Read COM_SET_OPTION result
@@ -941,9 +954,6 @@ L:		while (true)
 					{	// discard resultsets
 						state = await this.#doDiscard(state);
 					}
-				}
-				else if (this.#pendingCloseStmts.length != 0)
-				{	await this.#doPending();
 				}
 				this.#setState(state);
 				if (sqlLoggerQuery)
@@ -988,7 +998,11 @@ L:		while (true)
 		let nRetry = this.#retryQueryTimes;
 		while (true)
 		{	try
-			{	if (this.#sqlLogger)
+			{	let promise;
+				while ((promise = this.#doPending()))
+				{	await promise;
+				}
+				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
 				// Send preStmt
@@ -1009,12 +1023,12 @@ L:		while (true)
 					await this.sendWithData(prequery, false, sqlLoggerQuery?.appendToQuery, true);
 				}
 				// Send COM_SET_OPTION
-				const wantSetOption = this.#maybeSetOption(multiStatements, true);
+				const wantSetOption = this.#maybeSetOption(multiStatements);
 				// Send sql
 				if (sqlLoggerQuery && (preStmtId>=0 || prequery))
 				{	await sqlLoggerQuery.nextQuery();
 				}
-				this.startWritingNewPacket(true, true);
+				this.startWritingNewPacket(true);
 				this.writeUint8(Command.COM_QUERY);
 				await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery);
 				if (sqlLoggerQuery)
@@ -1085,9 +1099,6 @@ L:		while (true)
 						state = await this.#doDiscard(state);
 					}
 				}
-				else if (this.#pendingCloseStmts.length != 0)
-				{	await this.#doPending();
-				}
 				this.#setState(state);
 				return resultsets;
 			}
@@ -1114,7 +1125,11 @@ L:		while (true)
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		try
-		{	if (this.#sqlLogger)
+		{	let promise;
+			while ((promise = this.#doPending()))
+			{	await promise;
+			}
+			if (this.#sqlLogger)
 			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, true, noBackslashEscapes);
 			}
 			this.startWritingNewPacket(true);
@@ -1126,9 +1141,6 @@ L:		while (true)
 			const resultsets = new ResultsetsInternal<Row>(rowType);
 			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
-			if (this.#pendingCloseStmts.length != 0)
-			{	await this.#doPending();
-			}
 			this.#setState(ProtocolState.IDLE);
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(resultsets, resultsets.stmtId);
@@ -1163,7 +1175,7 @@ L:		while (true)
 			{	if (typeof(param) == 'string')
 				{	const maxByteLen = 9 + param.length * 4; // lenenc string length (9 max bytes) + string byte length
 					if (maxByteLen > extraSpaceForParams)
-					{	this.startWritingNewPacket(true, true);
+					{	this.startWritingNewPacket(true);
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);
@@ -1184,7 +1196,7 @@ L:		while (true)
 				else if (typeof(param) == 'object')
 				{	if (param instanceof Uint8Array)
 					{	if (param.byteLength > extraSpaceForParams)
-						{	this.startWritingNewPacket(true, true);
+						{	this.startWritingNewPacket(true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
@@ -1202,7 +1214,7 @@ L:		while (true)
 					}
 					else if (param.buffer instanceof ArrayBuffer)
 					{	if (param.byteLength > extraSpaceForParams)
-						{	this.startWritingNewPacket(true, true);
+						{	this.startWritingNewPacket(true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
@@ -1226,7 +1238,7 @@ L:		while (true)
 							sqlLoggerQuery?.paramStart(i);
 							let isNotEmpty = false;
 							while (true)
-							{	this.startWritingNewPacket(!isNotEmpty, true);
+							{	this.startWritingNewPacket(!isNotEmpty);
 								this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 								this.writeUint32(stmtId);
 								this.writeUint16(i);
@@ -1272,7 +1284,7 @@ L:		while (true)
 					{	sqlLoggerQuery?.paramStart(i);
 						let isNotEmpty = false;
 						while (true)
-						{	this.startWritingNewPacket(!isNotEmpty, true);
+						{	this.startWritingNewPacket(!isNotEmpty);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
@@ -1296,7 +1308,7 @@ L:		while (true)
 						}
 					}
 					else if (!(param instanceof Date))
-					{	this.startWritingNewPacket(true, true);
+					{	this.startWritingNewPacket(true);
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);
@@ -1318,7 +1330,7 @@ L:		while (true)
 		{	await this.send();
 		}
 		// Send params in binary protocol
-		this.startWritingNewPacket(true, true);
+		this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_STMT_EXECUTE);
 		this.writeUint32(stmtId);
 		this.writeUint8(CursorType.NO_CURSOR);
@@ -1500,6 +1512,10 @@ L:		while (true)
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		try
 		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
+			let promise;
+			while ((promise = this.#doPending()))
+			{	await promise;
+			}
 			if (this.#sqlLogger)
 			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				if (sqlLoggerQuery)
@@ -1542,9 +1558,6 @@ L:		while (true)
 			{	if (!this.isAtEndOfPacket())
 				{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 					this.#initResultsets(resultsets);
-				}
-				if (this.#pendingCloseStmts.length != 0)
-				{	await this.#doPending();
 				}
 				this.#setState(ProtocolState.IDLE);
 			}
@@ -1589,9 +1602,6 @@ L:		while (true)
 					}
 					curResultsets.hasMoreInternal = false;
 					this.#curResultsets = undefined;
-					if (this.#pendingCloseStmts.length != 0)
-					{	await this.#doPending();
-					}
 					this.#setState(ProtocolState.IDLE);
 				}
 				return undefined;
@@ -1892,9 +1902,6 @@ L:		while (true)
 									debugAssert(!that.#curResultsets);
 									// done
 									that.#curLastColumnReader = undefined;
-									if (that.#pendingCloseStmts.length != 0)
-									{	await that.#doPending();
-									}
 									that.#setState(ProtocolState.IDLE);
 									if (that.#onEndSession)
 									{	throw new CanceledError('Connection terminated');

@@ -33,7 +33,7 @@ const encoder = new TextEncoder;
 	// Send batch of 2 packets
 	this.startWritingNewPacket(true);
 	this.writeUint8(Command.COM_RESET_CONNECTION);
-	this.startWritingNewPacket(true, true);
+	this.startWritingNewPacket(true);
 	this.writeUint8(Command.COM_INIT_DB);
 	this.writeString('test');
 	await this.send();
@@ -49,9 +49,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	{	super(reader, decoder, useBuffer);
 	}
 
-	protected startWritingNewPacket(resetSequenceId=false, canBeContinuation=false)
-	{	debugAssert(this.bufferEnd==this.bufferStart || canBeContinuation); // must read all before starting to write
-		if (this.bufferEnd == this.bufferStart)
+	protected startWritingNewPacket(resetSequenceId=false)
+	{	if (this.bufferEnd == this.bufferStart)
 		{	this.bufferStart = 0;
 			this.bufferEnd = 4; // after header
 		}
