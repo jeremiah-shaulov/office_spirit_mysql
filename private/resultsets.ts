@@ -1,4 +1,4 @@
-import {MysqlType, Charset, ColumnFlags, CharsetNames} from './constants.ts';
+import {MysqlType, Charset, ColumnFlags, CHARSET_NAMES} from './constants.ts';
 import {CanceledError} from "./errors.ts";
 import {MyProtocol, RowType} from "./my_protocol.ts";
 
@@ -253,7 +253,7 @@ export class Column
 	}
 
 	get charset()
-	{	return CharsetNames[this.charsetId] ?? '';
+	{	return CHARSET_NAMES[this.charsetId] ?? '';
 	}
 
 	/**	Get MySQL type of the column as string, like "varchar", "integer unsigned", "enum", etc.

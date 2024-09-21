@@ -457,7 +457,7 @@ export const enum Charset
 	UTF8MB4_0900_BIN		= 309
 }
 
-export const CharsetNames =
+export const CHARSET_NAMES =
 [	'UNKNOWN',
 	'BIG5_CHINESE_CI',
 	'LATIN2_CZECH_CS',
