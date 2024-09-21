@@ -224,11 +224,11 @@ export function dateToData(date: Date)
 
 	let year = date.getFullYear();
 	data[3] = C_ZERO + year % 10;
-	year = Math.floor(year / 10);
+	year = Math.trunc(year / 10);
 	data[2] = C_ZERO + year % 10;
-	year = Math.floor(year / 10);
+	year = Math.trunc(year / 10);
 	data[1] = C_ZERO + year % 10;
-	year = Math.floor(year / 10);
+	year = Math.trunc(year / 10);
 	data[0] = C_ZERO + year;
 
 	data[4] = C_MINUS;
@@ -339,9 +339,9 @@ export function dateToData(date: Date)
 	{	data[19] = C_DOT;
 
 		data[22] = C_ZERO + milli % 10;
-		milli = Math.floor(milli / 10);
+		milli = Math.trunc(milli / 10);
 		data[21] = C_ZERO + milli % 10;
-		milli = Math.floor(milli / 10);
+		milli = Math.trunc(milli / 10);
 		data[20] = C_ZERO + milli;
 	}
 
