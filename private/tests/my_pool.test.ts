@@ -1058,15 +1058,15 @@ async function testManyPlaceholders(dsnStr: string)
 			}
 
 			let res = await conn.queryVoid(q, params);
-			assertEquals(res.affectedRows, 8191);
+			assertEquals(res.affectedRows, N_ROWS);
 			assertEquals(res.nPlaceholders, N_ROWS*8);
 
 			res = await conn.queryVoid(q, params.map(v => v+''));
-			assertEquals(res.affectedRows, 8191);
+			assertEquals(res.affectedRows, N_ROWS);
 			assertEquals(res.nPlaceholders, N_ROWS*8);
 
 			res = await conn.queryVoid(q, params.map(v => v%100==0 ? (v+'').repeat(10000) : v%20==0 ? null : v%10==0 ? v : v+''));
-			assertEquals(res.affectedRows, 8191);
+			assertEquals(res.affectedRows, N_ROWS);
 			assertEquals(res.nPlaceholders, N_ROWS*8);
 
 			// Drop database that i created
