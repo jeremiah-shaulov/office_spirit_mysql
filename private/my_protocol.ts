@@ -1254,19 +1254,6 @@ L:		while (true)
 							if (isNotEmpty)
 							{	placeholdersSent.add(i);
 							}
-							/*while (true)
-							{	this.startWritingNewPacket();
-								const {value, done} = await reader.read(buffer.subarray(0, this.buffer.length - this.bufferEnd));
-								if (done)
-								{	await this.send();
-									break;
-								}
-								else
-								{	buffer = new Uint8Array(value.buffer);
-									this.writeBytes(value);
-									await this.send();
-								}
-							}*/
 						}
 						finally
 						{	reader.releaseLock();
@@ -1386,6 +1373,10 @@ L:		while (true)
 					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
 						// no need to add to `paramsLen`, because ArrayBuffer must be sent separately, and if they don't, this means that the string is fitting `extraSpaceForParams` (see above), so no need to ensure length
 					}
+					else if (param instanceof ReadableStream)
+					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
+						paramsLen++;
+					}
 					else if (typeof(param.read) == 'function')
 					{	type = MysqlType.MYSQL_TYPE_LONG_BLOB;
 						paramsLen++;
@@ -1479,7 +1470,7 @@ L:		while (true)
 						this.writeLenencBytes(data);
 					}
 					else
-					{	debugAssert(typeof(param.read) == 'function');
+					{	debugAssert(param instanceof ReadableStream || typeof(param.read)=='function');
 						// nothing written for this param (as it's not in placeholdersSent), so write empty string
 						if (sqlLoggerQuery)
 						{	sqlLoggerQuery.paramStart(i);
