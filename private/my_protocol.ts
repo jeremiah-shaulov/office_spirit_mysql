@@ -819,33 +819,35 @@ L:		while (true)
 	 **/
 	#doPending(): Promise<unknown>|undefined
 	{	const pendingCloseStmts = this.#pendingCloseStmts;
-		let promises: Promise<unknown>[] | undefined;
-		if (this.bufferEnd == this.bufferStart)
-		{	this.bufferStart = 0;
-			this.bufferEnd = 0;
-		}
-		let i = 0;
-		for (const iEnd=pendingCloseStmts.length; i<iEnd && this.bufferEnd+9<=this.buffer.length; i++)
-		{	this.startWritingNewPacket(true);
-			this.writeUint8(Command.COM_STMT_CLOSE);
-			const stmtId = pendingCloseStmts[i];
-			this.writeUint32(stmtId);
-			if (this.#sqlLogger)
+		let i = pendingCloseStmts.length;
+		if (i > 0)
+		{	let promises: Promise<unknown>[] | undefined;
+			if (this.bufferEnd == this.bufferStart)
+			{	this.bufferStart = 0;
+				this.bufferEnd = 0;
+			}
+			while (i>0 && this.bufferEnd+9<=this.buffer.length)
+			{	const stmtId = pendingCloseStmts[--i];
+				this.startWritingNewPacket(true);
+				this.writeUint8(Command.COM_STMT_CLOSE);
+				this.writeUint32(stmtId);
+				if (this.#sqlLogger)
+				{	if (!promises)
+					{	promises = [];
+					}
+					promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
+				}
+			}
+			pendingCloseStmts.length = i;
+			if (this.bufferEnd > this.buffer.length/2)
 			{	if (!promises)
 				{	promises = [];
 				}
-				promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
+				promises.push(this.send());
 			}
-		}
-		pendingCloseStmts.splice(0, i);
-		if (this.bufferEnd > this.buffer.length/2)
-		{	if (!promises)
-			{	promises = [];
+			if (promises)
+			{	return promises.length==1 ? promises[0] : Promise.all(promises);
 			}
-			promises.push(this.send());
-		}
-		if (promises)
-		{	return promises.length==1 ? promises[0] : Promise.all(promises);
 		}
 	}
 
