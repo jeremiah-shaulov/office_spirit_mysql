@@ -22,9 +22,9 @@ export interface SqlLogger
 	 **/
 	query?: (dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean) => Promise<SqlLoggerQuery | undefined>;
 
-	/**	Prepared query deallocated (unprepared).
+	/**	Deallocated prepared query or multiple queries indentified by their `stmtIds`.
 	 **/
-	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtId: number) => Promise<unknown>;
+	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtIds: number[]) => Promise<unknown>;
 
 	/**	This callback is called when current `MyConn` object is disposed of. This happens at the end of `MyPool.forConn()`, or at the end of a block with `using conn = ...`.
 	 **/
@@ -201,9 +201,9 @@ export class SafeSqlLogger
 		}
 	}
 
-	deallocatePrepare(connectionId: number, stmtId: number)
+	deallocatePrepare(connectionId: number, stmtIds: number[])
 	{	try
-		{	return this.#underlying.deallocatePrepare?.(this.#dsn, connectionId, stmtId) || Promise.resolve();
+		{	return this.#underlying.deallocatePrepare?.(this.#dsn, connectionId, stmtIds) || Promise.resolve();
 		}
 		catch (e)
 		{	this.#logger.error(e);

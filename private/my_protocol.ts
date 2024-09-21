@@ -821,7 +821,7 @@ L:		while (true)
 	{	const pendingCloseStmts = this.#pendingCloseStmts;
 		let i = pendingCloseStmts.length;
 		if (i > 0)
-		{	let promises: Promise<unknown>[] | undefined;
+		{	const logPromise = !this.#sqlLogger ? undefined : this.#sqlLogger.deallocatePrepare(this.connectionId, pendingCloseStmts);
 			if (this.bufferEnd == this.bufferStart)
 			{	this.bufferStart = 0;
 				this.bufferEnd = 0;
@@ -831,23 +831,13 @@ L:		while (true)
 				this.startWritingNewPacket(true);
 				this.writeUint8(Command.COM_STMT_CLOSE);
 				this.writeUint32(stmtId);
-				if (this.#sqlLogger)
-				{	if (!promises)
-					{	promises = [];
-					}
-					promises.push(this.#sqlLogger.deallocatePrepare(this.connectionId, stmtId));
-				}
 			}
 			pendingCloseStmts.length = i;
 			if (this.bufferEnd > this.buffer.length/2)
-			{	if (!promises)
-				{	promises = [];
-				}
-				promises.push(this.send());
+			{	const promise = this.send();
+				return !logPromise ? promise : Promise.all([logPromise, promise]);
 			}
-			if (promises)
-			{	return promises.length==1 ? promises[0] : Promise.all(promises);
-			}
+			return logPromise;
 		}
 	}
 

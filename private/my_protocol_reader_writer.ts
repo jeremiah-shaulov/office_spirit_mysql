@@ -310,8 +310,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 		}
 		else if (typeof(data) == 'string')
-		{	const maxByteLen = data.length * 4;
-			if (this.bufferEnd+maxByteLen <= this.buffer.length)
+		{	let dataLength = data.length * 4;
+			if (this.bufferEnd+dataLength > this.buffer.length)
+			{	dataLength = utf8StringLength(data);
+			}
+			if (this.bufferEnd+dataLength <= this.buffer.length)
 			{	// short string
 				const from = this.bufferEnd;
 				this.writeString(data);
@@ -331,7 +334,6 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 			else
 			{	// long string
-				let dataLength = utf8StringLength(data);
 				const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
 				try
 				{	let packetSizeRemaining = packetSize;
@@ -365,7 +367,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						this.bufferEnd += written;
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 						{	if (logData)
-							{	await logData(this.buffer.subarray(0, this.bufferEnd));
+							{	await logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd));
 							}
 							return true;
 						}
@@ -374,7 +376,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 						}
 						else
-						{	await Promise.all([logData(this.buffer.subarray(0, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
+						{	await Promise.all([logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
 						}
 					}
 					else

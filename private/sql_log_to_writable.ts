@@ -216,8 +216,8 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 		);
 	}
 
-	deallocatePrepare(dsn: Dsn, connectionId: number, stmtId: number)
-	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_id=${stmtId}`);
+	deallocatePrepare(dsn: Dsn, connectionId: number, stmtIds: number[])
+	{	return this.write(dsn, connectionId, `DEALLOCATE PREPARE stmt_ids=${stmtIds.join(', ')}\n\n`);
 	}
 
 	async #writeSqlString(dsn: Dsn, connectionId: number, data: Uint8Array)
