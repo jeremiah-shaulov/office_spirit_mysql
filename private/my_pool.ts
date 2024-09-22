@@ -43,13 +43,12 @@ class MyPoolConns
 
 export class MyPool
 {	#connsPool = new Map<number, MyPoolConns>;
-	#unusedBuffers = new Array<Uint8Array>;
+	#connsFactory = new ConnsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
 	#nSessionsOrConns = 0;
 	#hTimer: number | undefined;
 	#xaTask: XaTask;
-	#curRetryingPromise: Promise<true> | undefined;
 	#isShuttingDown = false;
 	#onend: VoidFunction | undefined;
 
@@ -253,62 +252,10 @@ export class MyPool
 		}
 	}
 
-	#saveUnusedBuffer(buffer: Uint8Array)
-	{	if (this.#unusedBuffers.length < SAVE_UNUSED_BUFFERS)
-		{	this.#unusedBuffers.push(buffer);
-		}
-	}
-
-	async #newConn(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
-	{	const unusedBuffer = this.#unusedBuffers.pop();
-		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
-		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
-		let now = Date.now();
-		const connectTill = now + connectionTimeout;
-		for (let i=0; true; i++)
-		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, this.#onLoadFile, sqlLogger, this.#xaTask.logger);
-			}
-			catch (e)
-			{	// with connectionTimeout==0 must not retry
-				now = Date.now();
-				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
-				{	throw e;
-				}
-				if (this.#curRetryingPromise)
-				{	let hTimer;
-					const promiseNo = new Promise(y => {hTimer = setTimeout(y, connectTill-now)});
-					if (true !== await Promise.race([this.#curRetryingPromise, promiseNo])) // `this.curRetryingPromise` resolves to `true`
-					{	throw e;
-					}
-					clearTimeout(hTimer);
-				}
-				else
-				{	const wait = Math.min(reconnectInterval, connectTill-now);
-					this.#xaTask.logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
-					this.#curRetryingPromise = new Promise
-					(	y =>
-						setTimeout
-						(	() =>
-							{	this.#curRetryingPromise = undefined;
-								y(true);
-							},
-							wait
-						)
-					);
-					await this.#curRetryingPromise;
-				}
-			}
-		}
-	}
-
 	async #closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
 	{	this.#nBusyAll++;
 		try
-		{	const buffer = await conn.end();
-			if (buffer instanceof Uint8Array)
-			{	this.#saveUnusedBuffer(buffer);
-			}
+		{	await this.#connsFactory.closeConn(conn);
 		}
 		catch (e)
 		{	// must not happen
@@ -375,7 +322,7 @@ export class MyPool
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	conn = await this.#newConn(dsn, sqlLogger);
+				{	conn = await this.#connsFactory.newConn(dsn, this.#onLoadFile, sqlLogger, this.#xaTask.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 				}
@@ -406,42 +353,36 @@ export class MyPool
 		}
 	}
 
-	#returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
-	{	conn.end(rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger).then
-		(	protocolOrBuffer =>
-			{	let conns = this.#connsPool.get(dsn.hash);
-				let i = -1;
-				if (conns)
-				{	i = conns.busy.indexOf(conn);
+	async #returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	{	const protocol = await this.#connsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
+		let conns = this.#connsPool.get(dsn.hash);
+		let i = -1;
+		if (conns)
+		{	i = conns.busy.indexOf(conn);
+		}
+		if (i == -1)
+		{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
+			for (const conns2 of this.#connsPool.values())
+			{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
+				if (i != -1)
+				{	conns = conns2;
+					break;
 				}
-				if (i == -1)
-				{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
-					for (const conns2 of this.#connsPool.values())
-					{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
-						if (i != -1)
-						{	conns = conns2;
-							break;
-						}
-					}
-				}
-				if (!conns || i==-1)
-				{	// assume: returnConnToPool() already called for this connection
-					return;
-				}
-				debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=1);
-				conns.busy[i] = conns.busy[conns.busy.length - 1];
-				conns.busy.length--;
-				if (protocolOrBuffer instanceof Uint8Array)
-				{	this.#saveUnusedBuffer(protocolOrBuffer);
-				}
-				else if (protocolOrBuffer)
-				{	conns.idle.push(protocolOrBuffer);
-					this.#nIdleAll++;
-				}
-				const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
-				this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
 			}
-		);
+		}
+		if (!conns || i==-1)
+		{	// assume: #returnConnToPool() already called for this connection
+			return;
+		}
+		debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=1);
+		conns.busy[i] = conns.busy[conns.busy.length - 1];
+		conns.busy.length--;
+		if (protocol)
+		{	conns.idle.push(protocol);
+			this.#nIdleAll++;
+		}
+		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
+		this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
 	}
 
 	#closeKeptAliveTimedOut(closeAllIdle=false)
@@ -678,6 +619,66 @@ class XaTask
 		}
 		else
 		{	return new Promise<void>(y => {this.#xaTaskOnDone = y});
+		}
+	}
+}
+
+class ConnsFactory
+{	#unusedBuffers = new Array<Uint8Array>;
+	#curRetryingPromise: Promise<true> | undefined;
+
+	async newConn(dsn: Dsn, onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
+	{	const unusedBuffer = this.#unusedBuffers.pop();
+		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
+		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
+		let now = Date.now();
+		const connectTill = now + connectionTimeout;
+		for (let i=0; true; i++)
+		{	try
+			{	return await MyProtocol.inst(dsn, unusedBuffer, onLoadFile, sqlLogger, logger);
+			}
+			catch (e)
+			{	// with connectionTimeout==0 must not retry
+				now = Date.now();
+				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
+				{	throw e;
+				}
+				if (this.#curRetryingPromise)
+				{	let hTimer;
+					const promiseNo = new Promise(y => {hTimer = setTimeout(y, connectTill-now)});
+					if (true !== await Promise.race([this.#curRetryingPromise, promiseNo])) // `this.#curRetryingPromise` resolves to `true`
+					{	throw e;
+					}
+					clearTimeout(hTimer);
+				}
+				else
+				{	const wait = Math.min(reconnectInterval, connectTill-now);
+					logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
+					this.#curRetryingPromise = new Promise
+					(	y =>
+						setTimeout
+						(	() =>
+							{	this.#curRetryingPromise = undefined;
+								y(true);
+							},
+							wait
+						)
+					);
+					await this.#curRetryingPromise;
+				}
+			}
+		}
+	}
+
+	async closeConn(conn: MyProtocol, rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
+	{	const protocolOrBuffer = await conn.end(rollbackPreparedXaId, recycleConnection, withDisposeSqlLogger);
+		if (protocolOrBuffer instanceof Uint8Array)
+		{	if (this.#unusedBuffers.length < SAVE_UNUSED_BUFFERS)
+			{	this.#unusedBuffers.push(protocolOrBuffer);
+			}
+		}
+		else
+		{	return protocolOrBuffer;
 		}
 	}
 }
