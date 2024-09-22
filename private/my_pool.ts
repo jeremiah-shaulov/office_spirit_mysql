@@ -121,7 +121,7 @@ export class MyPool
 				for (const {dsn, table} of xaInfoTables)
 				{	if (dsn && table)
 					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
-						const hash = (crc32(dsnObj.name) ^ crc32(table)) >>> 0;
+						const hash = (dsnObj.hash ^ crc32(table)) >>> 0;
 						if (this.#xaTask.xaInfoTables.findIndex(v => v.hash == hash) == -1)
 						{	this.#xaTask.xaInfoTables.push({dsn: dsnObj, table, hash});
 						}
