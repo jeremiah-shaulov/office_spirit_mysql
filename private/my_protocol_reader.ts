@@ -21,6 +21,7 @@ export class MyProtocolReader
 	recycleBuffer()
 	{	const buffer = this.buffer;
 		this.buffer = STUB;
+		debugAssert(buffer.length==BUFFER_LEN || buffer.length==0);
 		return buffer.length==BUFFER_LEN ? buffer : undefined; // this buffer can be recycled
 	}
 
