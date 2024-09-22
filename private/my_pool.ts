@@ -625,7 +625,7 @@ class XaTask
 
 class ConnsFactory
 {	#unusedBuffers = new Array<Uint8Array>;
-	#curRetryingPromise: Promise<true> | undefined;
+	#curRetryingPromises = new Map<number, Promise<true>>;
 
 	async newConn(dsn: Dsn, onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
 	{	const unusedBuffer = this.#unusedBuffers.pop();
@@ -643,10 +643,12 @@ class ConnsFactory
 				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
 				{	throw e;
 				}
-				if (this.#curRetryingPromise)
+				const dsnHash = dsn.hash;
+				const curRetryingPromise = this.#curRetryingPromises.get(dsnHash);
+				if (curRetryingPromise)
 				{	let hTimer;
 					const promiseNo = new Promise(y => {hTimer = setTimeout(y, connectTill-now)});
-					if (true !== await Promise.race([this.#curRetryingPromise, promiseNo])) // `this.#curRetryingPromise` resolves to `true`
+					if (true !== await Promise.race([curRetryingPromise, promiseNo])) // `curRetryingPromise` resolves to `true`
 					{	throw e;
 					}
 					clearTimeout(hTimer);
@@ -654,17 +656,18 @@ class ConnsFactory
 				else
 				{	const wait = Math.min(reconnectInterval, connectTill-now);
 					logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
-					this.#curRetryingPromise = new Promise
+					const curRetryingPromise = new Promise<true>
 					(	y =>
 						setTimeout
 						(	() =>
-							{	this.#curRetryingPromise = undefined;
+							{	this.#curRetryingPromises.delete(dsnHash);
 								y(true);
 							},
 							wait
 						)
 					);
-					await this.#curRetryingPromise;
+					this.#curRetryingPromises.set(dsnHash, curRetryingPromise);
+					await curRetryingPromise;
 				}
 			}
 		}
