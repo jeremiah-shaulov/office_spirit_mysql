@@ -1502,7 +1502,7 @@ async function testTrx(dsnStr: string)
 async function testRetryQueryTimes(dsnStr: string)
 {	await using pool = new MyPool(dsnStr);
 
-	pool.forConn
+	pool.forConn // no await, and inner `pool.forConn()` should still work
 	(	async conn =>
 		{	// Create and use db
 			await conn.query("DROP DATABASE IF EXISTS test1");

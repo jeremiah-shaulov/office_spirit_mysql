@@ -186,7 +186,7 @@ export class MyPool
 	}
 
 	getSession()
-	{	if (this.#isShuttingDown)
+	{	if (this.#isShuttingDown && this.#nSessionsOrConns==0)
 		{	throw new Error(`Connections pool is shut down`);
 		}
 		const session = new MySession
