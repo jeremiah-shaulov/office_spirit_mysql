@@ -186,10 +186,7 @@ export class MyPool
 	}
 
 	getSession()
-	{	if (this.#isShuttingDown && this.#nSessionsOrConns==0)
-		{	throw new Error(`Connections pool is shut down`);
-		}
-		const session = new MySession
+	{	const session = new MySession
 		(	this,
 			this.#dsn,
 			this.#xaTask.xaInfoTables,
@@ -216,10 +213,7 @@ export class MyPool
 	}
 
 	getConn(dsn?: Dsn|string): MyConn
-	{	if (this.#isShuttingDown && this.#nSessionsOrConns==0)
-		{	throw new Error(`Connections pool is shut down`);
-		}
-		if (dsn == undefined)
+	{	if (dsn == undefined)
 		{	dsn = this.#dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
