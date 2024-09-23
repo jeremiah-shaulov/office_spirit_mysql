@@ -213,7 +213,7 @@ export class Pool
 
 	async getProtocol(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0 && this.#useCnt>=0);
-		// 1. Find connsPool
+		// 1. Find in protocolsPerSchema
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
@@ -286,7 +286,7 @@ export class Pool
 		{	i = conns.busy.indexOf(conn);
 		}
 		if (i == -1)
-		{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
+		{	// maybe somebody edited properties of the Dsn object from outside, `protocolsPerSchema.get(dsn.hash)` was not found, because the `dsn.name` changed
 			for (const conns2 of this.#protocolsPerSchema.values())
 			{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
 				if (i != -1)
@@ -367,10 +367,10 @@ export class Pool
 	}
 
 	#closeKeptAliveTimedOut(closeAllIdle=false)
-	{	const connsPool = this.#protocolsPerSchema;
+	{	const protocolsPerSchema = this.#protocolsPerSchema;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
-		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of connsPool)
+		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of protocolsPerSchema)
 		{	for (let i=idle.length-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
@@ -382,7 +382,7 @@ export class Pool
 			}
 			//
 			if (busy.length+idle.length+nConnecting == 0)
-			{	connsPool.delete(dsnHash);
+			{	protocolsPerSchema.delete(dsnHash);
 			}
 			//
 			this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
