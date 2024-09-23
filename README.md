@@ -4,7 +4,7 @@ Features:
 - Sane connections pooling. Connections are reset after usage (locks are freed).
 - Pool for connections to multiple servers.
 - Auto-retry connection if server is busy.
-- Auto-retry queries if "deadlock" in autocommit mode, or if "lock wait timeout".
+- Auto-retry queries if "deadlock" in autocommit mode.
 - Streaming BLOBs and `ReadableStream`s.
 - Custom handler for LOCAL INFILE.
 - Advanced transactions manager: regular transactions, readonly, distributed (2-phase commit), savepoints.

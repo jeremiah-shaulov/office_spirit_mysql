@@ -51,11 +51,7 @@ export class MyConn
 	#pool;
 	#onDispose;
 
-	constructor
-	(	readonly dsn: Dsn,
-		pool: Pool,
-		onDispose? : VoidFunction,
-	)
+	constructor(readonly dsn: Dsn, pool: Pool, onDispose?: VoidFunction)
 	{	this.#pool = pool;
 		this.#onDispose = onDispose;
 	}

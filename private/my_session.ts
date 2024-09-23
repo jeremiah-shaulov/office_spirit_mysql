@@ -18,7 +18,7 @@ export class MySession
 	#pool;
 	#onDispose;
 
-	constructor(pool: Pool, onDispose? : VoidFunction)
+	constructor(pool: Pool, onDispose?: VoidFunction)
 	{	this.#pool = pool;
 		this.#onDispose = onDispose;
 	}
