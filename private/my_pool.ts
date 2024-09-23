@@ -128,7 +128,7 @@ export class MyPool
 	}
 
 	getSession()
-	{	return this.#pool.getSession();
+	{	return new MySession(this.#pool);
 	}
 
 	async forSession<T>(callback: (session: MySession) => Promise<T>)
@@ -144,7 +144,16 @@ export class MyPool
 	}
 
 	getConn(dsn?: Dsn|string): MyConn
-	{	return this.#pool.getConn(dsn);
+	{	if (dsn == undefined)
+		{	dsn = this.#pool.dsn;
+			if (dsn == undefined)
+			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
+			}
+		}
+		else if (typeof(dsn) == 'string')
+		{	dsn = new Dsn(dsn);
+		}
+		return new MyConnInternal(dsn, this.#pool);
 	}
 
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
@@ -161,7 +170,6 @@ export class Pool
 	#nSessionsOrConns = 0;
 	#hTimer: number | undefined;
 	#onend: VoidFunction | undefined;
-	#decSessionsOrConnsFunc = this.#decSessionsOrConns.bind(this);
 
 	dsn: Dsn | undefined;
 	maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
@@ -178,28 +186,17 @@ export class Pool
 		await this.#closeKeptAliveTimedOut(true);
 	}
 
-	getSession()
-	{	const session = new MySession(this, this.#decSessionsOrConnsFunc);
-		this.#nSessionsOrConns++;
-		return session;
+	ref()
+	{	this.#nSessionsOrConns++;
 	}
 
-	getConn(dsn?: Dsn|string)
-	{	if (dsn == undefined)
-		{	dsn = this.dsn;
-			if (dsn == undefined)
-			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
-			}
+	unref()
+	{	if (--this.#nSessionsOrConns==0 && this.#nBusyAll==0)
+		{	this.#onend?.();
 		}
-		else if (typeof(dsn) == 'string')
-		{	dsn = new Dsn(dsn);
-		}
-		const conn = new MyConnInternal(dsn, this, this.#decSessionsOrConnsFunc);
-		this.#nSessionsOrConns++;
-		return conn;
 	}
 
-	async getConnFromPool(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
+	async getProtocol(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0);
 		// 1. Find connsPool
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
@@ -266,7 +263,7 @@ export class Pool
 		}
 	}
 
-	async returnConnToPool(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	async returnProtocol(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	const protocol = await this.#connsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
 		let conns = this.#connsPool.get(dsn.hash);
 		let i = -1;
@@ -318,12 +315,6 @@ export class Pool
 			clearTimeout(hTimer);
 		}
 		return true;
-	}
-
-	#decSessionsOrConns()
-	{	if (--this.#nSessionsOrConns==0 && this.#nBusyAll==0)
-		{	this.#onend?.();
-		}
 	}
 
 	async #closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
@@ -442,7 +433,7 @@ class XaTask
 		this.#xaTaskBusy = true;
 
 		try
-		{	using session = await this.#pool.getSession();
+		{	using session = new MySession(this.#pool);
 			// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 			type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
 			const byInfoDsn = new Map<string, Item[]>;

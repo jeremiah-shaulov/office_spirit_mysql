@@ -16,20 +16,18 @@ export class MySession
 	#isDisposed = false;
 
 	#pool;
-	#onDispose;
 
-	constructor(pool: Pool, onDispose?: VoidFunction)
+	constructor(pool: Pool)
 	{	this.#pool = pool;
-		this.#onDispose = onDispose;
+		pool.ref();
 	}
 
 	/**	Disposes all the connections in this session.
 		This method doesn't throw.
 	 **/
 	[Symbol.dispose]()
-	{	const onDispose = this.#onDispose;
-		const connsArr = this.#connsArr;
-		this.#onDispose = undefined;
+	{	const connsArr = this.#connsArr;
+		const isDisposed = this.#isDisposed;
 		this.#isDisposed = true;
 		this.#connsArr = [];
 		let error;
@@ -44,7 +42,9 @@ export class MySession
 				error = e;
 			}
 		}
-		onDispose?.();
+		if (!isDisposed)
+		{	this.#pool.unref();
+		}
 		if (error != undefined)
 		{	throw error;
 		}
@@ -75,7 +75,7 @@ export class MySession
 				}
 			}
 		}
-		const conn = this.#pool.getConn(dsn);
+		const conn = new MyConnInternal(dsn, this.#pool);
 		if (this.#trxOptions)
 		{	conn.startTrx(this.#trxOptions);
 		}
@@ -209,7 +209,7 @@ export class MySession
 	 **/
 	async commit(andChain=false)
 	{	if (this.#trxOptions && this.#curXaInfoTable && this.#connsArr.length)
-		{	using infoTableConn = this.#pool.getConn(this.#curXaInfoTable.dsn);
+		{	using infoTableConn = new MyConnInternal(this.#curXaInfoTable.dsn, this.#pool);
 			await this.#doCommit(andChain, infoTableConn);
 		}
 		else

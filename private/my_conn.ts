@@ -49,11 +49,10 @@ export class MyConn
 	#isDisposed = false;
 
 	#pool;
-	#onDispose;
 
-	constructor(readonly dsn: Dsn, pool: Pool, onDispose?: VoidFunction)
+	constructor(readonly dsn: Dsn, pool: Pool)
 	{	this.#pool = pool;
-		this.#onDispose = onDispose;
+		pool.ref();
 	}
 
 	get serverVersion()
@@ -104,9 +103,9 @@ export class MyConn
 			}
 			this.#isConnecting = true;
 			try
-			{	const protocol = await this.#pool.getConnFromPool(this.dsn, this.sqlLogger);
+			{	const protocol = await this.#pool.getProtocol(this.dsn, this.sqlLogger);
 				if (!this.#isConnecting) // end() called
-				{	this.#pool.returnConnToPool(this.dsn, protocol, '', false);
+				{	this.#pool.returnProtocol(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
@@ -125,14 +124,15 @@ export class MyConn
 		This method doesn't throw.
 	 **/
 	[Symbol.dispose]()
-	{	const onDispose = this.#onDispose;
-		this.#onDispose = undefined;
+	{	const isDisposed = this.#isDisposed;
 		this.#isDisposed = true;
 		try
 		{	this.#doEnd(true);
 		}
 		finally
-		{	onDispose?.();
+		{	if (!isDisposed)
+			{	this.#pool.unref();
+			}
 		}
 	}
 
@@ -149,7 +149,7 @@ export class MyConn
 		this.#preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.#pool.returnConnToPool(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.#pool.returnProtocol(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
