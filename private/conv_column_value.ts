@@ -1,5 +1,5 @@
 import {ColumnFlags, MysqlType} from './constants.ts';
-import type {ColumnValue} from './resultsets.ts';
+import {type ColumnValue} from './resultsets.ts';
 
 const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
 const DATE_LEN_NO_MILLIS = 'YYYY-MM-DD HH:MM:SS'.length;

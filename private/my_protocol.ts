@@ -5,8 +5,7 @@ import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} f
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
-import {Column, ResultsetsInternal} from './resultsets.ts';
-import type {Param, ColumnValue} from './resultsets.ts';
+import {Column, ResultsetsInternal, type Param, type ColumnValue} from './resultsets.ts';
 import {convColumnValue, dateToData} from './conv_column_value.ts';
 import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
 import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
