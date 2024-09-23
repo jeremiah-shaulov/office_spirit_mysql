@@ -174,7 +174,7 @@ export class MyPool
 }
 
 export class Pool
-{	#connsPerSchema = new Map<number, PoolConns>;
+{	#connsPerSchema = new Map<number, Protocols>;
 	#connsFactory = new ConnsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
@@ -218,7 +218,7 @@ export class Pool
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
 		let conns = this.#connsPerSchema.get(dsn.hash);
 		if (!conns)
-		{	conns = new PoolConns;
+		{	conns = new Protocols;
 			this.#connsPerSchema.set(dsn.hash, conns);
 		}
 		debugAssert(conns.nConnecting >= 0);
@@ -412,7 +412,7 @@ export class Pool
 	}
 }
 
-class PoolConns
+class Protocols
 {	idle = new Array<MyProtocol>;
 	busy = new Array<MyProtocol>;
 	nConnecting = 0;
