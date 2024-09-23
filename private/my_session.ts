@@ -9,8 +9,7 @@ import {XaIdGen} from "./xa_id_gen.ts";
 const xaIdGen = new XaIdGen;
 
 export class MySession
-{	protected connsArr = new Array<MyConnInternal>;
-
+{	#connsArr = new Array<MyConnInternal>;
 	#savepointEnum = 0;
 	#trxOptions: {readonly: boolean, xaId1: string} | undefined;
 	#curXaInfoTable: XaInfoTable | undefined;
@@ -51,10 +50,10 @@ export class MySession
 	 **/
 	[Symbol.dispose]()
 	{	const onDispose = this.#onDispose;
-		const {connsArr} = this;
+		const connsArr = this.#connsArr;
 		this.#onDispose = undefined;
 		this.#isDisposed = true;
-		this.connsArr = [];
+		this.#connsArr = [];
 		for (const conn of connsArr)
 		{	conn[Symbol.dispose]();
 		}
@@ -62,7 +61,7 @@ export class MySession
 	}
 
 	get conns(): readonly MyConn[]
-	{	return this.connsArr;
+	{	return this.#connsArr;
 	}
 
 	conn(dsn?: Dsn|string, fresh=false)
@@ -75,19 +74,22 @@ export class MySession
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
 		}
+		if (typeof(dsn) == 'string')
+		{	dsn = new Dsn(dsn);
+		}
 		if (!fresh)
-		{	const dsnStr = typeof(dsn)=='string' ? dsn : dsn.name;
-			for (const conn of this.connsArr)
+		{	const dsnStr = dsn.name;
+			for (const conn of this.#connsArr)
 			{	if (conn.dsn.name == dsnStr)
 				{	return conn;
 				}
 			}
 		}
-		const conn = new MyConnInternal(typeof(dsn)=='string' ? new Dsn(dsn) : dsn, this.#trxOptions, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
+		const conn = new MyConnInternal(dsn, this.#trxOptions, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
 		if (this.#sqlLogger)
 		{	conn.setSqlLogger(this.#sqlLogger);
 		}
-		this.connsArr[this.connsArr.length] = conn;
+		this.#connsArr[this.#connsArr.length] = conn;
 		for (let i=1; i<=this.#savepointEnum; i++)
 		{	conn.sessionSavepoint(i);
 		}
@@ -102,7 +104,7 @@ export class MySession
 	 **/
 	async startTrx(options?: {readonly?: boolean, xa?: boolean})
 	{	// 1. Commit
-		if (this.connsArr.length)
+		if (this.#connsArr.length)
 		{	await this.commit();
 		}
 		// 2. options
@@ -130,7 +132,7 @@ export class MySession
 		this.#curXaInfoTable = curXaInfoTable;
 		this.#savepointEnum = 0;
 		// 4. Start transaction
-		for (const conn of this.connsArr)
+		for (const conn of this.#connsArr)
 		{	conn.startTrx(trxOptions); // this must return resolved promise
 		}
 	}
@@ -143,7 +145,7 @@ export class MySession
 	 **/
 	savepoint()
 	{	const pointId = ++this.#savepointEnum;
-		for (const conn of this.connsArr)
+		for (const conn of this.#connsArr)
 		{	conn.sessionSavepoint(pointId);
 		}
 		return SAVEPOINT_ENUM_SESSION_FROM + pointId;
@@ -179,7 +181,7 @@ export class MySession
 		{	this.#savepointEnum = toPointId - (SAVEPOINT_ENUM_SESSION_FROM + 1);
 		}
 		const promises = new Array<Promise<void>>;
-		for (const conn of this.connsArr)
+		for (const conn of this.#connsArr)
 		{	promises[promises.length] = conn.rollback(toPointId);
 		}
 		let error;
@@ -213,7 +215,7 @@ export class MySession
 		If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
 	 **/
 	commit(andChain=false)
-	{	if (this.#trxOptions && this.#curXaInfoTable && this.connsArr.length)
+	{	if (this.#trxOptions && this.#curXaInfoTable && this.#connsArr.length)
 		{	return this.#pool.forConn
 			(	infoTableConn => this.#doCommit(andChain, infoTableConn),
 				this.#curXaInfoTable.dsn
@@ -230,7 +232,7 @@ export class MySession
 		this.#trxOptions = undefined;
 		this.#curXaInfoTable = undefined;
 		this.#savepointEnum = 0;
-		if (this.connsArr.length)
+		if (this.#connsArr.length)
 		{	// 1. Connect to curXaInfoTable DSN (if throws exception, don't continue)
 			if (infoTableConn)
 			{	try
@@ -261,7 +263,7 @@ export class MySession
 			}
 			// 3. Prepare commit
 			const promises = new Array<Promise<void>>;
-			for (const conn of this.connsArr)
+			for (const conn of this.#connsArr)
 			{	if (conn.inXa)
 				{	promises[promises.length] = conn.prepareCommit();
 				}
@@ -281,7 +283,7 @@ export class MySession
 			}
 			// 5. Commit
 			promises.length = 0;
-			for (const conn of this.connsArr)
+			for (const conn of this.#connsArr)
 			{	promises[promises.length] = conn.commit();
 			}
 			await this.#doAll(promises);
@@ -332,7 +334,7 @@ export class MySession
 		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#logger); // want to pass the same object instance to each conn
 		}
 		this.#sqlLogger = sqlLogger;
-		for (const conn of this.connsArr)
+		for (const conn of this.#connsArr)
 		{	conn.setSqlLogger(sqlLogger);
 		}
 	}
