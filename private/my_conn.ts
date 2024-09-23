@@ -56,7 +56,6 @@ export class MyConn
 
 	constructor
 	(	readonly dsn: Dsn,
-		trxOptions: {readonly: boolean, xaId1: string} | undefined,
 		logger: Logger,
 		getConnFromPoolFunc: GetConnFromPoolFunc,
 		returnConnToPoolFunc: ReturnConnToPoolFunc,
@@ -68,9 +67,6 @@ export class MyConn
 		this.#returnConnToPoolFunc = returnConnToPoolFunc;
 		this.#onBeforeCommit = onBeforeCommit;
 		this.#onDispose = onDispose;
-		if (trxOptions)
-		{	this.startTrx(trxOptions);
-		}
 	}
 
 	get serverVersion()

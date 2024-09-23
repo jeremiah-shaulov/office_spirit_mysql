@@ -85,7 +85,10 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(dsn, this.#trxOptions, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
+		const conn = new MyConnInternal(dsn, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
+		if (this.#trxOptions)
+		{	conn.startTrx(this.#trxOptions);
+		}
 		if (this.#sqlLogger)
 		{	conn.setSqlLogger(this.#sqlLogger);
 		}

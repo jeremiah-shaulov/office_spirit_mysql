@@ -217,7 +217,6 @@ export class MyPool
 		}
 		const conn = new MyConnInternal
 		(	dsn,
-			undefined,
 			this.#xaTask.logger,
 			this.#getConnFromPoolFunc,
 			this.#returnConnToPoolFunc,
