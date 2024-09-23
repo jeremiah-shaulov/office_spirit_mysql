@@ -37,7 +37,7 @@ export class MySession
 			}
 			catch (e)
 			{	if (error != undefined)
-				{	this.#pool.logger.error(error);
+				{	this.#pool.options.logger.error(error);
 				}
 				error = e;
 			}
@@ -59,7 +59,7 @@ export class MySession
 		{	throw new Error(`This session object is already disposed of`);
 		}
 		if (dsn == undefined)
-		{	dsn = this.#pool.dsn;
+		{	dsn = this.#pool.options.dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -107,7 +107,7 @@ export class MySession
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
 		if (xa)
-		{	const xaInfoTables = this.#pool.xaTask.xaInfoTables;
+		{	const {xaInfoTables} = this.#pool.options;
 			const {length} = xaInfoTables;
 			let i = 0;
 			if (length > 1)
@@ -193,7 +193,7 @@ export class MySession
 				{	error = e;
 				}
 				else
-				{	this.#pool.logger.error(e);
+				{	this.#pool.options.logger.error(e);
 				}
 			}
 		}
@@ -233,21 +233,22 @@ export class MySession
 					}
 				}
 				catch (e)
-				{	this.#pool.logger.error(e);
+				{	this.#pool.options.logger.error(e);
 					infoTableConn = undefined;
 				}
 			}
 			// 2. Call onBeforeCommit
-			if (this.#pool.onBeforeCommit)
+			const {onBeforeCommit} = this.#pool.options;
+			if (onBeforeCommit)
 			{	try
-				{	await this.#pool.onBeforeCommit(this.conns);
+				{	await onBeforeCommit(this.conns);
 				}
 				catch (e)
 				{	try
 					{	await this.rollback(andChain ? 0 : undefined);
 					}
 					catch (e2)
-					{	this.#pool.logger.error(e2);
+					{	this.#pool.options.logger.error(e2);
 					}
 					throw e;
 				}
@@ -268,7 +269,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
 				}
 				catch (e)
-				{	this.#pool.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
+				{	this.#pool.options.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
 					infoTableConn = undefined;
 				}
 			}
@@ -284,7 +285,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 				}
 				catch (e)
-				{	this.#pool.logger.error(e);
+				{	this.#pool.options.logger.error(e);
 				}
 			}
 			// 7. andChain
@@ -303,7 +304,7 @@ export class MySession
 				{	error = r.reason;
 				}
 				else
-				{	this.#pool.logger.error(r.reason);
+				{	this.#pool.options.logger.error(r.reason);
 				}
 			}
 		}
@@ -313,7 +314,7 @@ export class MySession
 				{	await this.rollback(rollbackAndChain ? 0 : undefined);
 				}
 				catch (e2)
-				{	this.#pool.logger.debug(e2);
+				{	this.#pool.options.logger.debug(e2);
 				}
 			}
 			throw error;
@@ -322,7 +323,7 @@ export class MySession
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
 	{	if (sqlLogger === true)
-		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.logger); // want to pass the same object instance to each conn
+		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger); // want to pass the same object instance to each conn
 		}
 		this.#sqlLogger = sqlLogger;
 		for (const conn of this.#connsArr)

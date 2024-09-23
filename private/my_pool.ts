@@ -32,13 +32,96 @@ export interface MyPoolOptions
 	logger?: Logger;
 }
 
+class OptionsManager
+{	dsn: Dsn|undefined;
+	maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
+	onLoadFile: OnLoadFile|undefined;
+	onBeforeCommit: OnBeforeCommit|undefined;
+	managedXaDsns = new Array<Dsn>;
+	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
+	xaInfoTables = new Array<XaInfoTable>;
+	logger: Logger = console;
+
+	/**	Set and/or get configuration.
+	 **/
+	update(options?: Dsn|string|MyPoolOptions): MyPoolOptions
+	{	if (options)
+		{	if (typeof(options)=='string' || (options instanceof Dsn))
+			{	options = {dsn: options};
+			}
+			const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
+			// dsn
+			if (typeof(dsn) == 'string')
+			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
+			}
+			else if (dsn)
+			{	this.dsn = dsn;
+			}
+			// maxConnsWaitQueue
+			if (typeof(maxConnsWaitQueue) == 'number')
+			{	this.maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
+			}
+			// onLoadFile
+			this.onLoadFile = onLoadFile;
+			// onBeforeCommit
+			this.onBeforeCommit = onBeforeCommit;
+			// managedXaDsns
+			if (typeof(managedXaDsns) == 'string')
+			{	this.managedXaDsns.length = 0;
+				if (managedXaDsns)
+				{	this.managedXaDsns[0] = new Dsn(managedXaDsns);
+				}
+			}
+			else if (managedXaDsns instanceof Dsn)
+			{	this.managedXaDsns.length = 0;
+				if (managedXaDsns)
+				{	this.managedXaDsns[0] = managedXaDsns;
+				}
+			}
+			else if (managedXaDsns)
+			{	this.managedXaDsns.length = 0;
+				for (const item of managedXaDsns)
+				{	if (item)
+					{	this.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
+					}
+				}
+			}
+			// xaCheckEach
+			if (typeof(xaCheckEach) == 'number')
+			{	this.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
+			}
+			// xaInfoTables
+			if (xaInfoTables)
+			{	this.xaInfoTables.length = 0;
+				for (const {dsn, table} of xaInfoTables)
+				{	if (dsn && table)
+					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
+						const hash = (dsnObj.hash ^ crc32(table)) >>> 0;
+						if (this.xaInfoTables.findIndex(v => v.hash == hash) == -1)
+						{	this.xaInfoTables.push({dsn: dsnObj, table, hash});
+						}
+					}
+				}
+			}
+			// logger
+			this.logger = logger ?? console;
+		}
+		const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = this;
+		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
+	}
+}
+
 type HaveSlotsCallback = {y: VoidFunction, till: number};
 
 export class MyPool
 {	#pool = new Pool;
 
-	constructor(options?: Dsn | string | MyPoolOptions)
+	constructor(options?: Dsn|string|MyPoolOptions)
 	{	this.options(options);
+	}
+
+	options(options?: Dsn|string|MyPoolOptions)
+	{	return this.#pool.updateOptions(options);
 	}
 
 	/**	Wait till all active sessions and connections complete, and close idle connections in the pool.
@@ -53,78 +136,6 @@ export class MyPool
 	 **/
 	shutdown()
 	{	return this[Symbol.asyncDispose]();
-	}
-
-	/**	Set and/or get configuration.
-	 **/
-	options(options?: Dsn | string | MyPoolOptions): MyPoolOptions
-	{	if (options)
-		{	if (typeof(options)=='string' || (options instanceof Dsn))
-			{	options = {dsn: options};
-			}
-			const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
-			// dsn
-			if (typeof(dsn) == 'string')
-			{	this.#pool.dsn = dsn ? new Dsn(dsn) : undefined;
-			}
-			else if (dsn)
-			{	this.#pool.dsn = dsn;
-			}
-			// maxConnsWaitQueue
-			if (typeof(maxConnsWaitQueue) == 'number')
-			{	this.#pool.maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
-			}
-			// onLoadFile
-			this.#pool.onLoadFile = onLoadFile;
-			// onBeforeCommit
-			this.#pool.onBeforeCommit = onBeforeCommit;
-			// managedXaDsns
-			if (typeof(managedXaDsns) == 'string')
-			{	this.#pool.xaTask.managedXaDsns.length = 0;
-				if (managedXaDsns)
-				{	this.#pool.xaTask.managedXaDsns[0] = new Dsn(managedXaDsns);
-				}
-			}
-			else if (managedXaDsns instanceof Dsn)
-			{	this.#pool.xaTask.managedXaDsns.length = 0;
-				if (managedXaDsns)
-				{	this.#pool.xaTask.managedXaDsns[0] = managedXaDsns;
-				}
-			}
-			else if (managedXaDsns)
-			{	this.#pool.xaTask.managedXaDsns.length = 0;
-				for (const item of managedXaDsns)
-				{	if (item)
-					{	this.#pool.xaTask.managedXaDsns.push(typeof(item)=='string' ? new Dsn(item) : item);
-					}
-				}
-			}
-			// xaCheckEach
-			if (typeof(xaCheckEach) == 'number')
-			{	this.#pool.xaTask.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
-			}
-			// xaInfoTables
-			if (xaInfoTables)
-			{	this.#pool.xaTask.xaInfoTables.length = 0;
-				for (const {dsn, table} of xaInfoTables)
-				{	if (dsn && table)
-					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
-						const hash = (dsnObj.hash ^ crc32(table)) >>> 0;
-						if (this.#pool.xaTask.xaInfoTables.findIndex(v => v.hash == hash) == -1)
-						{	this.#pool.xaTask.xaInfoTables.push({dsn: dsnObj, table, hash});
-						}
-					}
-				}
-			}
-			this.#pool.xaTask.start();
-			// logger
-			this.#pool.logger = logger ?? console;
-		}
-		const {dsn, maxConnsWaitQueue, logger} = this.#pool;
-		const onLoadFile = this.#pool.onLoadFile;
-		const onBeforeCommit = this.#pool.onBeforeCommit;
-		const {managedXaDsns, xaCheckEach, xaInfoTables} = this.#pool.xaTask;
-		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
 	}
 
 	getSession()
@@ -145,7 +156,7 @@ export class MyPool
 
 	getConn(dsn?: Dsn|string): MyConn
 	{	if (dsn == undefined)
-		{	dsn = this.#pool.dsn;
+		{	dsn = this.#pool.options.dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -168,15 +179,11 @@ export class Pool
 	#nIdleAll = 0;
 	#nBusyAll = 0;
 	#nSessionsOrConns = 0;
-	#hTimer: number | undefined;
-	#onend: VoidFunction | undefined;
+	#hTimer: number|undefined;
+	#onend: VoidFunction|undefined;
+	#xaTask = new XaTask;
 
-	dsn: Dsn | undefined;
-	maxConnsWaitQueue = DEFAULT_MAX_CONNS_WAIT_QUEUE;
-	onLoadFile: OnLoadFile|undefined;
-	onBeforeCommit: OnBeforeCommit|undefined;
-	xaTask = new XaTask(this);
-	logger: Logger = console;
+	options = new OptionsManager;
 
 	async [Symbol.asyncDispose]()
 	{	if (this.#nSessionsOrConns!=0 || this.#nBusyAll!=0)
@@ -184,6 +191,14 @@ export class Pool
 		}
 		// close idle connections
 		await this.#closeKeptAliveTimedOut(true);
+	}
+
+	updateOptions(options?: Dsn|string|MyPoolOptions)
+	{	const result = this.options.update(options);
+		if (options)
+		{	this.#xaTask.start(this);
+		}
+		return result;
 	}
 
 	ref()
@@ -232,7 +247,7 @@ export class Pool
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	conn = await this.#connsFactory.newConn(dsn, this.onLoadFile, sqlLogger, this.logger);
+				{	conn = await this.#connsFactory.newConn(dsn, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 				}
@@ -255,7 +270,7 @@ export class Pool
 			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
 			if (this.#hTimer == undefined)
 			{	this.#hTimer = setInterval(() => {this.#closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
-				this.xaTask.start();
+				this.#xaTask.start(this);
 			}
 			busy.push(conn);
 			this.#nBusyAll++;
@@ -304,7 +319,7 @@ export class Pool
 			if (now >= till) // with connectionTimeout==0 must not retry
 			{	return false;
 			}
-			if (haveSlotsCallbacks.length >= this.maxConnsWaitQueue)
+			if (haveSlotsCallbacks.length >= this.options.maxConnsWaitQueue)
 			{	return false;
 			}
 			const iterTill = Math.min(till, now + reconnectInterval);
@@ -324,7 +339,7 @@ export class Pool
 		}
 		catch (e)
 		{	// must not happen
-			this.logger.error(e);
+			this.options.logger.error(e);
 		}
 		this.#decNBusyAll(maxConns, haveSlotsCallbacks);
 	}
@@ -378,7 +393,7 @@ export class Pool
 		}
 		debugAssert(!closeAllIdle || this.#nIdleAll==0);
 		if (closeAllIdle)
-		{	promises[promises.length] = this.xaTask.stop();
+		{	promises[promises.length] = this.#xaTask.stop();
 		}
 		return Promise.all(promises);
 	}
@@ -405,21 +420,11 @@ class PoolConns
 }
 
 class XaTask
-{	managedXaDsns = new Array<Dsn>;
-	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
-	xaInfoTables = new Array<XaInfoTable>;
-
-	#xaTaskTimer: number|undefined;
+{	#xaTaskTimer: number|undefined;
 	#xaTaskBusy = false;
 	#xaTaskOnDone: VoidFunction|undefined;
 
-	#pool;
-
-	constructor(pool: Pool)
-	{	this.#pool = pool;
-	}
-
-	async start()
+	async start(pool: Pool)
 	{	if (this.#xaTaskBusy)
 		{	return;
 		}
@@ -427,19 +432,19 @@ class XaTask
 		{	clearTimeout(this.#xaTaskTimer);
 			this.#xaTaskTimer = undefined;
 		}
-		if (this.managedXaDsns.length == 0)
+		if (pool.options.managedXaDsns.length == 0)
 		{	return;
 		}
 		this.#xaTaskBusy = true;
 
 		try
-		{	using session = new MySession(this.#pool);
+		{	using session = new MySession(pool);
 			// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 			type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
 			const byInfoDsn = new Map<string, Item[]>;
 			const byConn = new Map<MyConn, Item[]>;
 			const results = await Promise.allSettled
-			(	this.managedXaDsns.map
+			(	pool.options.managedXaDsns.map
 				(	async dsn =>
 					{	const conn = session.conn(dsn);
 						// 1. Read XA RECOVER
@@ -473,7 +478,7 @@ class XaTask
 						{	let infoDsnStr = '';
 							let table = '';
 							if (!isNaN(hash))
-							{	const xaInfoTable = this.xaInfoTables.find(v => v.hash == hash);
+							{	const xaInfoTable = pool.options.xaInfoTables.find(v => v.hash == hash);
 								if (xaInfoTable)
 								{	infoDsnStr = xaInfoTable.dsn.name;
 									table = xaInfoTable.table;
@@ -500,7 +505,7 @@ class XaTask
 			);
 			for (const res of results)
 			{	if (res.status == 'rejected')
-				{	this.#pool.logger.error(res.reason);
+				{	pool.options.logger.error(res.reason);
 				}
 			}
 			// 2. Find out should i rollback or commit, according to xaInfoTables
@@ -536,7 +541,7 @@ class XaTask
 			const results2 = await Promise.allSettled(promises2);
 			for (const res of results2)
 			{	if (res.status == 'rejected')
-				{	this.#pool.logger.error(res.reason);
+				{	pool.options.logger.error(res.reason);
 				}
 			}
 			// 3. Rollback or commit
@@ -548,7 +553,7 @@ class XaTask
 					(	() => conn.queryVoid((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'")
 					).then
 					(	() =>
-						{	this.#pool.logger.warn(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL process ID ${connectionId} was dead. Transaction started before ${Math.floor(Date.now()/1000) - time} sec by OS process ${pid}.`);
+						{	pool.options.logger.warn(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL process ID ${connectionId} was dead. Transaction started before ${Math.floor(Date.now()/1000) - time} sec by OS process ${pid}.`);
 						}
 					);
 				}
@@ -557,12 +562,12 @@ class XaTask
 			const results3 = await Promise.allSettled(promises3);
 			for (const res of results3)
 			{	if (res.status == 'rejected')
-				{	this.#pool.logger.error(res.reason);
+				{	pool.options.logger.error(res.reason);
 				}
 			}
 		}
 		catch (e)
-		{	this.#pool.logger.error(e);
+		{	pool.options.logger.error(e);
 		}
 
 		this.#xaTaskBusy = false;
@@ -572,11 +577,11 @@ class XaTask
 		{	this.#xaTaskTimer = undefined;
 			xaTaskOnDone();
 		}
-		else if (this.managedXaDsns.length == 0)
+		else if (pool.options.managedXaDsns.length == 0)
 		{	this.#xaTaskTimer = undefined;
 		}
 		else
-		{	this.#xaTaskTimer = setTimeout(() => this.start(), this.xaCheckEach);
+		{	this.#xaTaskTimer = setTimeout(() => this.start(pool), pool.options.xaCheckEach);
 		}
 	}
 

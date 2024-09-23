@@ -405,8 +405,9 @@ export class MyConn
 	{	const {protocol} = this;
 		const curXaId = this.#curXaId;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.#isXaPrepared)
-		{	if (this.#pool.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-			{	await this.#pool.onBeforeCommit([this]);
+		{	const {onBeforeCommit} = this.#pool.options;
+			if (onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+			{	await onBeforeCommit([this]);
 			}
 			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.#isXaPrepared = true;
@@ -503,8 +504,9 @@ export class MyConn
 				sql = `XA COMMIT '${curXaId}'`;
 			}
 			else
-			{	if (this.#pool.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-				{	await this.#pool.onBeforeCommit([this]);
+			{	const {onBeforeCommit} = this.#pool.options;
+				if (onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+				{	await onBeforeCommit([this]);
 				}
 				sql = andChain ? `COMMIT AND CHAIN` : `COMMIT`;
 			}
@@ -534,7 +536,7 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.logger) : sqlLogger, this.#pool.logger);
+	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger) : sqlLogger, this.#pool.options.logger);
 		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
