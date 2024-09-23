@@ -174,7 +174,7 @@ export class MyPool
 }
 
 export class Pool
-{	#connsPerSchema = new Map<number, Protocols>;
+{	#protocolsPerSchema = new Map<number, Protocols>;
 	#connsFactory = new ConnsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
@@ -216,10 +216,10 @@ export class Pool
 		// 1. Find connsPool
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
-		let conns = this.#connsPerSchema.get(dsn.hash);
+		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		if (!conns)
 		{	conns = new Protocols;
-			this.#connsPerSchema.set(dsn.hash, conns);
+			this.#protocolsPerSchema.set(dsn.hash, conns);
 		}
 		debugAssert(conns.nConnecting >= 0);
 		const {idle, busy, haveSlotsCallbacks} = conns;
@@ -280,14 +280,14 @@ export class Pool
 
 	async returnProtocol(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
 	{	const protocol = await this.#connsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
-		let conns = this.#connsPerSchema.get(dsn.hash);
+		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		let i = -1;
 		if (conns)
 		{	i = conns.busy.indexOf(conn);
 		}
 		if (i == -1)
 		{	// maybe somebody edited properties of the Dsn object from outside, `connsPool.get(dsn.hash)` was not found, because the `dsn.name` changed
-			for (const conns2 of this.#connsPerSchema.values())
+			for (const conns2 of this.#protocolsPerSchema.values())
 			{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
 				if (i != -1)
 				{	conns = conns2;
@@ -367,7 +367,7 @@ export class Pool
 	}
 
 	#closeKeptAliveTimedOut(closeAllIdle=false)
-	{	const connsPool = this.#connsPerSchema;
+	{	const connsPool = this.#protocolsPerSchema;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of connsPool)
