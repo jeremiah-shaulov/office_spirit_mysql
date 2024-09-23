@@ -175,7 +175,7 @@ export class MyPool
 
 export class Pool
 {	#protocolsPerSchema = new Map<number, Protocols>;
-	#connsFactory = new ProtocolsFactory;
+	#protocolsFactory = new ProtocolsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
 	#useCnt = 0;
@@ -247,7 +247,7 @@ export class Pool
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	conn = await this.#connsFactory.newConn(dsn, this.options.onLoadFile, sqlLogger, this.options.logger);
+				{	conn = await this.#protocolsFactory.newConn(dsn, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 				}
@@ -279,7 +279,7 @@ export class Pool
 	}
 
 	async returnProtocol(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
-	{	const protocol = await this.#connsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
+	{	const protocol = await this.#protocolsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		let i = -1;
 		if (conns)
@@ -335,7 +335,7 @@ export class Pool
 	async #closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
 	{	this.#nBusyAll++;
 		try
-		{	await this.#connsFactory.closeConn(conn);
+		{	await this.#protocolsFactory.closeConn(conn);
 		}
 		catch (e)
 		{	// must not happen
