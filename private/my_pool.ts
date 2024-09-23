@@ -178,7 +178,7 @@ export class Pool
 	#connsFactory = new ConnsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
-	#nSessionsOrConns = 0;
+	#useCnt = 0;
 	#hTimer: number|undefined;
 	#onend: VoidFunction|undefined;
 	#xaTask = new XaTask;
@@ -186,7 +186,7 @@ export class Pool
 	options = new OptionsManager;
 
 	async [Symbol.asyncDispose]()
-	{	if (this.#nSessionsOrConns!=0 || this.#nBusyAll!=0)
+	{	if (this.#useCnt!=0 || this.#nBusyAll!=0)
 		{	await new Promise<void>(y => this.#onend = y);
 		}
 		// close idle connections
@@ -202,17 +202,17 @@ export class Pool
 	}
 
 	ref()
-	{	this.#nSessionsOrConns++;
+	{	this.#useCnt++;
 	}
 
 	unref()
-	{	if (--this.#nSessionsOrConns==0 && this.#nBusyAll==0)
+	{	if (--this.#useCnt==0 && this.#nBusyAll==0)
 		{	this.#onend?.();
 		}
 	}
 
 	async getProtocol(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
-	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0);
+	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0 && this.#useCnt>=0);
 		// 1. Find connsPool
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
@@ -353,7 +353,7 @@ export class Pool
 				{	clearInterval(this.#hTimer);
 					this.#hTimer = undefined;
 				}
-				if (this.#nSessionsOrConns == 0)
+				if (this.#useCnt == 0)
 				{	this.#onend?.();
 				}
 			}
