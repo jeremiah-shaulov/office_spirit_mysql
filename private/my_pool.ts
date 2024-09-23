@@ -49,7 +49,6 @@ export class MyPool
 	#nSessionsOrConns = 0;
 	#hTimer: number | undefined;
 	#xaTask: XaTask;
-	#isShuttingDown = false;
 	#onend: VoidFunction | undefined;
 
 	#dsn: Dsn | undefined;
@@ -143,17 +142,11 @@ export class MyPool
 		Then new connections will be rejected, and this object will be unusable.
 	 **/
 	async [Symbol.asyncDispose]()
-	{	this.#isShuttingDown = true;
-		try
-		{	if (this.#nSessionsOrConns!=0 || this.#nBusyAll!=0)
-			{	await new Promise<void>(y => this.#onend = y);
-			}
-			// close idle connections
-			await this.#closeKeptAliveTimedOut(true);
+	{	if (this.#nSessionsOrConns!=0 || this.#nBusyAll!=0)
+		{	await new Promise<void>(y => this.#onend = y);
 		}
-		finally
-		{	this.#isShuttingDown = false;
-		}
+		// close idle connections
+		await this.#closeKeptAliveTimedOut(true);
 	}
 
 	/**	Deprecated alias of `this[Symbol.asyncDispose]()`.
