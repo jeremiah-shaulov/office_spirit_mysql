@@ -1,7 +1,6 @@
 import {Dsn} from './dsn.ts';
-import {MyConn, MyConnInternal, OnBeforeCommit, GetConnFromPoolFunc, ReturnConnToPoolFunc, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
-import {MyPool, XaInfoTable} from "./my_pool.ts";
-import {Logger} from "./my_protocol.ts";
+import {MyConn, MyConnInternal, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
+import {Pool, XaInfoTable} from "./my_pool.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWritable} from "./sql_log_to_writable.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
@@ -17,31 +16,10 @@ export class MySession
 	#isDisposed = false;
 
 	#pool;
-	#dsn;
-	#xaInfoTables;
-	#logger;
-	#getConnFromPoolFunc;
-	#returnConnToPoolFunc;
-	#onBeforeCommit;
 	#onDispose;
 
-	constructor
-	(	pool: MyPool,
-		dsn: Dsn|undefined,
-		xaInfoTables = new Array<XaInfoTable>,
-		logger: Logger,
-		getConnFromPoolFunc: GetConnFromPoolFunc,
-		returnConnToPoolFunc: ReturnConnToPoolFunc,
-		onBeforeCommit?: OnBeforeCommit,
-		onDispose?: VoidFunction,
-	)
+	constructor(pool: Pool, onDispose? : VoidFunction)
 	{	this.#pool = pool;
-		this.#dsn = dsn;
-		this.#xaInfoTables = xaInfoTables;
-		this.#logger = logger;
-		this.#getConnFromPoolFunc = getConnFromPoolFunc;
-		this.#returnConnToPoolFunc = returnConnToPoolFunc;
-		this.#onBeforeCommit = onBeforeCommit;
 		this.#onDispose = onDispose;
 	}
 
@@ -54,10 +32,22 @@ export class MySession
 		this.#onDispose = undefined;
 		this.#isDisposed = true;
 		this.#connsArr = [];
+		let error;
 		for (const conn of connsArr)
-		{	conn[Symbol.dispose]();
+		{	try
+			{	conn[Symbol.dispose]();
+			}
+			catch (e)
+			{	if (error != undefined)
+				{	this.#pool.logger.error(error);
+				}
+				error = e;
+			}
 		}
 		onDispose?.();
+		if (error != undefined)
+		{	throw error;
+		}
 	}
 
 	get conns(): readonly MyConn[]
@@ -69,7 +59,7 @@ export class MySession
 		{	throw new Error(`This session object is already disposed of`);
 		}
 		if (dsn == undefined)
-		{	dsn = this.#dsn;
+		{	dsn = this.#pool.dsn;
 			if (dsn == undefined)
 			{	throw new Error(`DSN not provided, and also default DSN was not specified`);
 			}
@@ -85,17 +75,17 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(dsn, this.#logger, this.#getConnFromPoolFunc, this.#returnConnToPoolFunc, undefined);
+		const conn = this.#pool.getConn(dsn);
 		if (this.#trxOptions)
 		{	conn.startTrx(this.#trxOptions);
 		}
 		if (this.#sqlLogger)
 		{	conn.setSqlLogger(this.#sqlLogger);
 		}
-		this.#connsArr[this.#connsArr.length] = conn;
 		for (let i=1; i<=this.#savepointEnum; i++)
 		{	conn.sessionSavepoint(i);
 		}
+		this.#connsArr.push(conn);
 		return conn;
 	}
 
@@ -117,7 +107,7 @@ export class MySession
 		let xaId1 = '';
 		let curXaInfoTable: XaInfoTable | undefined;
 		if (xa)
-		{	const xaInfoTables = this.#xaInfoTables;
+		{	const xaInfoTables = this.#pool.xaTask.xaInfoTables;
 			const {length} = xaInfoTables;
 			let i = 0;
 			if (length > 1)
@@ -203,7 +193,7 @@ export class MySession
 				{	error = e;
 				}
 				else
-				{	this.#logger.error(e);
+				{	this.#pool.logger.error(e);
 				}
 			}
 		}
@@ -217,15 +207,13 @@ export class MySession
 		If failed will rollback. If failed and `andChain` was true, will rollback and restart the same transaction (also XA).
 		If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
 	 **/
-	commit(andChain=false)
+	async commit(andChain=false)
 	{	if (this.#trxOptions && this.#curXaInfoTable && this.#connsArr.length)
-		{	return this.#pool.forConn
-			(	infoTableConn => this.#doCommit(andChain, infoTableConn),
-				this.#curXaInfoTable.dsn
-			);
+		{	using infoTableConn = this.#pool.getConn(this.#curXaInfoTable.dsn);
+			await this.#doCommit(andChain, infoTableConn);
 		}
 		else
-		{	return this.#doCommit(andChain);
+		{	await this.#doCommit(andChain);
 		}
 	}
 
@@ -245,21 +233,21 @@ export class MySession
 					}
 				}
 				catch (e)
-				{	this.#logger.error(e);
+				{	this.#pool.logger.error(e);
 					infoTableConn = undefined;
 				}
 			}
 			// 2. Call onBeforeCommit
-			if (this.#onBeforeCommit)
+			if (this.#pool.onBeforeCommit)
 			{	try
-				{	await this.#onBeforeCommit(this.conns);
+				{	await this.#pool.onBeforeCommit(this.conns);
 				}
 				catch (e)
 				{	try
 					{	await this.rollback(andChain ? 0 : undefined);
 					}
 					catch (e2)
-					{	this.#logger.error(e2);
+					{	this.#pool.logger.error(e2);
 					}
 					throw e;
 				}
@@ -280,7 +268,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`INSERT INTO \`${curXaInfoTable.table}\` (\`xa_id\`) VALUES ('${trxOptions.xaId1}')`);
 				}
 				catch (e)
-				{	this.#logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
+				{	this.#pool.logger.warn(`Couldn't add record to info table ${curXaInfoTable.table} on ${infoTableConn.dsn.name}`, e);
 					infoTableConn = undefined;
 				}
 			}
@@ -296,7 +284,7 @@ export class MySession
 				{	await infoTableConn.queryVoid(`DELETE FROM \`${curXaInfoTable.table}\` WHERE \`xa_id\` = '${trxOptions.xaId1}'`);
 				}
 				catch (e)
-				{	this.#logger.error(e);
+				{	this.#pool.logger.error(e);
 				}
 			}
 			// 7. andChain
@@ -315,7 +303,7 @@ export class MySession
 				{	error = r.reason;
 				}
 				else
-				{	this.#logger.error(r.reason);
+				{	this.#pool.logger.error(r.reason);
 				}
 			}
 		}
@@ -325,7 +313,7 @@ export class MySession
 				{	await this.rollback(rollbackAndChain ? 0 : undefined);
 				}
 				catch (e2)
-				{	this.#logger.debug(e2);
+				{	this.#pool.logger.debug(e2);
 				}
 			}
 			throw error;
@@ -334,7 +322,7 @@ export class MySession
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
 	{	if (sqlLogger === true)
-		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#logger); // want to pass the same object instance to each conn
+		{	sqlLogger = new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.logger); // want to pass the same object instance to each conn
 		}
 		this.#sqlLogger = sqlLogger;
 		for (const conn of this.#connsArr)

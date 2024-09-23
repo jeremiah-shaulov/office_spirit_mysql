@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {SetOption, StatusFlags} from './constants.ts';
-import {MyProtocol, RowType, Logger, MultiStatements} from './my_protocol.ts';
+import {MyProtocol, RowType, MultiStatements} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Resultsets, ResultsetsInternal, ResultsetsPromise} from './resultsets.ts';
@@ -9,6 +9,7 @@ import {Dsn} from './dsn.ts';
 import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
 import {SqlLogToWritable} from "./sql_log_to_writable.ts";
 import {Reader} from './deno_ifaces.ts';
+import {Pool} from './my_pool.ts';
 
 export type GetConnFromPoolFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
 export type ReturnConnToPoolFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
@@ -48,24 +49,15 @@ export class MyConn
 	#preparedStmtsForParams = new Array<number>;
 	#isDisposed = false;
 
-	#logger;
-	#getConnFromPoolFunc;
-	#returnConnToPoolFunc;
-	#onBeforeCommit;
+	#pool;
 	#onDispose;
 
 	constructor
 	(	readonly dsn: Dsn,
-		logger: Logger,
-		getConnFromPoolFunc: GetConnFromPoolFunc,
-		returnConnToPoolFunc: ReturnConnToPoolFunc,
-		onBeforeCommit?: OnBeforeCommit,
-		onDispose?: VoidFunction,
+		pool: Pool,
+		onDispose? : VoidFunction,
 	)
-	{	this.#logger = logger;
-		this.#getConnFromPoolFunc = getConnFromPoolFunc;
-		this.#returnConnToPoolFunc = returnConnToPoolFunc;
-		this.#onBeforeCommit = onBeforeCommit;
+	{	this.#pool = pool;
 		this.#onDispose = onDispose;
 	}
 
@@ -117,9 +109,9 @@ export class MyConn
 			}
 			this.#isConnecting = true;
 			try
-			{	const protocol = await this.#getConnFromPoolFunc(this.dsn, this.sqlLogger);
+			{	const protocol = await this.#pool.getConnFromPool(this.dsn, this.sqlLogger);
 				if (!this.#isConnecting) // end() called
-				{	this.#returnConnToPoolFunc(this.dsn, protocol, '', false);
+				{	this.#pool.returnConnToPool(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.protocol = protocol;
@@ -141,8 +133,12 @@ export class MyConn
 	{	const onDispose = this.#onDispose;
 		this.#onDispose = undefined;
 		this.#isDisposed = true;
-		this.#doEnd(true);
-		onDispose?.();
+		try
+		{	this.#doEnd(true);
+		}
+		finally
+		{	onDispose?.();
+		}
 	}
 
 	#doEnd(withDisposeSqlLogger: boolean)
@@ -158,7 +154,7 @@ export class MyConn
 		this.#preparedStmtsForParams.length = 0;
 		this.protocol = undefined;
 		if (protocol)
-		{	this.#returnConnToPoolFunc(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.#pool.returnConnToPool(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
@@ -414,8 +410,8 @@ export class MyConn
 	{	const {protocol} = this;
 		const curXaId = this.#curXaId;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.#isXaPrepared)
-		{	if (this.#onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-			{	await this.#onBeforeCommit([this]);
+		{	if (this.#pool.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+			{	await this.#pool.onBeforeCommit([this]);
 			}
 			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.#isXaPrepared = true;
@@ -512,8 +508,8 @@ export class MyConn
 				sql = `XA COMMIT '${curXaId}'`;
 			}
 			else
-			{	if (this.#onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
-				{	await this.#onBeforeCommit([this]);
+			{	if (this.#pool.onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+				{	await this.#pool.onBeforeCommit([this]);
 				}
 				sql = andChain ? `COMMIT AND CHAIN` : `COMMIT`;
 			}
@@ -543,7 +539,7 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#logger) : sqlLogger, this.#logger);
+	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.logger) : sqlLogger, this.#pool.logger);
 		this.protocol?.setSqlLogger(this.sqlLogger);
 	}
 
