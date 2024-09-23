@@ -175,7 +175,7 @@ export class MyPool
 
 export class Pool
 {	#protocolsPerSchema = new Map<number, Protocols>;
-	#connsFactory = new ConnsFactory;
+	#connsFactory = new ProtocolsFactory;
 	#nIdleAll = 0;
 	#nBusyAll = 0;
 	#useCnt = 0;
@@ -597,7 +597,7 @@ class XaTask
 	}
 }
 
-class ConnsFactory
+class ProtocolsFactory
 {	#unusedBuffers = new Array<Uint8Array>;
 	#curRetryingPromises = new Map<number, Promise<true>>;
 
@@ -647,8 +647,8 @@ class ConnsFactory
 		}
 	}
 
-	async closeConn(conn: MyProtocol, rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
-	{	const protocolOrBuffer = await conn.end(rollbackPreparedXaId, recycleConnection, withDisposeSqlLogger);
+	async closeConn(protocol: MyProtocol, rollbackPreparedXaId='', recycleConnection=false, withDisposeSqlLogger=false)
+	{	const protocolOrBuffer = await protocol.end(rollbackPreparedXaId, recycleConnection, withDisposeSqlLogger);
 		if (protocolOrBuffer instanceof Uint8Array)
 		{	if (this.#unusedBuffers.length < SAVE_UNUSED_BUFFERS)
 			{	this.#unusedBuffers.push(protocolOrBuffer);
