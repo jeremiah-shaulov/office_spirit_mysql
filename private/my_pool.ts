@@ -218,6 +218,7 @@ export class Pool
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
 		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
+		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
 		// 1. Find in protocolsPerSchema
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		if (!conns)
@@ -229,7 +230,7 @@ export class Pool
 		// 2. Wait for a free slot
 		const till = now + connectionTimeout;
 		while (busy.length+conns.nConnecting >= maxConns)
-		{	if (now>=till || !await this.#waitHaveSlots(dsn, till, haveSlotsCallbacks))
+		{	if (now>=till || !await this.#waitHaveSlots(conns, now, till, reconnectInterval))
 			{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
 			}
 			// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
@@ -237,8 +238,7 @@ export class Pool
 		}
 		// 3. Connect
 		while (true)
-		{	let conn: MyProtocol|undefined;
-			conn = idle.pop();
+		{	let conn = idle.pop();
 			if (!conn)
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
@@ -306,25 +306,17 @@ export class Pool
 		this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
 	}
 
-	async #waitHaveSlots(dsn: Dsn, till: number, haveSlotsCallbacks: HaveSlotsCallback[])
-	{	const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
-		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
-		while (this.#nBusyAll >= maxConns)
-		{	this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
-			const now = Date.now();
-			if (now >= till) // with connectionTimeout==0 must not retry
-			{	return false;
-			}
-			if (haveSlotsCallbacks.length >= this.options.maxConnsWaitQueue)
-			{	return false;
-			}
-			const iterTill = Math.min(till, now + reconnectInterval);
-			const promiseYes = new Promise<void>(y => {haveSlotsCallbacks.push({y, till: iterTill})});
-			let hTimer;
-			const promiseNo = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
-			await Promise.race([promiseYes, promiseNo]);
-			clearTimeout(hTimer);
+	async #waitHaveSlots(conns: Protocols, now: number, till: number, reconnectInterval: number)
+	{	this.#closeHaveSlotsTimedOut(conns.haveSlotsCallbacks);
+		if (conns.haveSlotsCallbacks.length >= this.options.maxConnsWaitQueue)
+		{	return false;
 		}
+		const iterTill = Math.min(till, now + reconnectInterval);
+		let hTimer;
+		const promiseNo = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
+		const hTimer2 = hTimer;
+		const promiseYes = new Promise<void>(y => {conns.haveSlotsCallbacks.push({y, till: iterTill}); clearTimeout(hTimer2)});
+		await Promise.race([promiseYes, promiseNo]);
 		return true;
 	}
 
