@@ -53,6 +53,7 @@ export class Dsn
 	#initSql: string;
 	#name: string;
 	#hash: number;
+	#hashNoSchema: number;
 
 	get hostname()
 	{	return this.#hostname;
@@ -231,6 +232,10 @@ export class Dsn
 	{	return this.#hash;
 	}
 
+	get hashNoSchema()
+	{	return this.#hashNoSchema;
+	}
+
 	constructor(dsn: string|Dsn)
 	{	if (typeof(dsn) != 'string')
 		{	this.#hostname = dsn.#hostname;
@@ -255,6 +260,7 @@ export class Dsn
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
+			this.#hashNoSchema = dsn.#hashNoSchema;
 		}
 		else
 		{	if (!dsn)
@@ -308,6 +314,7 @@ export class Dsn
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
 			this.#hash = 0;
+			this.#hashNoSchema = 0;
 			this.#updateNameAndHash();
 		}
 	}
@@ -330,17 +337,19 @@ export class Dsn
 			(this.#datesAsString ? '&datesAsString' : '') +
 			(this.#correctDates ? '&correctDates' : '')
 		);
-		this.#name =
+		const name0 =
 		(	'mysql://' +
 			(!this.#username ? '' : !this.#password ? this.#username+'@' : this.#username+':hidden@') +
 			(this.#hostname.indexOf(':')==-1 ? this.#hostname : '['+this.#hostname+']') +
 			(this.#port==3306 ? '' : ':'+this.#port) +
 			this.#pipe +
-			'/' + this.#schema +
-			(!params ? '' : '?'+params.slice(1)) +
-			(!this.#initSql ? '' : '#'+encodeURIComponent(this.#initSql))
+			'/'
 		);
-		this.#hash = crc32(this.#name);
+		const name1 = (!params ? '' : '?'+params.slice(1)) + (!this.#initSql ? '' : '#'+encodeURIComponent(this.#initSql));
+		const name = name0 + this.#schema + name1;
+		this.#name = name;
+		this.#hash = crc32(name);
+		this.#hashNoSchema = crc32(name0 + name1);
 	}
 
 	get addr(): Deno.ConnectOptions | {transport: 'unix', path: string}
