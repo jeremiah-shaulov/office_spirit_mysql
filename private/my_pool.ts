@@ -213,9 +213,12 @@ export class Pool
 
 	async getProtocol(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0 && this.#useCnt>=0);
-		// 1. Find in protocolsPerSchema
+		let now = Date.now();
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
 		const keepAliveMax = dsn.keepAliveMax>=0 ? dsn.keepAliveMax : DEFAULT_KEEP_ALIVE_MAX;
+		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
+		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
+		// 1. Find in protocolsPerSchema
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		if (!conns)
 		{	conns = new Protocols;
@@ -224,22 +227,15 @@ export class Pool
 		debugAssert(conns.nConnecting >= 0);
 		const {idle, busy, haveSlotsCallbacks} = conns;
 		// 2. Wait for a free slot
-		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
-		if (busy.length+conns.nConnecting >= maxConns)
-		{	const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
-			const till = Date.now() + connectionTimeout;
-			while (true)
-			{	if (Date.now()>=till || !await this.#waitHaveSlots(dsn, till, haveSlotsCallbacks))
-				{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
-				}
-				// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
-				if (busy.length+conns.nConnecting < maxConns)
-				{	break;
-				}
+		const till = now + connectionTimeout;
+		while (busy.length+conns.nConnecting >= maxConns)
+		{	if (now>=till || !await this.#waitHaveSlots(dsn, till, haveSlotsCallbacks))
+			{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
 			}
+			// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
+			now = Date.now();
 		}
 		// 3. Connect
-		const now = Date.now();
 		while (true)
 		{	let conn: MyProtocol|undefined;
 			conn = idle.pop();
@@ -371,17 +367,19 @@ export class Pool
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of protocolsPerSchema)
-		{	for (let i=idle.length-1; i>=0; i--)
+		{	let nIdle = idle.length;
+			for (let i=nIdle-1; i>=0; i--)
 			{	const conn = idle[i];
 				if (conn.useTill<=now || closeAllIdle)
-				{	idle.splice(i, 1);
+				{	idle[i] = idle[--nIdle];
 					this.#nIdleAll--;
 					const maxConns = conn.dsn.maxConns || DEFAULT_MAX_CONNS;
 					promises[promises.length] = this.#closeConn(conn, maxConns, haveSlotsCallbacks);
 				}
 			}
-			//
-			if (busy.length+idle.length+nConnecting == 0)
+			idle.length = nIdle;
+			// All removed?
+			if (busy.length+nIdle+nConnecting == 0)
 			{	protocolsPerSchema.delete(dsnHash);
 			}
 			//
