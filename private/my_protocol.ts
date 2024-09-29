@@ -879,6 +879,14 @@ L:		while (true)
 		return isOk;
 	}
 
+	async sendComInitDb(schema: string)
+	{	this.startWritingNewPacket(true);
+		this.writeUint8(Command.COM_INIT_DB);
+		this.writeString(schema);
+		await this.send();
+		await this.#readPacket();
+	}
+
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
 	#sendComQuit()

@@ -153,6 +153,16 @@ export class MyConn
 		}
 	}
 
+	async use(schema: string)
+	{	if (!this.protocol)
+		{	await this.connect();
+		}
+		if (!this.protocol)
+		{	throw new CanceledError(`Operation cancelled: end() called during query`);
+		}
+		await this.protocol.sendComInitDb(schema);
+	}
+
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
