@@ -851,9 +851,7 @@ L:		while (true)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_RESET_CONNECTION);
 		if (schema)
-		{	this.startWritingNewPacket(true);
-			this.writeUint8(Command.COM_INIT_DB);
-			this.writeString(schema);
+		{	this.writeComInitDb(schema);
 		}
 		await this.send();
 		let isOk = true;
@@ -879,10 +877,14 @@ L:		while (true)
 		return isOk;
 	}
 
-	async sendComInitDb(schema: string)
+	writeComInitDb(schema: string)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_INIT_DB);
 		this.writeString(schema);
+	}
+
+	async sendComInitDb(schema: string)
+	{	this.writeComInitDb(schema);
 		await this.send();
 		await this.#readPacket();
 	}

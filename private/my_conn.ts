@@ -36,11 +36,11 @@ const C_QEST = '?'.charCodeAt(0);
 const encoder = new TextEncoder;
 
 export class MyConn
-{	protected protocol: MyProtocol|undefined;
+{	#protocol: MyProtocol|undefined;
 
 	#isConnecting = false;
-	protected sqlLogger: SafeSqlLogger | undefined;
-	protected savepointEnum = 0;
+	#sqlLogger: SafeSqlLogger | undefined;
+	#savepointEnum = 0;
 	#curXaId = '';
 	#curXaIdAppendConn = false;
 	#isXaPrepared = false;
@@ -56,31 +56,31 @@ export class MyConn
 	}
 
 	get serverVersion()
-	{	return this.protocol?.serverVersion ?? '';
+	{	return this.#protocol?.serverVersion ?? '';
 	}
 
 	get connectionId()
-	{	return this.protocol?.connectionId ?? 0;
+	{	return this.#protocol?.connectionId ?? 0;
 	}
 
 	get autocommit()
-	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0;
+	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0;
 	}
 
 	get inTrx()
-	{	return this.pendingTrxSql.length!=0 || ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS) != 0;
+	{	return this.pendingTrxSql.length!=0 || ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS) != 0;
 	}
 
 	get inTrxReadonly()
-	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS_READONLY) != 0;
+	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS_READONLY) != 0;
 	}
 
 	get noBackslashEscapes()
-	{	return ((this.protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
+	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 	}
 
 	get schema()
-	{	return this.protocol?.schema ?? '';
+	{	return this.#protocol?.schema ?? '';
 	}
 
 	get inXa()
@@ -97,18 +97,18 @@ export class MyConn
 	{	if (this.#isConnecting)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
-		if (!this.protocol)
+		if (!this.#protocol)
 		{	if (this.#isDisposed)
 			{	throw new Error(`This connection object is already disposed of`);
 			}
 			this.#isConnecting = true;
 			try
-			{	const protocol = await this.#pool.getProtocol(this.dsn, this.sqlLogger);
+			{	const protocol = await this.#pool.getProtocol(this.dsn, this.#sqlLogger);
 				if (!this.#isConnecting) // end() called
 				{	this.#pool.returnProtocol(this.dsn, protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
-				this.protocol = protocol;
+				this.#protocol = protocol;
 			}
 			finally
 			{	this.#isConnecting = false;
@@ -137,30 +137,30 @@ export class MyConn
 	}
 
 	#doEnd(withDisposeSqlLogger: boolean)
-	{	const {protocol} = this;
+	{	const protocol = this.#protocol;
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
 		this.#isConnecting = false;
-		this.savepointEnum = 0;
+		this.#savepointEnum = 0;
 		this.#curXaId = '';
 		this.#curXaIdAppendConn = false;
 		this.#isXaPrepared = false;
 		this.pendingTrxSql.length = 0;
 		this.#preparedStmtsForParams.length = 0;
-		this.protocol = undefined;
+		this.#protocol = undefined;
 		if (protocol)
 		{	this.#pool.returnProtocol(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
 	async use(schema: string)
-	{	if (!this.protocol)
+	{	if (!this.#protocol)
 		{	await this.connect();
 		}
-		if (!this.protocol)
+		if (!this.#protocol)
 		{	throw new CanceledError(`Operation cancelled: end() called during query`);
 		}
-		await this.protocol.sendComInitDb(schema);
+		await this.#protocol.sendComInitDb(schema);
 	}
 
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
@@ -352,7 +352,7 @@ export class MyConn
 	async startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string})
 	{	// This function must not await when no transaction started (e.g. when called from constructor, or from `MySession.startTrx()`).
 		// 1. Commit
-		const {protocol} = this;
+		const protocol = this.#protocol;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
 		{	if (this.#curXaId)
 			{	throw new SqlError(`There's already an active Distributed Transaction`);
@@ -390,7 +390,7 @@ export class MyConn
 		{	pendingTrxSql.length = 1;
 		}
 		pendingTrxSql[0] = sql; // sql=='' means 'XA START' with connectionId appended, that will be known after the connection
-		this.savepointEnum = 0;
+		this.#savepointEnum = 0;
 	}
 
 	/**	Creates transaction savepoint, and returns ID number of this new savepoint.
@@ -399,7 +399,7 @@ export class MyConn
 		Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
 	 **/
 	savepoint()
-	{	const pointId = ++this.savepointEnum;
+	{	const pointId = ++this.#savepointEnum;
 		this.pendingTrxSql.push(`SAVEPOINT p${pointId}`);
 		return pointId;
 	}
@@ -412,7 +412,7 @@ export class MyConn
 		Usually, you want to prepare transactions on all servers, and immediately commit them if `prepareCommit()` succeeded, or rollback them if it failed.
 	 **/
 	async prepareCommit()
-	{	const {protocol} = this;
+	{	const protocol = this.#protocol;
 		const curXaId = this.#curXaId;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.#isXaPrepared)
 		{	const {onBeforeCommit} = this.#pool.options;
@@ -432,7 +432,7 @@ export class MyConn
 		If `toPointId` was `0` (not for XAs), the transaction will be restarted after the disconnect if rollback failed.
 	 **/
 	async rollback(toPointId?: number)
-	{	const {protocol} = this;
+	{	const protocol = this.#protocol;
 		const curXaId = this.#curXaId;
 		if (typeof(toPointId)=='number' && toPointId!==0)
 		{	// Rollback to a savepoint, and leave the transaction started
@@ -498,7 +498,7 @@ export class MyConn
 		If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
 	 **/
 	async commit(andChain=false)
-	{	const {protocol} = this;
+	{	const protocol = this.#protocol;
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
 		let error;
@@ -546,21 +546,22 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger) : sqlLogger, this.#pool.options.logger);
-		this.protocol?.setSqlLogger(this.sqlLogger);
+	{	this.#sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger) : sqlLogger, this.#pool.options.logger);
+		this.#protocol?.setSqlLogger(this.#sqlLogger);
 	}
 
 	async #doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType, multiStatements: SetOption|MultiStatements): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
 		while (true)
-		{	if (!this.protocol)
+		{	if (!this.#protocol)
 			{	await this.connect();
 			}
-			if (!this.protocol)
+			if (!this.#protocol)
 			{	throw new CanceledError(`Operation cancelled: end() called during query`);
 			}
-			const {protocol, pendingTrxSql} = this;
+			const protocol = this.#protocol;
+			const {pendingTrxSql} = this;
 
 			if (pendingTrxSql.length)
 			{	for (let i=0; i<pendingTrxSql.length; i++)
