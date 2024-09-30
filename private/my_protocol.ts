@@ -144,7 +144,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				await protocol.#readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
-			{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
+			{	await protocol.sendComQuery('', initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 			}
 			return protocol;
 		}
@@ -883,12 +883,6 @@ L:		while (true)
 		this.writeString(schema);
 	}
 
-	async sendComInitDb(schema: string)
-	{	this.writeComInitDb(schema);
-		await this.send();
-		await this.#readPacket();
-	}
-
 	/**	I assume that i'm in ProtocolState.IDLE.
 	 **/
 	#sendComQuit()
@@ -911,7 +905,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendComQuery<Row>(pendingUse: string, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -919,10 +913,17 @@ L:		while (true)
 		while (true)
 		{	let error;
 			try
-			{	let promise;
-				while ((promise = this.#doPending()))
-				{	await promise;
+			{	// Send COM_STMT_CLOSE if needed
+				{	let promise;
+					while ((promise = this.#doPending()))
+					{	await promise;
+					}
 				}
+				// Send COM_INIT_DB
+				if (pendingUse)
+				{	this.writeComInitDb(pendingUse);
+				}
+				// Log query begin
 				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
@@ -932,6 +933,15 @@ L:		while (true)
 				this.startWritingNewPacket(true);
 				this.writeUint8(Command.COM_QUERY);
 				await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery);
+				// Read COM_INIT_DB result
+				if (pendingUse)
+				{	try
+					{	await this.#readPacket();
+					}
+					catch (e)
+					{	error = e;
+					}
+				}
 				// Read COM_SET_OPTION result
 				if (wantSetOption)
 				{	try
@@ -993,17 +1003,25 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendThreeQueries<Row>(pendingUse: string, preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		let nRetry = this.#retryQueryTimes;
 		while (true)
-		{	try
-			{	let promise;
-				while ((promise = this.#doPending()))
-				{	await promise;
+		{	let error;
+			try
+			{	// Send COM_STMT_CLOSE if needed
+				{	let promise;
+					while ((promise = this.#doPending()))
+					{	await promise;
+					}
 				}
+				// Send COM_INIT_DB
+				if (pendingUse)
+				{	this.writeComInitDb(pendingUse);
+				}
+				// Log query begin
 				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
 				}
@@ -1036,6 +1054,15 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.start();
 				}
+				// Read COM_INIT_DB result
+				if (pendingUse)
+				{	try
+					{	await this.#readPacket();
+					}
+					catch (e)
+					{	error = e;
+					}
+				}
 				// Read preStmt result
 				if (preStmtId >= 0)
 				{	const rowNColumns = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
@@ -1048,7 +1075,6 @@ L:		while (true)
 				// Read prequery result
 				const resultsets = new ResultsetsInternal<Row>(rowType);
 				let state = ProtocolState.IDLE;
-				let error;
 				if (prequery)
 				{	try
 					{	state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
@@ -1105,14 +1131,17 @@ L:		while (true)
 				return resultsets;
 			}
 			catch (e)
-			{	if (nRetry>0 && (e instanceof SqlError) && e.canRetry==CanRetry.QUERY && !(e.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
-				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${e.message}`);
+			{	if (!error)
+				{	error = e;
+				}
+				if (nRetry>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
+				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
 					nRetry--;
 					preStmtId = -1;
 					prequery = undefined;
 					continue;
 				}
-				this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
+				this.#rethrowErrorIfFatal(error, isFromPool && letReturnUndefined);
 			}
 			break;
 		}
@@ -1122,21 +1151,36 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
+	async sendComStmtPrepare<Row>(pendingUse: string, sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
 		try
-		{	let promise;
-			while ((promise = this.#doPending()))
-			{	await promise;
+		{	// Send COM_STMT_CLOSE if needed
+			{	let promise;
+				while ((promise = this.#doPending()))
+				{	await promise;
+				}
 			}
+			// Log query begin
 			if (this.#sqlLogger)
 			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, true, noBackslashEscapes);
 			}
+			// Send COM_STMT_PREPARE
 			this.startWritingNewPacket(true);
 			this.writeUint8(Command.COM_STMT_PREPARE);
 			await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery, false, putParamsTo);
+			// Read COM_INIT_DB result
+			let error;
+			if (pendingUse)
+			{	try
+				{	await this.#readPacket();
+				}
+				catch (e)
+				{	error = e;
+				}
+			}
+			// Read COM_STMT_PREPARE result
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
@@ -1146,6 +1190,9 @@ L:		while (true)
 			this.#setState(ProtocolState.IDLE);
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(resultsets, resultsets.stmtId);
+			}
+			if (error)
+			{	throw error;
 			}
 			return resultsets;
 		}
@@ -2080,13 +2127,13 @@ L:		while (true)
 			}
 			if (rollbackPreparedXaId)
 			{	try
-				{	await this.sendComQuery(`XA END '${rollbackPreparedXaId}'`);
+				{	await this.sendComQuery('', `XA END '${rollbackPreparedXaId}'`);
 				}
 				catch
 				{	// ok
 				}
 				try
-				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
+				{	await this.sendComQuery('', `XA ROLLBACK '${rollbackPreparedXaId}'`);
 				}
 				catch (e)
 				{	this.logger.error(e);
@@ -2117,7 +2164,7 @@ L:		while (true)
 					}
 					if (await protocol.#sendComResetConnectionAndInitDb(initSchema))
 					{	if (initSql)
-						{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
+						{	await protocol.sendComQuery('', initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 						}
 						debugAssert(protocol.#state == ProtocolState.IDLE);
 						protocol.#state = ProtocolState.IDLE_IN_POOL;

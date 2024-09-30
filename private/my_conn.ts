@@ -44,6 +44,7 @@ export class MyConn
 	#curXaId = '';
 	#curXaIdAppendConn = false;
 	#isXaPrepared = false;
+	#pendingUse = '';
 	protected pendingTrxSql = new Array<string>; // empty string means XA START (because full XA ID was not known)
 	#preparedStmtsForParams = new Array<number>;
 	#isDisposed = false;
@@ -145,6 +146,7 @@ export class MyConn
 		this.#curXaId = '';
 		this.#curXaIdAppendConn = false;
 		this.#isXaPrepared = false;
+		this.#pendingUse = '';
 		this.pendingTrxSql.length = 0;
 		this.#preparedStmtsForParams.length = 0;
 		this.#protocol = undefined;
@@ -153,14 +155,13 @@ export class MyConn
 		}
 	}
 
-	async use(schema: string)
-	{	if (!this.#protocol)
-		{	await this.connect();
-		}
-		if (!this.#protocol)
-		{	throw new CanceledError(`Operation cancelled: end() called during query`);
-		}
-		await this.#protocol.sendComInitDb(schema);
+	/**	Add "USE schema" command to pending.
+		The command will be executed together with next query.
+		If no query follows, the command will be never executed.
+		If there's no such schema, the exception will be thrown on the next query.
+	 **/
+	use(schema: string)
+	{	this.#pendingUse = schema;
 	}
 
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
@@ -419,7 +420,7 @@ export class MyConn
 			if (onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
 			{	await onBeforeCommit([this]);
 			}
-			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
+			await protocol.sendThreeQueries('', -1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
 			this.#isXaPrepared = true;
 		}
 	}
@@ -462,16 +463,16 @@ export class MyConn
 		{	if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS || this.#isXaPrepared)) // if xa_detach_on_prepare conf var is set, `statusFlags` will *not* contain `SERVER_STATUS_IN_TRANS` after `XA PREPARE`
 			{	try
 				{	if (typeof(toPointId) == 'number')
-					{	await protocol.sendComQuery(`ROLLBACK AND CHAIN`);
+					{	await protocol.sendComQuery('', `ROLLBACK AND CHAIN`);
 					}
 					else if (!curXaId)
-					{	await protocol.sendComQuery(`ROLLBACK`);
+					{	await protocol.sendComQuery('', `ROLLBACK`);
 					}
 					else if (this.#isXaPrepared)
-					{	await protocol.sendComQuery(`XA ROLLBACK '${curXaId}'`);
+					{	await protocol.sendComQuery('', `XA ROLLBACK '${curXaId}'`);
 					}
 					else
-					{	await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
+					{	await protocol.sendThreeQueries('', -1, undefined, `XA END '${curXaId}'`, true, `XA ROLLBACK '${curXaId}'`);
 					}
 				}
 				catch (e)
@@ -521,11 +522,11 @@ export class MyConn
 				sql = andChain ? `COMMIT AND CHAIN` : `COMMIT`;
 			}
 			try
-			{	await protocol.sendComQuery(sql);
+			{	await protocol.sendComQuery('', sql);
 			}
 			catch (e)
 			{	try
-				{	await protocol.sendComQuery(curXaId ? `XA ROLLBACK '${curXaId}'` : andChain ? `ROLLBACK AND CHAIN` : `ROLLBACK`);
+				{	await protocol.sendComQuery('', curXaId ? `XA ROLLBACK '${curXaId}'` : andChain ? `ROLLBACK AND CHAIN` : `ROLLBACK`);
 				}
 				catch (e2)
 				{	protocol.logger.error(e2);
@@ -573,7 +574,7 @@ export class MyConn
 						}
 						sql = `XA START '${this.#curXaId}'`;
 					}
-					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
+					if (!await protocol.sendComQuery('', sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
 					{	this.#doEnd(false);
 						continue;
 					}
@@ -583,7 +584,9 @@ export class MyConn
 
 			if (!params)
 			{	// Text protocol query
-				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements);
+				const pendingUse = this.#pendingUse;
+				this.#pendingUse = '';
+				const resultsets = await protocol.sendComQuery<Row>(pendingUse, sql, rowType, nRetriesRemaining-->0, multiStatements);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -593,7 +596,9 @@ export class MyConn
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0);
+				const pendingUse = this.#pendingUse;
+				this.#pendingUse = '';
+				const resultsets = await protocol.sendComStmtPrepare<Row>(pendingUse, sql, undefined, rowType, nRetriesRemaining-->0);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -603,7 +608,9 @@ export class MyConn
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements (however you can use named parameters)`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true);
+				const pendingUse = this.#pendingUse;
+				this.#pendingUse = '';
+				const resultsets = await protocol.sendComStmtPrepare<Row>(pendingUse, sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true);
 				if (resultsets)
 				{	try
 					{	await resultsets.exec(params);
@@ -619,10 +626,12 @@ export class MyConn
 				const letReturnUndefined = nRetriesRemaining-- > 0;
 				const {stmtId, values, query1} = await this.getNamedParamsQueries(protocol, params, letReturnUndefined);
 				if (values)
-				{	const resultsets =
+				{	const pendingUse = this.#pendingUse;
+					this.#pendingUse = '';
+					const resultsets =
 					(	!query1 ?
-						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements) :
-						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements)
+						await protocol.sendComQuery<Row>(pendingUse, sql, rowType, letReturnUndefined, multiStatements) :
+						await protocol.sendThreeQueries<Row>(pendingUse, stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements)
 					);
 					if (resultsets)
 					{	return resultsets;
@@ -737,7 +746,7 @@ export class MyConn
 			query0[1] = C_E_CAP;
 			query0[2] = C_T_CAP;
 			query0[3] = C_SPACE;
-			const resultsets = await protocol.sendComStmtPrepare<void>(query0, undefined, RowType.VOID, letReturnUndefined, true);
+			const resultsets = await protocol.sendComStmtPrepare<void>('', query0, undefined, RowType.VOID, letReturnUndefined, true);
 			if (!resultsets)
 			{	return {stmtId: -1, values: undefined, query1: undefined};
 			}
