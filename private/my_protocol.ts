@@ -73,6 +73,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	capabilityFlags = 0;
 	statusFlags = 0;
 	schema = '';
+	pendingChangeSchema = '';
 
 	// for connections pool:
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
@@ -105,7 +106,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		this.#closer = closer;
 	}
 
-	static async inst(dsn: Dsn, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
+	static async inst(dsn: Dsn, pendingChangeSchema: string, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
@@ -113,7 +114,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		if (password.length > 256) // must fit packet
 		{	throw new SqlError('Password is too long');
 		}
-		if (schema.length > 256) // must fit packet
+		if (schema.length>256 || pendingChangeSchema.length>256) // must fit packet
 		{	throw new SqlError('Schema name is too long');
 		}
 		const conn = await Deno.connect(addr as Any); // "as any" in order to avoid requireing --unstable
@@ -137,14 +138,14 @@ export class MyProtocol extends MyProtocolReaderWriter
 				protocol.#sqlLogger = sqlLogger;
 				await sqlLogger.connect(protocol.connectionId);
 			}
-			await protocol.#writeHandshakeResponse(username, password, schema, authPlugin, foundRows, ignoreSpace, multiStatements || !!initSql);
+			await protocol.#writeHandshakeResponse(username, password, pendingChangeSchema || schema, authPlugin, foundRows, ignoreSpace, multiStatements || !!initSql);
 			const authPlugin2 = await protocol.#readAuthResponse(password, authPlugin);
 			if (authPlugin2)
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.#readAuthResponse(password, authPlugin2);
 			}
 			if (initSql)
-			{	await protocol.sendComQuery('', initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
+			{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 			}
 			return protocol;
 		}
@@ -891,6 +892,18 @@ L:		while (true)
 		return this.send();
 	}
 
+	#maybeInitDb()
+	{	if (this.pendingChangeSchema)
+		{	if (!this.schema || this.schema!=this.pendingChangeSchema)
+			{	this.writeComInitDb(this.pendingChangeSchema);
+				this.pendingChangeSchema = '';
+				return true;
+			}
+			this.pendingChangeSchema = '';
+		}
+		return false;
+	}
+
 	#maybeSetOption(multiStatements: SetOption|MultiStatements)
 	{	if (multiStatements==SetOption.MULTI_STATEMENTS_ON && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_OFF || multiStatements==SetOption.MULTI_STATEMENTS_OFF && this.#curMultiStatements==SetOption.MULTI_STATEMENTS_ON)
 		{	this.startWritingNewPacket(true);
@@ -905,7 +918,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(pendingUse: string, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -920,9 +933,7 @@ L:		while (true)
 					}
 				}
 				// Send COM_INIT_DB
-				if (pendingUse)
-				{	this.writeComInitDb(pendingUse);
-				}
+				const wantInitDb = this.#maybeInitDb();
 				// Log query begin
 				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
@@ -934,7 +945,7 @@ L:		while (true)
 				this.writeUint8(Command.COM_QUERY);
 				await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery);
 				// Read COM_INIT_DB result
-				if (pendingUse)
+				if (wantInitDb)
 				{	try
 					{	await this.#readPacket();
 					}
@@ -1003,7 +1014,7 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendThreeQueries<Row>(pendingUse: string, preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -1018,9 +1029,7 @@ L:		while (true)
 					}
 				}
 				// Send COM_INIT_DB
-				if (pendingUse)
-				{	this.writeComInitDb(pendingUse);
-				}
+				const wantInitDb = this.#maybeInitDb();
 				// Log query begin
 				if (this.#sqlLogger)
 				{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, false, noBackslashEscapes);
@@ -1055,7 +1064,7 @@ L:		while (true)
 				{	await sqlLoggerQuery.start();
 				}
 				// Read COM_INIT_DB result
-				if (pendingUse)
+				if (wantInitDb)
 				{	try
 					{	await this.#readPacket();
 					}
@@ -1151,7 +1160,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComStmtPrepare<Row>(pendingUse: string, sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
+	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -1162,6 +1171,8 @@ L:		while (true)
 				{	await promise;
 				}
 			}
+			// Send COM_INIT_DB
+			const wantInitDb = this.#maybeInitDb();
 			// Log query begin
 			if (this.#sqlLogger)
 			{	sqlLoggerQuery = await this.#sqlLogger.query(this.connectionId, true, noBackslashEscapes);
@@ -1172,7 +1183,7 @@ L:		while (true)
 			await this.sendWithData(sql, noBackslashEscapes, sqlLoggerQuery?.appendToQuery, false, putParamsTo);
 			// Read COM_INIT_DB result
 			let error;
-			if (pendingUse)
+			if (wantInitDb)
 			{	try
 				{	await this.#readPacket();
 				}
@@ -2127,13 +2138,13 @@ L:		while (true)
 			}
 			if (rollbackPreparedXaId)
 			{	try
-				{	await this.sendComQuery('', `XA END '${rollbackPreparedXaId}'`);
+				{	await this.sendComQuery(`XA END '${rollbackPreparedXaId}'`);
 				}
 				catch
 				{	// ok
 				}
 				try
-				{	await this.sendComQuery('', `XA ROLLBACK '${rollbackPreparedXaId}'`);
+				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
 				}
 				catch (e)
 				{	this.logger.error(e);
@@ -2164,7 +2175,7 @@ L:		while (true)
 					}
 					if (await protocol.#sendComResetConnectionAndInitDb(initSchema))
 					{	if (initSql)
-						{	await protocol.sendComQuery('', initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
+						{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 						}
 						debugAssert(protocol.#state == ProtocolState.IDLE);
 						protocol.#state = ProtocolState.IDLE_IN_POOL;

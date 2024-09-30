@@ -211,7 +211,7 @@ export class Pool
 		}
 	}
 
-	async getProtocol(dsn: Dsn, sqlLogger: SafeSqlLogger|undefined)
+	async getProtocol(dsn: Dsn, pendingChangeSchema: string, sqlLogger: SafeSqlLogger|undefined)
 	{	debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=0 && this.#useCnt>=0);
 		let now = Date.now();
 		const keepAliveTimeout = dsn.keepAliveTimeout>=0 ? dsn.keepAliveTimeout : DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC;
@@ -243,7 +243,7 @@ export class Pool
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	conn = await this.#protocolsFactory.newConn(dsn, this.options.onLoadFile, sqlLogger, this.options.logger);
+				{	conn = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 				}
@@ -260,6 +260,7 @@ export class Pool
 			}
 			else
 			{	this.#nIdleAll--;
+				conn.pendingChangeSchema = pendingChangeSchema;
 				conn.setSqlLogger(sqlLogger);
 			}
 			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
@@ -591,7 +592,7 @@ class ProtocolsFactory
 {	#unusedBuffers = new Array<Uint8Array>;
 	#curRetryingPromises = new Map<number, Promise<true>>;
 
-	async newConn(dsn: Dsn, onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
+	async newConn(dsn: Dsn, pendingChangeSchema: string, onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
 	{	const unusedBuffer = this.#unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
 		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
@@ -599,7 +600,7 @@ class ProtocolsFactory
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, unusedBuffer, onLoadFile, sqlLogger, logger);
+			{	return await MyProtocol.inst(dsn, pendingChangeSchema, unusedBuffer, onLoadFile, sqlLogger, logger);
 			}
 			catch (e)
 			{	// with connectionTimeout==0 must not retry
