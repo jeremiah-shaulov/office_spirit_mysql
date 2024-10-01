@@ -163,7 +163,7 @@ export class MyConn
 	 **/
 	use(schema: string)
 	{	if (this.#protocol)
-		{	this.#protocol.pendingChangeSchema = schema;
+		{	this.#protocol.use(schema);
 		}
 		else
 		{	this.#pendingChangeSchema = schema;

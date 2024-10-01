@@ -73,7 +73,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 	capabilityFlags = 0;
 	statusFlags = 0;
 	schema = '';
-	pendingChangeSchema = '';
 
 	// for connections pool:
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
@@ -96,6 +95,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	#curMultiStatements: SetOption | MultiStatements = SetOption.MULTI_STATEMENTS_OFF; // `MultiStatements.NO_MATTER` means that deprecated `multiStatements` setting was used, so the mode must not be changed
 	#curResultsets: ResultsetsInternal<unknown> | undefined;
 	#pendingCloseStmts = new Array<number>;
+	#pendingChangeSchema = '';
 	#curLastColumnReader: Reader | RdStream | undefined;
 	#onEndSession: ((state: ProtocolState) => void) | undefined;
 
@@ -842,6 +842,10 @@ L:		while (true)
 		}
 	}
 
+	use(schema: string)
+	{	this.#pendingChangeSchema = schema;
+	}
+
 	setSqlLogger(sqlLogger?: SafeSqlLogger)
 	{	this.#sqlLogger = sqlLogger;
 	}
@@ -893,13 +897,13 @@ L:		while (true)
 	}
 
 	#maybeInitDb()
-	{	if (this.pendingChangeSchema)
-		{	if (!this.schema || this.schema!=this.pendingChangeSchema)
-			{	this.writeComInitDb(this.pendingChangeSchema);
-				this.pendingChangeSchema = '';
+	{	if (this.#pendingChangeSchema)
+		{	if (!this.schema || this.schema!=this.#pendingChangeSchema)
+			{	this.writeComInitDb(this.#pendingChangeSchema);
+				this.#pendingChangeSchema = '';
 				return true;
 			}
-			this.pendingChangeSchema = '';
+			this.#pendingChangeSchema = '';
 		}
 		return false;
 	}

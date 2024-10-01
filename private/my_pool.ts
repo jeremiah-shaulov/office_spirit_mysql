@@ -260,7 +260,7 @@ export class Pool
 			}
 			else
 			{	this.#nIdleAll--;
-				conn.pendingChangeSchema = pendingChangeSchema;
+				conn.use(pendingChangeSchema);
 				conn.setSqlLogger(sqlLogger);
 			}
 			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
