@@ -85,8 +85,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 	#timezoneMsecOffsetFromSystem = NaN;
 
 	#state = ProtocolState.IDLE;
-	#initSchema = '';
-	#initSql = '';
 	#maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
 	#retryQueryTimes = DEFAULT_RETRY_QUERY_TIMES;
 	#onLoadFile?: OnLoadFile;
@@ -101,7 +99,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 
 	#closer;
 
-	protected constructor(writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, closer: Disposable, decoder: TextDecoder, useBuffer: Uint8Array|undefined, readonly dsn: Dsn, readonly logger: Logger=console)
+	protected constructor(writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, closer: Disposable, decoder: TextDecoder, useBuffer: Uint8Array|undefined, public dsn: Dsn, readonly logger: Logger=console)
 	{	super(writer, reader, decoder, useBuffer);
 		this.#closer = closer;
 	}
@@ -121,8 +119,6 @@ export class MyProtocol extends MyProtocolReaderWriter
 		const reader = conn.readable.getReader({mode: 'byob'});
 		const writer = conn.writable.getWriter();
 		const protocol = new MyProtocol(writer, reader, conn, DEFAULT_TEXT_DECODER, useBuffer, dsn, logger);
-		protocol.#initSchema = schema;
-		protocol.#initSql = initSql;
 		if (maxColumnLen > 0)
 		{	protocol.#maxColumnLen = maxColumnLen;
 		}
@@ -2162,14 +2158,10 @@ L:		while (true)
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
-				protocol.#initSchema = this.#initSchema;
-				protocol.#initSql = this.#initSql;
 				protocol.#maxColumnLen = this.#maxColumnLen;
 				protocol.#curMultiStatements = this.#curMultiStatements;
 				protocol.#retryQueryTimes = this.#retryQueryTimes;
 				protocol.#onLoadFile = this.#onLoadFile;
-				const initSchema = this.#initSchema;
-				const initSql = this.#initSql;
 				try
 				{	if (this.#sqlLogger)
 					{	await this.#sqlLogger.resetConnection(this.connectionId);
@@ -2177,9 +2169,9 @@ L:		while (true)
 						{	await this.#sqlLogger.dispose();
 						}
 					}
-					if (await protocol.#sendComResetConnectionAndInitDb(initSchema))
-					{	if (initSql)
-						{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
+					if (await protocol.#sendComResetConnectionAndInitDb(this.dsn.schema))
+					{	if (this.dsn.initSql)
+						{	await protocol.sendComQuery(this.dsn.initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
 						}
 						debugAssert(protocol.#state == ProtocolState.IDLE);
 						protocol.#state = ProtocolState.IDLE_IN_POOL;

@@ -107,7 +107,7 @@ export class MyConn
 				this.#pendingChangeSchema = '';
 				const protocol = await this.#pool.getProtocol(this.dsn, pendingChangeSchema, this.#sqlLogger);
 				if (!this.#isConnecting) // end() called
-				{	this.#pool.returnProtocol(this.dsn, protocol, '', false);
+				{	this.#pool.returnProtocol(protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
 				}
 				this.#protocol = protocol;
@@ -152,7 +152,7 @@ export class MyConn
 		this.#preparedStmtsForParams.length = 0;
 		this.#protocol = undefined;
 		if (protocol)
-		{	this.#pool.returnProtocol(this.dsn, protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.#pool.returnProtocol(protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 

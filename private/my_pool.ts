@@ -239,6 +239,12 @@ export class Pool
 		// 3. Connect
 		while (true)
 		{	let conn = idle.pop();
+			if (!conn && dsn.schema)
+			{	conn = this.#stealIdleProtocolWithTheSameHost(dsn);
+				if (conn && !pendingChangeSchema)
+				{	pendingChangeSchema = dsn.schema;
+				}
+			}
 			if (!conn)
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
@@ -275,8 +281,9 @@ export class Pool
 		}
 	}
 
-	async returnProtocol(dsn: Dsn, conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
-	{	const protocol = await this.#protocolsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
+	async returnProtocol(conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	{	const {dsn} = conn;
+		const protocol = await this.#protocolsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		let i = -1;
 		if (conns)
@@ -293,7 +300,7 @@ export class Pool
 			}
 		}
 		if (!conns || i==-1)
-		{	// assume: #returnConnToPool() already called for this connection
+		{	// assume: returnProtocol already called for this connection
 			return;
 		}
 		debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=1);
@@ -305,6 +312,18 @@ export class Pool
 		}
 		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
 		this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
+	}
+
+	#stealIdleProtocolWithTheSameHost(dsn: Dsn)
+	{	const {hashNoSchema} = dsn;
+		for (const {idle} of this.#protocolsPerSchema.values())
+		{	const protocol = idle[idle.length - 1];
+			if (protocol?.dsn.hashNoSchema === hashNoSchema)
+			{	idle.length--;
+				protocol.dsn = dsn;
+				return protocol;
+			}
+		}
 	}
 
 	async #waitHaveSlots(conns: Protocols, now: number, till: number, reconnectInterval: number)
