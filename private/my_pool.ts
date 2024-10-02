@@ -238,18 +238,18 @@ export class Pool
 		}
 		// 3. Connect
 		while (true)
-		{	let conn = idle.pop();
-			if (!conn && dsn.schema)
-			{	conn = this.#stealIdleProtocolWithTheSameHost(dsn);
-				if (conn && !pendingChangeSchema)
+		{	let protocol = idle.pop();
+			if (!protocol && dsn.schema)
+			{	protocol = this.#stealIdleProtocolWithTheSameHost(dsn);
+				if (protocol && !pendingChangeSchema)
 				{	pendingChangeSchema = dsn.schema;
 				}
 			}
-			if (!conn)
+			if (!protocol)
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	conn = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.options.onLoadFile, sqlLogger, this.options.logger);
+				{	protocol = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 				}
@@ -259,40 +259,40 @@ export class Pool
 					throw e;
 				}
 			}
-			else if (conn.useTill <= now)
+			else if (protocol.useTill <= now)
 			{	this.#nIdleAll--;
-				this.#closeConn(conn, maxConns, haveSlotsCallbacks);
+				this.#closeConn(protocol, maxConns, haveSlotsCallbacks);
 				continue;
 			}
 			else
 			{	this.#nIdleAll--;
-				conn.use(pendingChangeSchema);
-				conn.setSqlLogger(sqlLogger);
+				protocol.use(pendingChangeSchema);
+				protocol.setSqlLogger(sqlLogger);
 			}
-			conn.useTill = Math.min(conn.useTill, now+keepAliveTimeout);
-			conn.useNTimes = Math.min(conn.useNTimes, keepAliveMax);
+			protocol.useTill = Math.min(protocol.useTill, now+keepAliveTimeout);
+			protocol.useNTimes = Math.min(protocol.useNTimes, keepAliveMax);
 			if (this.#hTimer == undefined)
 			{	this.#hTimer = setInterval(() => {this.#closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
 				this.#xaTask.start(this);
 			}
-			busy.push(conn);
+			busy.push(protocol);
 			this.#nBusyAll++;
-			return conn;
+			return protocol;
 		}
 	}
 
-	async returnProtocol(conn: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
-	{	const {dsn} = conn;
-		const protocol = await this.#protocolsFactory.closeConn(conn, rollbackPreparedXaId, --conn.useNTimes>0 && conn.useTill>Date.now(), withDisposeSqlLogger);
+	async returnProtocol(protocol: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	{	const {dsn} = protocol;
+		const protocolForReuse = await this.#protocolsFactory.closeConn(protocol, rollbackPreparedXaId, --protocol.useNTimes>0 && protocol.useTill>Date.now(), withDisposeSqlLogger);
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		let i = -1;
 		if (conns)
-		{	i = conns.busy.indexOf(conn);
+		{	i = conns.busy.indexOf(protocol);
 		}
 		if (i == -1)
 		{	// maybe somebody edited properties of the Dsn object from outside, `protocolsPerSchema.get(dsn.hash)` was not found, because the `dsn.name` changed
 			for (const conns2 of this.#protocolsPerSchema.values())
-			{	i = conns2.busy.findIndex(conn => conn.dsn == dsn);
+			{	i = conns2.busy.findIndex(p => p.dsn == dsn);
 				if (i != -1)
 				{	conns = conns2;
 					break;
@@ -306,8 +306,8 @@ export class Pool
 		debugAssert(this.#nIdleAll>=0 && this.#nBusyAll>=1);
 		conns.busy[i] = conns.busy[conns.busy.length - 1];
 		conns.busy.length--;
-		if (protocol)
-		{	conns.idle.push(protocol);
+		if (protocolForReuse)
+		{	conns.idle.push(protocolForReuse);
 			this.#nIdleAll++;
 		}
 		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
@@ -340,10 +340,10 @@ export class Pool
 		return true;
 	}
 
-	async #closeConn(conn: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	async #closeConn(protocol: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
 	{	this.#nBusyAll++;
 		try
-		{	await this.#protocolsFactory.closeConn(conn);
+		{	await this.#protocolsFactory.closeConn(protocol);
 		}
 		catch (e)
 		{	// must not happen
@@ -381,12 +381,12 @@ export class Pool
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of protocolsPerSchema)
 		{	let nIdle = idle.length;
 			for (let i=nIdle-1; i>=0; i--)
-			{	const conn = idle[i];
-				if (conn.useTill<=now || closeAllIdle)
+			{	const protocol = idle[i];
+				if (protocol.useTill<=now || closeAllIdle)
 				{	idle[i] = idle[--nIdle];
 					this.#nIdleAll--;
-					const maxConns = conn.dsn.maxConns || DEFAULT_MAX_CONNS;
-					promises[promises.length] = this.#closeConn(conn, maxConns, haveSlotsCallbacks);
+					const maxConns = protocol.dsn.maxConns || DEFAULT_MAX_CONNS;
+					promises[promises.length] = this.#closeConn(protocol, maxConns, haveSlotsCallbacks);
 				}
 			}
 			idle.length = nIdle;
