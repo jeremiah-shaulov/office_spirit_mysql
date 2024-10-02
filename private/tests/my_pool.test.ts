@@ -27,6 +27,7 @@ testWithDocker
 		testPoolDsn,
 		testManyPlaceholders,
 		testManyPlaceholders2,
+		testReuseConnections,
 		testTrx,
 		testRetryQueryTimes,
 		testMaxConns,
@@ -1094,6 +1095,51 @@ async function testManyPlaceholders2(dsnStr: string)
 			else
 			{	assertEquals(calcedSum, sum);
 			}
+		}
+	);
+}
+
+async function testReuseConnections(dsnStr: string)
+{	await using pool = new MyPool(dsnStr);
+
+	await pool.forConn
+	(	async conn =>
+		{	await conn.queriesVoid
+			(	`	DROP DATABASE IF EXISTS test58168;
+					CREATE DATABASE test58168;
+					DROP DATABASE IF EXISTS test38743;
+					CREATE DATABASE test38743;
+				`
+			);
+		}
+	);
+
+	const dsn1 = new Dsn(dsnStr);
+	dsn1.schema = 'test58168';
+	const dsn2 = new Dsn(dsnStr);
+	dsn2.schema = 'test38743';
+
+	for (let i=0; i<4; i++)
+	{	using session = pool.getSession();
+
+		const conn1 = session.conn(dsn1);
+		const conn2 = session.conn(dsn2);
+
+		assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test58168');
+		assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test38743');
+
+		if (i >= 2)
+		{	conn1.use('test38743');
+			conn2.use('test58168');
+			assertEquals(await conn1.queryCol("SELECT Schema()").first(), 'test38743');
+			assertEquals(await conn2.queryCol("SELECT Schema()").first(), 'test58168');
+		}
+	}
+
+	// Drop databases that i created
+	await pool.forConn
+	(	async conn =>
+		{	await conn.queriesVoid("DROP DATABASE test58168;  DROP DATABASE test38743");
 		}
 	);
 }
