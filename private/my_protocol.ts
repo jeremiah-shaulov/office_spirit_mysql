@@ -27,11 +27,11 @@ export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | unde
 type Any = any;
 
 export interface Logger
-{	debug(...args: Any[]): unknown;
-	info(...args: Any[]): unknown;
-	log(...args: Any[]): unknown;
-	warn(...args: Any[]): unknown;
-	error(...args: Any[]): unknown;
+{	debug(...args: unknown[]): unknown;
+	info(...args: unknown[]): unknown;
+	log(...args: unknown[]): unknown;
+	warn(...args: unknown[]): unknown;
+	error(...args: unknown[]): unknown;
 }
 
 export const enum ReadPacketMode
