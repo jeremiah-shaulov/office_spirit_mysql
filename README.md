@@ -1217,7 +1217,7 @@ await conn.query("DROP DATABASE IF EXISTS test1");
 await conn.query("CREATE DATABASE `test1`");
 
 // USE
-await conn.query("USE test1");
+conn.use("test1");
 
 // CREATE TABLE
 await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
@@ -1358,7 +1358,7 @@ await conn.query("DROP DATABASE IF EXISTS test1");
 await conn.query("CREATE DATABASE `test1`");
 
 // USE
-await conn.query("USE test1");
+conn.use("test1");
 
 // CREATE TABLE
 await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
@@ -1450,7 +1450,7 @@ await conn.query("DROP DATABASE IF EXISTS test1");
 await conn.query("CREATE DATABASE `test1`");
 
 // USE
-await conn.query("USE test1");
+conn.use("test1");
 
 // CREATE TABLE
 await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
