@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Charset} from "https://deno.land/x/office_spirit_mysql/v0.19.1/mod.ts"
+import {Charset} from "https://deno.land/x/office_spirit_mysql/v0.19.2/mod.ts"
 ```
 
 #### UNKNOWN = <mark>0</mark>

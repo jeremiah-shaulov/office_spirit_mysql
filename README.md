@@ -1,6 +1,6 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.26/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql/v0.19.1/mod.ts --moduleName 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.27/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql/v0.19.2/mod.ts --moduleName 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md
 -->
 
 # office\_spirit\_mysql - MySQL and MariaDB driver for Deno.
@@ -28,10 +28,10 @@ Basic example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
 // deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 // Create a connections pool. This is the only way in this library to create server connections
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -55,7 +55,7 @@ Connections to database servers are managed by [MyPool](generated-doc/class.MyPo
 You need to create one such object, and ask it to give you a free connection.
 Most applications don't need more than one pool, but you can also have several pools, each one with different configuration.
 
-> 🔧 MyPool.`constructor`(options?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | [MyPoolOptions](generated-doc/interface.MyPoolOptions/README.md))
+> 🔧 MyPool.[constructor](generated-doc/class.MyPool/README.md#-constructoroptions-dsn--string--mypooloptions)(options?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | [MyPoolOptions](generated-doc/interface.MyPoolOptions/README.md))
 
 
 
@@ -66,14 +66,14 @@ Or you can specify more options:
 
 > `interface` MyPoolOptions<br>
 > {<br>
-> &nbsp; &nbsp; 📄 dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`<br>
-> &nbsp; &nbsp; 📄 maxConnsWaitQueue?: `number`<br>
-> &nbsp; &nbsp; 📄 onLoadFile?: [OnLoadFile](generated-doc/type.OnLoadFile/README.md)<br>
-> &nbsp; &nbsp; 📄 onBeforeCommit?: [OnBeforeCommit](generated-doc/type.OnBeforeCommit/README.md)<br>
-> &nbsp; &nbsp; 📄 managedXaDsns?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | ([Dsn](generated-doc/class.Dsn/README.md) | `string`)\[]<br>
-> &nbsp; &nbsp; 📄 xaCheckEach?: `number`<br>
-> &nbsp; &nbsp; 📄 xaInfoTables?: \{dsn: [Dsn](generated-doc/class.Dsn/README.md) | `string`, table: `string`}\[]<br>
-> &nbsp; &nbsp; 📄 logger?: [Logger](generated-doc/interface.Logger/README.md)<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[dsn](generated-doc/interface.MyPoolOptions/README.md#-dsn-dsn--string)?: [Dsn](generated-doc/class.Dsn/README.md) | `string`<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[maxConnsWaitQueue](generated-doc/interface.MyPoolOptions/README.md#-maxconnswaitqueue-number)?: `number`<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[onLoadFile](generated-doc/interface.MyPoolOptions/README.md#-onloadfile-onloadfile)?: [OnLoadFile](generated-doc/type.OnLoadFile/README.md)<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[onBeforeCommit](generated-doc/interface.MyPoolOptions/README.md#-onbeforecommit-onbeforecommit)?: [OnBeforeCommit](generated-doc/type.OnBeforeCommit/README.md)<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[managedXaDsns](generated-doc/interface.MyPoolOptions/README.md#-managedxadsns-dsn--string--dsn--string)?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | ([Dsn](generated-doc/class.Dsn/README.md) | `string`)\[]<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[xaCheckEach](generated-doc/interface.MyPoolOptions/README.md#-xacheckeach-number)?: `number`<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[xaInfoTables](generated-doc/interface.MyPoolOptions/README.md#-xainfotables-dsn-dsn--string-table-string)?: \{dsn: [Dsn](generated-doc/class.Dsn/README.md) | `string`, table: `string`}\[]<br>
+> &nbsp; &nbsp; 📄 MyPoolOptions.[logger](generated-doc/interface.MyPoolOptions/README.md#-logger-logger)?: [Logger](generated-doc/interface.Logger/README.md)<br>
 > }
 
 
@@ -117,7 +117,7 @@ This SQL will be executed before first query in each connection.
 
 A new connection from connections pool can be asked with [pool.getConn()](generated-doc/class.MyPool/README.md#-getconndsn-dsn--string-myconn) function:
 
-> ⚙ MyPool.getConn(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): [MyConn](generated-doc/class.MyConn/README.md)
+> ⚙ MyPool.[getConn](generated-doc/class.MyPool/README.md#-getconndsn-dsn--string-myconn)(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): [MyConn](generated-doc/class.MyConn/README.md)
 
 
 
@@ -128,14 +128,14 @@ When [conn\[Symbol.dispose\]()](generated-doc/class.MyConn/README.md#-symboldisp
 
 Another way of using connections is by calling [pool.forConn()](generated-doc/class.MyPool/README.md#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset) giving it an async callback, and the connection can be used within this callback, and when it returns the connection will be returned to the pool.
 
-> ⚙ MyPool.forConn\<T>(callback: (conn: [MyConn](generated-doc/class.MyConn/README.md)) => Promise\<T>, dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): Promise\<T>
+> ⚙ MyPool.[forConn](generated-doc/class.MyPool/README.md#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset)\<T>(callback: (conn: [MyConn](generated-doc/class.MyConn/README.md)) => Promise\<T>, dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): Promise\<T>
 
 
 
 The following is essentially the same:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -144,7 +144,7 @@ console.log(version);
 ```
 And:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 const version = await pool.forConn
@@ -158,7 +158,7 @@ console.log(version);
 
 If the promise that [pool.forConn()](generated-doc/class.MyPool/README.md#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset) returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 pool.forConn
@@ -189,7 +189,7 @@ If there was no free slot during the [connectionTimeout](generated-doc/class.Dsn
 
 If you want to deal with multiple simultaneous connections, you can call [pool.getSession()](generated-doc/class.MyPool/README.md#-getsession-mysession) to start a cross-server session.
 
-> ⚙ MyPool.getSession(): [MySession](generated-doc/class.MySession/README.md)
+> ⚙ MyPool.[getSession](generated-doc/class.MyPool/README.md#-getsession-mysession)(): [MySession](generated-doc/class.MySession/README.md)
 
 
 
@@ -198,13 +198,13 @@ When [session\[Symbol.dispose\]()](generated-doc/class.MySession/README.md#-symb
 
 Another way of using sessions is by calling [pool.forSession()](generated-doc/class.MyPool/README.md#-forsessiontcallback-session-mysession--promiset-promiset) giving it an async callback, and the session can be used within this callback.
 
-> ⚙ MyPool.forSession\<T>(callback: (session: [MySession](generated-doc/class.MySession/README.md)) => Promise\<T>): Promise\<T>
+> ⚙ MyPool.[forSession](generated-doc/class.MyPool/README.md#-forsessiontcallback-session-mysession--promiset-promiset)\<T>(callback: (session: [MySession](generated-doc/class.MySession/README.md)) => Promise\<T>): Promise\<T>
 
 
 
 During this session you can call [session.conn()](generated-doc/class.MySession/README.md#-conndsn-dsn--string-fresh-booleanfalse-myconn) to get a connection. At the end of callback all the connections will return to the pool, if they didn't before.
 
-> ⚙ MySession.conn(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`, fresh: `boolean`=false): [MyConn](generated-doc/class.MyConn/README.md)
+> ⚙ MySession.[conn](generated-doc/class.MySession/README.md#-conndsn-dsn--string-fresh-booleanfalse-myconn)(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`, fresh: `boolean`=false): [MyConn](generated-doc/class.MyConn/README.md)
 
 
 
@@ -215,10 +215,10 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-65ya>~)' > /tmp/example-65ya.ts
+// deno run --allow-env --allow-net /tmp/example-65ya.ts
 
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
@@ -251,7 +251,7 @@ At the end of callback all active connections will be returned to the pool. Howe
 
 To run a query that doesn't return rows, use [queryVoid()](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid):
 
-> ⚙ MyConn.queryVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
+> ⚙ MyConn.[queryVoid](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid)(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
 
 
 
@@ -261,16 +261,16 @@ If there were multiple resultsets, it will contain only information about the la
 
 To run a query, and read it's rows, use one of the following methods:
 
-> ⚙ MyConn.query\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
+> ⚙ MyConn.[query](generated-doc/class.MyConn/README.md#-querycolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
 
 
-> ⚙ MyConn.queryMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+> ⚙ MyConn.[queryMap](generated-doc/class.MyConn/README.md#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
 
 
-> ⚙ MyConn.queryArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
+> ⚙ MyConn.[queryArr](generated-doc/class.MyConn/README.md#-queryarrcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
 
 
-> ⚙ MyConn.queryCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
+> ⚙ MyConn.[queryCol](generated-doc/class.MyConn/README.md#-querycolcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
 
 
 
@@ -288,10 +288,10 @@ You can read all the rows with [Resultsets.all()](generated-doc/class.Resultsets
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-pf4z>~)' > /tmp/example-pf4z.ts
+// deno run --allow-env --allow-net /tmp/example-pf4z.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -315,10 +315,10 @@ And it skips all further rows, if they exist.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-ksv8>~)' > /tmp/example-ksv8.ts
+// deno run --allow-env --allow-net /tmp/example-ksv8.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -337,17 +337,17 @@ console.log(await res.first());
 
 You can iterate the resultset ([ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md) or [Resultsets](generated-doc/class.Resultsets/README.md)) with `for await` loop, or you can call [ResultsetsPromise.forEach()](generated-doc/class.ResultsetsPromise/README.md#-foreachtcallback-row-row--t--promiset-promiset) or [Resultsets.forEach()](generated-doc/class.Resultsets/README.md#-foreachtcallback-row-row--t--promiset-promiset) method.
 
-> ⚙ ResultsetsPromise.forEach\<T>(callback: (row: Row) => T | Promise\<T>): Promise\<T>
+> ⚙ ResultsetsPromise.[forEach](generated-doc/class.ResultsetsPromise/README.md#-foreachtcallback-row-row--t--promiset-promiset)\<T>(callback: (row: Row) => T | Promise\<T>): Promise\<T>
 
 
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-rlut>~)' > /tmp/example-rlut.ts
+// deno run --allow-env --allow-net /tmp/example-rlut.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -378,10 +378,10 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-ajdy>~)' > /tmp/example-ajdy.ts
+// deno run --allow-env --allow-net /tmp/example-ajdy.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -420,10 +420,10 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-7bvr>~)' > /tmp/example-7bvr.ts
+// deno run --allow-env --allow-net /tmp/example-7bvr.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -450,10 +450,10 @@ If you're sure about column types, you can override the column type with `any` (
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-dbu0>~)' > /tmp/example-dbu0.ts
+// deno run --allow-env --allow-net /tmp/example-dbu0.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -479,19 +479,19 @@ However multiple statements separated with semicolons will throw error.
 
 This library has another set of functions called `queries*()` that works like `query*()`, but allows to execute multiple statements separated with semicolons:
 
-> ⚙ MyConn.queriesVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
+> ⚙ MyConn.[queriesVoid](generated-doc/class.MyConn/README.md#-queriesvoidsql-sqlsource-params-params-promiseresultsetsvoid)(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
 
 
-> ⚙ MyConn.queries\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
+> ⚙ MyConn.[queries](generated-doc/class.MyConn/README.md#-queriescolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
 
 
-> ⚙ MyConn.queriesMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+> ⚙ MyConn.[queriesMap](generated-doc/class.MyConn/README.md#-queriesmapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
 
 
-> ⚙ MyConn.queriesArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
+> ⚙ MyConn.[queriesArr](generated-doc/class.MyConn/README.md#-queriesarrcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
 
 
-> ⚙ MyConn.queriesCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
+> ⚙ MyConn.[queriesCol](generated-doc/class.MyConn/README.md#-queriescolcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
 
 
 
@@ -566,10 +566,10 @@ Consider the following example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-2dm1>~)' > /tmp/example-2dm1.ts
+// deno run --allow-env --allow-net /tmp/example-2dm1.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -589,10 +589,10 @@ But with `correctDates` parameter set 2 equal dates are always printed, because 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-aymx>~)' > /tmp/example-aymx.ts
+// deno run --allow-env --allow-net /tmp/example-aymx.ts
 
-import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 dsn.correctDates = true; // THE DIFFERENCE IS HERE
@@ -626,10 +626,10 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-10go>~)' > /tmp/example-10go.ts
+// deno run --allow-env --allow-net /tmp/example-10go.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -650,10 +650,10 @@ Parameter names will override session variables with the same names.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-1f17>~)' > /tmp/example-1f17.ts
+// deno run --allow-env --allow-net /tmp/example-1f17.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -702,10 +702,10 @@ Example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-855m>~)' > /tmp/example-855m.ts
+// deno run --allow-env --allow-net /tmp/example-855m.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 // 1. Define the generator
 
@@ -768,10 +768,10 @@ However preparing SQL statement once (see MySQL binary protocol, and then execut
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-t6u5>~)' > /tmp/example-t6u5.ts
+// deno run --allow-env --allow-net /tmp/example-t6u5.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 const N_ROWS = 100;
 const N_QUERIES = 800;
@@ -870,7 +870,7 @@ Not all query types can be run in Binary Protocol - see [here](https://dev.mysql
 
 Function `conn.prepare()` prepares an SQL statement, that you can execute multiple times, each time with different parameters.
 
-> ⚙ MyConn.prepare\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
+> ⚙ MyConn.[prepare](generated-doc/class.MyConn/README.md#-preparecolumntypecolumnvaluesql-sqlsource-promiseresultsetsrecord)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
 
 
 
@@ -879,10 +879,10 @@ The returned object must be asynchronously disposed to free the prepared stateme
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-wr6k>~)' > /tmp/example-wr6k.ts
+// deno run --allow-env --allow-net /tmp/example-wr6k.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -911,19 +911,19 @@ assertEquals
 
 There's family of functions:
 
-> ⚙ MyConn.prepareVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
+> ⚙ MyConn.[prepareVoid](generated-doc/class.MyConn/README.md#-preparevoidsql-sqlsource-promiseresultsetsvoid)(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
 
 
-> ⚙ MyConn.prepare\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
+> ⚙ MyConn.[prepare](generated-doc/class.MyConn/README.md#-preparecolumntypecolumnvaluesql-sqlsource-promiseresultsetsrecord)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
 
 
-> ⚙ MyConn.prepareMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>>
+> ⚙ MyConn.[prepareMap](generated-doc/class.MyConn/README.md#-preparemapcolumntypecolumnvaluesql-sqlsource-promiseresultsetsmapstring-columntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>>
 
 
-> ⚙ MyConn.prepareArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>>
+> ⚙ MyConn.[prepareArr](generated-doc/class.MyConn/README.md#-preparearrcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>>
 
 
-> ⚙ MyConn.prepareCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>>
+> ⚙ MyConn.[prepareCol](generated-doc/class.MyConn/README.md#-preparecolcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>>
 
 
 
@@ -935,19 +935,19 @@ Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
 
 The same functions exist in variant with callbacks. They call your callback with the object that represents the prepared statement, and at the end of the callback they dispose the object.
 
-> ⚙ MyConn.forPreparedVoid\<T>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>) => Promise\<T>): Promise\<T>
+> ⚙ MyConn.[forPreparedVoid](generated-doc/class.MyConn/README.md#-forpreparedvoidtsql-sqlsource-callback-prepared-resultsetsvoid--promiset-promiset)\<T>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>) => Promise\<T>): Promise\<T>
 
 
-> ⚙ MyConn.forPrepared\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Record\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+> ⚙ MyConn.[forPrepared](generated-doc/class.MyConn/README.md#-forpreparedcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsrecordstring-columntype--promiset-promiset)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Record\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
 
 
-> ⚙ MyConn.forPreparedMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+> ⚙ MyConn.[forPreparedMap](generated-doc/class.MyConn/README.md#-forpreparedmapcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsmapstring-columntype--promiset-promiset)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
 
 
-> ⚙ MyConn.forPreparedArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>) => Promise\<T>): Promise\<T>
+> ⚙ MyConn.[forPreparedArr](generated-doc/class.MyConn/README.md#-forpreparedarrcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-promiset)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>) => Promise\<T>): Promise\<T>
 
 
-> ⚙ MyConn.forPreparedCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>) => Promise\<T>): Promise\<T>
+> ⚙ MyConn.[forPreparedCol](generated-doc/class.MyConn/README.md#-forpreparedcolcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-promiset)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>) => Promise\<T>): Promise\<T>
 
 
 
@@ -958,10 +958,10 @@ This library tries to have everything needed in real life usage. It's possible t
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-np7j>~)' > /tmp/example-np7j.ts
+// deno run --allow-env --allow-net /tmp/example-np7j.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -982,10 +982,10 @@ Query parameter values can be of various types, including `ReadableStream<Uint8A
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-7xum>~)' > /tmp/example-7xum.ts
+// deno run --allow-env --allow-net /tmp/example-7xum.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1021,10 +1021,10 @@ This allows to read SQL from files.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-h9zl>~)' > /tmp/example-h9zl.ts
+// deno run --allow-env --allow-net /tmp/example-h9zl.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1056,10 +1056,10 @@ If this feature is enabled on your server, you can register a custom handler tha
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-khw0>~)' > /tmp/example-khw0.ts
+// deno run --allow-env --allow-net /tmp/example-khw0.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {dirname} from "https://deno.land/std@0.224.0/path/mod.ts";
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1146,10 +1146,10 @@ And you must read or discard all the resultsets before being able to issue next 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-rjwg>~)' > /tmp/example-rjwg.ts
+// deno run --allow-env --allow-net /tmp/example-rjwg.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1222,10 +1222,10 @@ To understand what's going on in your transaction, it's convenient to have a cal
 
 This library allows you to enable SQL logging in specific connection, or session:
 
-> ⚙ MyConn.setSqlLogger(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
+> ⚙ MyConn.[setSqlLogger](generated-doc/class.MyConn/README.md#-setsqlloggersqllogger-sqllogger--true-void)(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
 
 
-> ⚙ MySession.setSqlLogger(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
+> ⚙ MySession.[setSqlLogger](generated-doc/class.MySession/README.md#-setsqlloggersqllogger-sqllogger--true-void)(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
 
 
 
@@ -1234,10 +1234,10 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-c5vl>~)' > /tmp/example-c5vl.ts
+// deno run --allow-env --allow-net /tmp/example-c5vl.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1342,10 +1342,10 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-mbya>~)' > /tmp/example-mbya.ts
+// deno run --allow-env --allow-net /tmp/example-mbya.ts
 
-import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1408,7 +1408,7 @@ To view the color-highlighted file we can do:
 less -r /tmp/sql.log
 ```
 
-You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.1/private/sql_log_to_writable.ts) how [SqlLogToWritable](generated-doc/class.SqlLogToWritable/README.md) class is implemented,
+You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.2/private/sql_log_to_writable.ts) how [SqlLogToWritable](generated-doc/class.SqlLogToWritable/README.md) class is implemented,
 and you can override it's public and protected methods to customize it's behavior.
 
 ## Transactions
@@ -1459,10 +1459,10 @@ To start a regular transaction call [MyConn.startTrx()](generated-doc/class.MyCo
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
-// deno run --allow-env --allow-net /tmp/example-p9mn.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.2/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-y5hf>~)' > /tmp/example-y5hf.ts
+// deno run --allow-env --allow-net /tmp/example-y5hf.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1614,7 +1614,7 @@ Transactions manager tables must have one column called `xa_id`, as defined abov
 If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
 
 ```ts
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
 
 const dsn1 = new Dsn('mysql://app:app@localhost/test1');
 const dsn2 = new Dsn('mysql://app:app@localhost/test2');
