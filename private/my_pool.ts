@@ -20,15 +20,38 @@ const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
 export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
 export interface MyPoolOptions
-{	dsn?: Dsn | string;
-	/**	Like backlog. When there're `maxConns` connections, next connections will wait.
+{	/**	Default Data Source Name for the pool.
+	 **/
+	dsn?: Dsn | string;
+
+	/**	When {@link Dsn.maxConns} exceeded, new connection requests will enter waiting queue (like backlog). This is the queue maximum size.
+		@default 50
 	 **/
 	maxConnsWaitQueue?: number;
+
+	/**	Handler for `LOAD DATA LOCAL INFILE` query.
+	 **/
 	onLoadFile?: OnLoadFile;
+
+	/**	Callback that will be called every time a transaction is about to be committed.
+	 **/
 	onBeforeCommit?: OnBeforeCommit;
+
+	/**	Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
+	 **/
 	managedXaDsns?: Dsn | string | (Dsn|string)[];
+
+	/**	Check for dangling transactions each this number of milliseconds.
+		@default 6000
+	 **/
 	xaCheckEach?: number;
+
+	/**	You can provide tables (that you need to create), that will improve distributed transactions management (optional).
+	 **/
 	xaInfoTables?: {dsn: Dsn|string, table: string}[];
+
+	/**	A `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
+	 **/
 	logger?: Logger;
 }
 

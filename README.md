@@ -1,3 +1,12 @@
+<!--
+	This file is generated with the following command:
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.26/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql/v0.19.1/mod.ts --moduleName 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md
+-->
+
+# office\_spirit\_mysql - MySQL and MariaDB driver for Deno.
+
+[Documentation Index](generated-doc/README.md)
+
 MySQL and MariaDB driver for Deno. Tested on: MySQL 5.6, 5.7, 8.0, 9.0, MariaDB 5.5, 10.0, 10.2, 10.5, 10.7, 11.5.
 
 Features:
@@ -19,10 +28,10 @@ Basic example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example1>~)' > /tmp/example1.ts
-// deno run --allow-env --allow-net /tmp/example1.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 // Create a connections pool. This is the only way in this library to create server connections
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -42,49 +51,43 @@ for await (const row of conn.query("SELECT * FROM t_log"))
 
 ## Connections pool
 
-Connections to database servers are managed by `MyPool` object.
+Connections to database servers are managed by [MyPool](generated-doc/class.MyPool/README.md) object.
 You need to create one such object, and ask it to give you a free connection.
 Most applications don't need more than one pool, but you can also have several pools, each one with different configuration.
 
-```ts
-MyPool.constructor(options?: Dsn | string | MyPoolOptions)
-```
+> 🔧 MyPool.`constructor`(options?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | [MyPoolOptions](generated-doc/interface.MyPoolOptions/README.md))
 
-When you create a `MyPool` instance, you can give it a default DSN (Data Source Name), that will be used if the DSN is not specified when requesting a new connection.
-You can provide the DSN as a string or as `Dsn` object, that contains parsed string.
+
+
+When you create a [MyPool](generated-doc/class.MyPool/README.md) instance, you can give it a default DSN (Data Source Name), that will be used if the DSN is not specified when requesting a new connection.
+You can provide the DSN as a string or as [Dsn](generated-doc/class.Dsn/README.md) object, that contains parsed string.
 
 Or you can specify more options:
 
-```ts
-interface MyPoolOptions
-{	dsn?: Dsn | string;
-	maxConnsWaitQueue?: number;
-	onLoadFile?: OnLoadFile;
-	onBeforeCommit?: (conns: readonly MyConn[]) => Promise<void>;
-	managedXaDsns?: Dsn | string | (Dsn|string)[];
-	xaCheckEach?: number;
-	xaInfoTables?: {dsn: Dsn|string, table: string}[];
-	logger?:
-	{	debug(...args: any[]): unknown;
-		info(...args: any[]): unknown;
-		log(...args: any[]): unknown;
-		warn(...args: any[]): unknown;
-		error(...args: any[]): unknown;
-	};
-}
+> `interface` MyPoolOptions<br>
+> {<br>
+> &nbsp; &nbsp; 📄 dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`<br>
+> &nbsp; &nbsp; 📄 maxConnsWaitQueue?: `number`<br>
+> &nbsp; &nbsp; 📄 onLoadFile?: [OnLoadFile](generated-doc/type.OnLoadFile/README.md)<br>
+> &nbsp; &nbsp; 📄 onBeforeCommit?: [OnBeforeCommit](generated-doc/type.OnBeforeCommit/README.md)<br>
+> &nbsp; &nbsp; 📄 managedXaDsns?: [Dsn](generated-doc/class.Dsn/README.md) | `string` | ([Dsn](generated-doc/class.Dsn/README.md) | `string`)\[]<br>
+> &nbsp; &nbsp; 📄 xaCheckEach?: `number`<br>
+> &nbsp; &nbsp; 📄 xaInfoTables?: \{dsn: [Dsn](generated-doc/class.Dsn/README.md) | `string`, table: `string`}\[]<br>
+> &nbsp; &nbsp; 📄 logger?: [Logger](generated-doc/interface.Logger/README.md)<br>
+> }
 
-type OnLoadFile = ((filename: string) => Promise<(Deno.Reader & Deno.Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
-```
+
+
 - `dsn` - Default Data Source Name for this pool.
 - `maxConnsWaitQueue` - (number, default 50) When `maxConns` exceeded, new connection requests will enter waiting queue (like backlog). This is the queue maximum size.
 - `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
 - `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
 - `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
-- `xaCheckEach` - Check for dangling transactions each this number of milliseconds (default `6000`).
+- `xaCheckEach` - (number, default `6000`) Check for dangling transactions each this number of milliseconds.
 - `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 - `logger` - a `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
 
-Data Source Name is specified in URL format, with "mysql://" protocol.
+Data Source Name is specified in URL format with "mysql://" protocol.
 
 Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`
 Or: `mysql://user:password@localhost/path/to/named.pipe/schema`
@@ -99,7 +102,7 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 - `keepAliveTimeout` (number, default `10000`) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection
 - `keepAliveMax` (number, default `Infinity`) - how many times at most to recycle each connection
 - `maxConns` - (number, default `250`) Limit number of simultaneous connections to this DSN in pool
-- `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to `conn.makeLastColumnReadable()` - see below)
+- `maxColumnLen` (number, default `10MiB`) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL (this doesn't apply to [conn.makeLastColumnReadable()](generated-doc/class.MyConn/README.md#-makelastcolumnreadablecolumntypecolumnvaluesql-sqlsource-params-params-promiseany) - see below)
 - `foundRows` (boolean, default `false`) - if present, will use "found rows" instead of "affected rows" in resultsets (see [here](https://dev.mysql.com/doc/refman/8.0/en/information-functions.html#function_row-count) how CLIENT_FOUND_ROWS flag affects result of `Row_count()` function)
 - `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here](https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space))
 - `retryLockWaitTimeout` (boolean, default `false`) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
@@ -112,26 +115,27 @@ This SQL will be executed before first query in each connection.
 
 ## Connections
 
-A new connection from connections pool can be asked with `pool.getConn()` function:
+A new connection from connections pool can be asked with [pool.getConn()](generated-doc/class.MyPool/README.md#-getconndsn-dsn--string-myconn) function:
 
-```ts
-MyPool.getConn(dsn?: Dsn|string): MyConn
-```
+> ⚙ MyPool.getConn(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): [MyConn](generated-doc/class.MyConn/README.md)
+
+
+
 If `dsn` is not provided, the default DSN of the pool will be used. You can provide different `dsn` to ask a connection to different server.
 
-The returned `MyConn` object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
-When `conn[Symbol.dispose]()` is called, the connection comes back to it's pool.
+The returned [MyConn](generated-doc/class.MyConn/README.md) object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
+When [conn\[Symbol.dispose\]()](generated-doc/class.MyConn/README.md#-symboldispose-void) is called, the connection comes back to it's pool.
 
-Another way of using connections is by calling `pool.forConn()` giving it an async callback, and the connection can be used within this callback, and when it returns the connection will be returned to the pool.
+Another way of using connections is by calling [pool.forConn()](generated-doc/class.MyPool/README.md#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset) giving it an async callback, and the connection can be used within this callback, and when it returns the connection will be returned to the pool.
 
-```ts
-MyPool.forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string): Promise<T>
-```
+> ⚙ MyPool.forConn\<T>(callback: (conn: [MyConn](generated-doc/class.MyConn/README.md)) => Promise\<T>, dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`): Promise\<T>
+
+
 
 The following is essentially the same:
 
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -140,7 +144,7 @@ console.log(version);
 ```
 And:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 const version = await pool.forConn
@@ -152,9 +156,9 @@ const version = await pool.forConn
 console.log(version);
 ```
 
-If the promise that `pool.forConn()` returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
+If the promise that [pool.forConn()](generated-doc/class.MyPool/README.md#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset) returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
 ```ts
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 pool.forConn
@@ -166,54 +170,55 @@ pool.forConn
 ```
 
 Before the connection is returned to the pool, its state is reset. This means that incomplete transactions are rolled back, and all kind of locks are cleared.
-Then this connection can be idle in the pool for at most `keepAliveTimeout` milliseconds, and if nobody was interested in it during this period, it will be terminated.
+Then this connection can be idle in the pool for at most [keepAliveTimeout](generated-doc/class.Dsn/README.md#-accessor-keepalivetimeout-number) milliseconds, and if nobody was interested in it during this period, it will be terminated.
 If somebody killed a connection while it was idle in the pool, and you asked to use this connection again, the first query on this connection can fail.
 If this happens, another connection will be tried, and your query will be reissued. This process is transparent to you.
 
 In the beginning of `callback`, the `conn` is not connected to the server. It will connect on first requested query.
-To force connection call `await conn.connect()`.
+To force connection call [await conn.connect()](generated-doc/class.MyConn/README.md#-connect-promisevoid).
 
-If server is busy ("too many connections", "server shutdown in progress", etc.), the connection will be retried during the period of `connectionTimeout` milliseconds (specified in the DSN parameters).
-During this period the connection will be retried each `reconnectInterval` milliseconds.
+If server is busy ("too many connections", "server shutdown in progress", etc.), the connection will be retried during the period of [connectionTimeout](generated-doc/class.Dsn/README.md#-accessor-connectiontimeout-number) milliseconds (specified in the DSN parameters).
+During this period the connection will be retried each [reconnectInterval](generated-doc/class.Dsn/README.md#-accessor-reconnectinterval-number) milliseconds.
 There will be only one retrying connection. Till it's resolved new connections will be tried once, and if not successful they will enter waiting queue.
 
 If `maxConns` number of connections in pool reached, a new connection will enter waiting queue without trying to connect.
 
-If there was no free slot during the `connectionTimeout` period, or if the waiting queue is full (`maxConnsWaitQueue` items long), exception is thrown.
+If there was no free slot during the [connectionTimeout](generated-doc/class.Dsn/README.md#-accessor-connectiontimeout-number) period, or if the waiting queue is full ([maxConnsWaitQueue](generated-doc/interface.MyPoolOptions/README.md#-maxconnswaitqueue-number) items long), exception is thrown.
 
 ## Cross-server sessions
 
-If you want to deal with multiple simultaneous connections, you can call `pool.getSession()` to start a cross-server session.
+If you want to deal with multiple simultaneous connections, you can call [pool.getSession()](generated-doc/class.MyPool/README.md#-getsession-mysession) to start a cross-server session.
 
-```ts
-MyPool.getSession(): MySession
-```
+> ⚙ MyPool.getSession(): [MySession](generated-doc/class.MySession/README.md)
 
-The returned `MySession` object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
-When `session[Symbol.dispose]()` is called, all the connections in this session are disposed.
 
-Another way of using sessions is by calling `pool.forSession()` giving it an async callback, and the session can be used within this callback.
 
-```ts
-MyPool.forSession<T>(callback: (session: MySession) => Promise<T>): Promise<T>
-```
+The returned [MySession](generated-doc/class.MySession/README.md) object is disposable. Usually you will want to bind it to an owned variable through `using` keyword.
+When [session\[Symbol.dispose\]()](generated-doc/class.MySession/README.md#-symboldispose-void) is called, all the connections in this session are disposed.
 
-During this session you can call `session.conn()` to get a connection. At the end of callback all the connections will return to the pool, if they didn't before.
+Another way of using sessions is by calling [pool.forSession()](generated-doc/class.MyPool/README.md#-forsessiontcallback-session-mysession--promiset-promiset) giving it an async callback, and the session can be used within this callback.
 
-```ts
-MySession.conn(dsn?: Dsn|string, fresh=false): MyConn
-```
-`MySession.conn()` returns the connection object (`MyConn`) immediately, but actual connection will be established on first SQL query.
+> ⚙ MyPool.forSession\<T>(callback: (session: [MySession](generated-doc/class.MySession/README.md)) => Promise\<T>): Promise\<T>
+
+
+
+During this session you can call [session.conn()](generated-doc/class.MySession/README.md#-conndsn-dsn--string-fresh-booleanfalse-myconn) to get a connection. At the end of callback all the connections will return to the pool, if they didn't before.
+
+> ⚙ MySession.conn(dsn?: [Dsn](generated-doc/class.Dsn/README.md) | `string`, fresh: `boolean`=false): [MyConn](generated-doc/class.MyConn/README.md)
+
+
+
+`MySession.conn()` returns the connection object ([MyConn](generated-doc/class.MyConn/README.md)) immediately, but actual connection will be established on first SQL query.
 
 With `true` second argument, always new connection is returned. Otherwise, if there's already an active connection to the same DSN in this session, it will be picked up.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example2>~)' > /tmp/example2.ts
-// deno run --allow-env --allow-net /tmp/example2.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
@@ -240,15 +245,15 @@ const connIds = await Promise.all([connId2, connId3, connId4]);
 console.log(connIds); // prints 3 different connection ids
 assertEquals(new Set(connIds).size, 3);
 ```
-At the end of callback all active connections will be returned to the pool. However you can call `conn.end()` to free a connection earlier.
+At the end of callback all active connections will be returned to the pool. However you can call [conn.end()](generated-doc/class.MyConn/README.md#-end-void) to free a connection earlier.
 
 ## Executing queries
 
-To run a query that doesn't return rows, use `queryVoid()`:
+To run a query that doesn't return rows, use [queryVoid()](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid):
 
-```ts
-MyConn.queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets>
-```
+> ⚙ MyConn.queryVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
+
+
 
 This method executes it's query and discards returned rows.
 Returned `Resultsets` object contains `lastInsertId`, `affectedRows`, and more such information about the query.
@@ -256,31 +261,37 @@ If there were multiple resultsets, it will contain only information about the la
 
 To run a query, and read it's rows, use one of the following methods:
 
-```ts
-MyConn.query(sql: SqlSource, params?: Params): ResultsetsPromise
-MyConn.queryMap(sql: SqlSource, params?: Params): ResultsetsPromise
-MyConn.queryArr(sql: SqlSource, params?: Params): ResultsetsPromise
-MyConn.queryCol(sql: SqlSource, params?: Params): ResultsetsPromise
-```
+> ⚙ MyConn.query\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
 
-These `query*` methods return `ResultsetsPromise` which is subclass of `Promise<Resultsets>`.
-Awaiting it gives you `Resultsets` object.
-Iterating over `ResultsetsPromise` or `Resultsets` yields rows.
 
-If your query didn't return rows (query like `INSERT`), then these methods work exactly as `queryVoid()`, so zero rows will be yielded, and `resultsets.columns` will be empty array,
-and `resultsets.lastInsertId` and `resultsets.affectedRows` will show relevant information.
+> ⚙ MyConn.queryMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+
+
+> ⚙ MyConn.queryArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
+
+
+> ⚙ MyConn.queryCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
+
+
+
+These `query*` methods return [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md) which is subclass of `Promise<Resultsets>`.
+Awaiting it gives you [Resultsets](generated-doc/class.Resultsets/README.md) object.
+Iterating over [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md) or [Resultsets](generated-doc/class.Resultsets/README.md) yields rows.
+
+If your query didn't return rows (query like `INSERT`), then these methods work exactly as [queryVoid()](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid), so zero rows will be yielded, and [resultsets.columns](generated-doc/class.Resultsets/README.md#-columns-column) will be empty array,
+and [resultsets.lastInsertId](generated-doc/class.Resultsets/README.md#-lastinsertid-number--bigint) and [resultsets.affectedRows](generated-doc/class.Resultsets/README.md#-affectedrows-number--bigint) will show relevant information.
 
 If there're rows, you need to iterate them to the end, before you can execute another query.
-Executing another query while there're unread resultsets throws `BusyError`.
-You can read all the rows with `Resultsets.all()` or `ResultsetsPromise.all()`.
+Executing another query while there're unread resultsets throws [BusyError](generated-doc/class.BusyError/README.md).
+You can read all the rows with [Resultsets.all()](generated-doc/class.Resultsets/README.md#-all-promiserow) or [ResultsetsPromise.all()](generated-doc/class.ResultsetsPromise/README.md#-all-promiserow).
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example3>~)' > /tmp/example3.ts
-// deno run --allow-env --allow-net /tmp/example3.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -296,17 +307,18 @@ const res = await conn.query("SELECT * FROM t_log");
 console.log(res.columns);
 console.log(await res.all());
 ```
-If your query returns single row, you can read it with `Resultsets.first()` or `ResultsetsPromise.first()`.
+
+If your query returns single row, you can read it with [Resultsets.first()](generated-doc/class.Resultsets/README.md#-first-promiserow) or [ResultsetsPromise.first()](generated-doc/class.ResultsetsPromise/README.md#-first-promiseany).
 It returns the first row itself, not an array of rows.
 And it skips all further rows, if they exist.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example4>~)' > /tmp/example4.ts
-// deno run --allow-env --allow-net /tmp/example4.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -322,19 +334,20 @@ const res = await conn.query("SELECT Count(*) FROM t_log");
 console.log(res.columns);
 console.log(await res.first());
 ```
-You can iterate the resultset (`ResultsetsPromise` or `Resultsets`) with `for await` loop, or you can call `ResultsetsPromise.forEach()` or `Resultsets.forEach()` method.
 
-```ts
-ResultsetsPromise.forEach<T>(callback: (row: any) => T|Promise<T>): Promise<T|undefined>
-```
+You can iterate the resultset ([ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md) or [Resultsets](generated-doc/class.Resultsets/README.md)) with `for await` loop, or you can call [ResultsetsPromise.forEach()](generated-doc/class.ResultsetsPromise/README.md#-foreachtcallback-row-row--t--promiset-promiset) or [Resultsets.forEach()](generated-doc/class.Resultsets/README.md#-foreachtcallback-row-row--t--promiset-promiset) method.
+
+> ⚙ ResultsetsPromise.forEach\<T>(callback: (row: Row) => T | Promise\<T>): Promise\<T>
+
+
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example5>~)' > /tmp/example5.ts
-// deno run --allow-env --allow-net /tmp/example5.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -355,20 +368,20 @@ await conn.query("SELECT * FROM t_log").forEach
 );
 ```
 
-- `MyConn.query()` method iterates over rows as Javascript default objects with fields.
-- `MyConn.queryMap()` method iterates over rows as `Map` objects.
-- `MyConn.queryArr()` method iterates over rows as `Array`s with column values without column names.
-- `MyConn.queryCol()` method iterates over first column values of each row.
+- [MyConn.query()](generated-doc/class.MyConn/README.md#-querycolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord) method iterates over rows as Javascript default objects with fields.
+- [MyConn.queryMap()](generated-doc/class.MyConn/README.md#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype) method iterates over rows as `Map` objects.
+- [MyConn.queryArr()](generated-doc/class.MyConn/README.md#-queryarrcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype) method iterates over rows as `Array`s with column values without column names.
+- [MyConn.queryCol()](generated-doc/class.MyConn/README.md#-querycolcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype) method iterates over first column values of each row.
 
 For example, using `queryCol().first()` you can get the result of `SELECT Count(*)` as a single number value:
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example6>~)' > /tmp/example6.ts
-// deno run --allow-env --allow-net /tmp/example6.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -407,10 +420,10 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example7>~)' > /tmp/example7.ts
-// deno run --allow-env --allow-net /tmp/example7.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -437,10 +450,10 @@ If you're sure about column types, you can override the column type with `any` (
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example8>~)' > /tmp/example8.ts
-// deno run --allow-env --allow-net /tmp/example8.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -466,13 +479,21 @@ However multiple statements separated with semicolons will throw error.
 
 This library has another set of functions called `queries*()` that works like `query*()`, but allows to execute multiple statements separated with semicolons:
 
-```ts
-MyConn.queriesVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>> {...}
-MyConn.queries<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnType>> {...}
-MyConn.queriesMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnType>> {...}
-MyConn.queriesArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType[]> {...}
-MyConn.queriesCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType> {...}
-```
+> ⚙ MyConn.queriesVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
+
+
+> ⚙ MyConn.queries\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Record>
+
+
+> ⚙ MyConn.queriesMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+
+
+> ⚙ MyConn.queriesArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType\[]>
+
+
+> ⚙ MyConn.queriesCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), params?: [Params](generated-doc/type.Params/README.md)): [ResultsetsPromise](generated-doc/class.ResultsetsPromise/README.md)\<ColumnType>
+
+
 
 If the provided SQL contained only one statement, there's no difference in how they work.
 For multiple statements they return only resultset for the last statement.
@@ -511,8 +532,8 @@ Type conversions from Javascript to MySQL happen when you pass parameters to SQL
 
 There're 2 DSN parameters that affect conversion between Javascript `Date` objects and MySQL date, datetime and timestamp types.
 
-- `datesAsString` (boolean, default `false`)
-- `correctDates` (boolean, default `false`)
+- [datesAsString](generated-doc/class.Dsn/README.md#-accessor-datesasstring-boolean) (boolean, default `false`)
+- [correctDates](generated-doc/class.Dsn/README.md#-accessor-correctdates-boolean) (boolean, default `false`)
 
 ```ts
 const dsn1 =  new Dsn('mysql://app:app@localhost');
@@ -536,7 +557,7 @@ If MySQL timezone is different than the Deno one this can lead to dates distorti
 
 This library can correct dates by adding and subtracting the difference between Deno and MySQL timezones. For this feature to work you need to:
 
-- Set the `correctDates` parameter.
+- Set the [correctDates](generated-doc/class.Dsn/README.md#-accessor-correctdates-boolean) parameter.
 - Explicitly execute `SET` SQL statement that sets `time_zone` system variable, like `SET time_zone='UTC'` or equivalent. You can include it in `Dsn.initSql`, or execute through `conn.query()` before dates conversion is needed. The value that you provide to the `time_zone` variable must be recognizeable by both MySQL and Javascript `Intl.DateTimeFormat` object.
 - Use MySQL 5.7+ or MariaDB 10.3+
 
@@ -545,10 +566,10 @@ Consider the following example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example9>~)' > /tmp/example9.ts
-// deno run --allow-env --allow-net /tmp/example9.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -568,10 +589,10 @@ But with `correctDates` parameter set 2 equal dates are always printed, because 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example10>~)' > /tmp/example10.ts
-// deno run --allow-env --allow-net /tmp/example10.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 dsn.correctDates = true; // THE DIFFERENCE IS HERE
@@ -605,10 +626,10 @@ MySQL supports up to 2**16-1 = 65535 placeholders.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example11>~)' > /tmp/example11.ts
-// deno run --allow-env --allow-net /tmp/example11.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -629,10 +650,10 @@ Parameter names will override session variables with the same names.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example12>~)' > /tmp/example12.ts
-// deno run --allow-env --allow-net /tmp/example12.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -648,18 +669,14 @@ console.log(row);
 
 Another option for parameters substitution is to use libraries that generate SQL.
 
-Any library that produces SQL queries is alright if it takes into consideration the very important `conn.noBackslashEscapes` flag.
+Any library that produces SQL queries is alright if it takes into consideration the very important [conn.noBackslashEscapes](generated-doc/class.MyConn/README.md) flag.
 Remember that the value of this flag can change during server session, if user executes a query like `SET sql_mode='no_backslash_escapes'`.
 
 Query functions (`query*()`) can receive SQL queries in several forms:
 
-```ts
-type SqlSource =
-	string |
-	Uint8Array |
-	({readonly readable: ReadableStream<Uint8Array>} | Deno.Reader) & ({readonly size: number} | Deno.Seeker) |
-	ToSqlBytes;
-```
+> `type` SqlSource = `string` | Uint8Array | (\{`readonly` readable: ReadableStream\<Uint8Array>} | [Reader](generated-doc/interface.Reader/README.md)) \& (\{`readonly` size: `number`} | [Seeker](generated-doc/interface.Seeker/README.md)) | [ToSqlBytes](generated-doc/private.interface.ToSqlBytes/README.md)
+
+
 
 As `string`, `Uint8Array`, `ReadableStream<Uint8Array>` or `ToSqlBytes`.
 
@@ -685,17 +702,16 @@ Example:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example13>~)' > /tmp/example13.ts
-// deno run --allow-env --allow-net /tmp/example13.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 // 1. Define the generator
 
 const encoder = new TextEncoder;
 
-/**	Generates SELECT query for demonstrational purposes only
- **/
+// Generates SELECT query for demonstrational purposes only
 class SqlSelectGenerator
 {	constructor(private table: string, private idValue: number)
 	{
@@ -747,15 +763,15 @@ Which one works faster?
 
 The example below shows, that named parameters (session variables with pre-query under the hood) works slightly faster than positional parameters.
 And sending text query works even faster than both.
-However preparing SQL statement once (see [MySQL binary protocol](#mysql-binary-protocol), and then executing it many times is the fastest.
+However preparing SQL statement once (see MySQL binary protocol, and then executing it many times is the fastest.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example14>~)' > /tmp/example14.ts
-// deno run --allow-env --allow-net /tmp/example14.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 const N_ROWS = 100;
 const N_QUERIES = 800;
@@ -826,7 +842,7 @@ await conn.query("DROP DATABASE test1");
 
 On my computer i see the following results:
 
-```
+```ts
 Begin tests
 Text Protocol took 0.281 sec (random=39308)
 Named params took 0.387 sec (random=38258)
@@ -853,19 +869,20 @@ Not all query types can be run in Binary Protocol - see [here](https://dev.mysql
 ## Prepared statements
 
 Function `conn.prepare()` prepares an SQL statement, that you can execute multiple times, each time with different parameters.
-```ts
-MyConn.prepare(sql: SqlSource): Promise<Resultsets>
-```
+
+> ⚙ MyConn.prepare\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
+
+
 
 The returned object must be asynchronously disposed to free the prepared statement on the server.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example15>~)' > /tmp/example15.ts
-// deno run --allow-env --allow-net /tmp/example15.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -894,17 +911,23 @@ assertEquals
 
 There's family of functions:
 
+> ⚙ MyConn.prepareVoid(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>>
 
 
-```ts
-MyConn.prepareVoid(sql: SqlSource): Promise<Resultsets<void>>
-MyConn.prepare<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Record<string, ColumnType>>>
-MyConn.prepareMap<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Map<string, ColumnType>>>
-MyConn.prepareArr<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType[]>>
-MyConn.prepareCol<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType>>
-```
+> ⚙ MyConn.prepare\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Record>>
 
-The difference between them is the result type that `Resultsets.exec()` returns.
+
+> ⚙ MyConn.prepareMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>>
+
+
+> ⚙ MyConn.prepareArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>>
+
+
+> ⚙ MyConn.prepareCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>>
+
+
+
+The difference between them is the result type that [Resultsets.exec()](generated-doc/class.Resultsets/README.md#-execparams-param-resultsetspromiserow) returns.
 
 ```ts
 Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
@@ -912,13 +935,21 @@ Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
 
 The same functions exist in variant with callbacks. They call your callback with the object that represents the prepared statement, and at the end of the callback they dispose the object.
 
-```ts
-MyConn.forPreparedVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-MyConn.forPrepared<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-MyConn.forPreparedMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-MyConn.forPreparedArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-MyConn.forPreparedCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-```
+> ⚙ MyConn.forPreparedVoid\<T>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<`void`>) => Promise\<T>): Promise\<T>
+
+
+> ⚙ MyConn.forPrepared\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Record\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+
+
+> ⚙ MyConn.forPreparedMap\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<Map\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+
+
+> ⚙ MyConn.forPreparedArr\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>) => Promise\<T>): Promise\<T>
+
+
+> ⚙ MyConn.forPreparedCol\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](generated-doc/type.SqlSource/README.md), callback: (prepared: [Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>) => Promise\<T>): Promise\<T>
+
+
 
 ## Reading long BLOBs
 
@@ -927,10 +958,10 @@ This library tries to have everything needed in real life usage. It's possible t
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example16>~)' > /tmp/example16.ts
-// deno run --allow-env --allow-net /tmp/example16.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -951,10 +982,10 @@ Query parameter values can be of various types, including `ReadableStream<Uint8A
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example17>~)' > /tmp/example17.ts
-// deno run --allow-env --allow-net /tmp/example17.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -990,10 +1021,10 @@ This allows to read SQL from files.
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example18>~)' > /tmp/example18.ts
-// deno run --allow-env --allow-net /tmp/example18.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1025,10 +1056,10 @@ If this feature is enabled on your server, you can register a custom handler tha
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example19>~)' > /tmp/example19.ts
-// deno run --allow-env --allow-net /tmp/example19.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {dirname} from "https://deno.land/std@0.224.0/path/mod.ts";
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1089,36 +1120,36 @@ console.log(await conn.query("SELECT * FROM t_countries LIMIT 3").all());
 
 ## Connection status
 
-`MyConn` object has several status variables:
+[MyConn](generated-doc/class.MyConn/README.md) object has several status variables:
 
-- `conn.serverVersion: string` - remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
-- `conn.connectionId: number` - thread ID of the connection, that `SHOW PROCESSLIST` shows.
-- `conn.autocommit: boolean` - true if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
-- `conn.inTrx: boolean` - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
-- `conn.inTrxReadonly: boolean` - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
-- `conn.noBackslashEscapes: boolean` - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
-- `conn.schema: string` - if your server version supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value. With old servers this will always remain empty string.
+- [conn.serverVersion: string](generated-doc/class.MyConn/README.md) - remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
+- [conn.connectionId: number](generated-doc/class.MyConn/README.md) - thread ID of the connection, that `SHOW PROCESSLIST` shows.
+- [conn.autocommit: boolean](generated-doc/class.MyConn/README.md) - true if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
+- [conn.inTrx: boolean](generated-doc/class.MyConn/README.md) - true if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
+- [conn.inTrxReadonly: boolean](generated-doc/class.MyConn/README.md) - true if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
+- [conn.noBackslashEscapes: boolean](generated-doc/class.MyConn/README.md) - true, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
+- [conn.schema: string](generated-doc/class.MyConn/README.md) - if your server version supports change schema notifications, this will be current default schema (database) name. Queries like `USE new_schema` will affect this value. With old servers this will always remain empty string.
 
-Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call `await conn.connect()`.
+Initially these variables can be empty. They are set after actual connection to the server, that happens after issuing the first query. Or you can call [await conn.connect()](generated-doc/class.MyConn/README.md#-connect-promisevoid).
 
 ## Resultsets
 
-`conn.query*()` methods all return `Resultsets` object, that contains information about your query result.
+`conn.query*()` methods all return [Resultsets](generated-doc/class.Resultsets/README.md) object, that contains information about your query result.
 Also this object allows to iterate over rows that the query returned.
 
-If your query returned multiple resultsets, `conn.queryVoid()` skips them, and returns only the status of the last one.
+If your query returned multiple resultsets, [conn.queryVoid()](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid) skips them, and returns only the status of the last one.
 
-`conn.query*()` functions except `conn.queryVoid()` don't skip resultsets, and `await resultsets.nextResultset()` will advance to the next result, and return true.
-If there are no more resultsets, `await resultsets.nextResultset()` returns false.
+`conn.query*()` functions except [conn.queryVoid()](generated-doc/class.MyConn/README.md#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid) don't skip resultsets, and [await resultsets.nextResultset()](generated-doc/class.Resultsets/README.md#-nextresultset-promiseboolean) will advance to the next result, and return true.
+If there are no more resultsets, [await resultsets.nextResultset()](generated-doc/class.Resultsets/README.md#-nextresultset-promiseboolean) returns false.
 And you must read or discard all the resultsets before being able to issue next queries.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example20>~)' > /tmp/example20.ts
-// deno run --allow-env --allow-net /tmp/example20.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1146,7 +1177,7 @@ for await (const row of resultsets)
 }
 ```
 
-`Resultsets` object has the following properties and methods:
+[Resultsets](generated-doc/class.Resultsets/README.md) object has the following properties and methods:
 
 - `Resultsets.lastInsertId: number|bigint` - In INSERT queries this is last generated AUTO_INCREMENT ID
 - `Resultsets.affectedRows: number|bigint` - In modifying queries, like INSERT, UPDATE and DELETE this shows how many rows were affected by the query
@@ -1172,7 +1203,7 @@ The connection string (DSN) that you provide when ceating a connections pool, ca
 
 To change the default schema name during the connection you can issue a `USE schema_name` query.
 
-This library also provides `conn.use()` function.
+This library also provides [conn.use()](generated-doc/class.MyConn/README.md#-useschema-string-void) function.
 
 ```ts
 function MyConn.use(schema: string): void;
@@ -1191,19 +1222,22 @@ To understand what's going on in your transaction, it's convenient to have a cal
 
 This library allows you to enable SQL logging in specific connection, or session:
 
-```ts
-function MyConn.setSqlLogger(sqlLogger?: SqlLogger|true): void;
-function MySession.setSqlLogger(sqlLogger?: SqlLogger|true): void;
-```
+> ⚙ MyConn.setSqlLogger(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
+
+
+> ⚙ MySession.setSqlLogger(sqlLogger?: [SqlLogger](generated-doc/interface.SqlLogger/README.md) | `true`): `void`
+
+
+
 By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger will be used, that logs to `Deno.stderr`.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example21>~)' > /tmp/example21.ts
-// deno run --allow-env --allow-net /tmp/example21.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1239,46 +1273,39 @@ The default logger truncates long queries to maximum 10,000 bytes, and long quer
 Also it shows no more than 100 lines of each query SQL.
 
 This library allows you to provide your own custom logger.
-This can be any object that implements `SqlLogger` interface:
+This can be any object that implements [SqlLogger](generated-doc/interface.SqlLogger/README.md) interface:
 
 ```ts
 interface SqlLogger
-{	/**	A new connection established.
-	 **/
+{	// A new connection established.
 	connect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
-	/**	Connection state reset (before returning this connection to it's pool).
-	 **/
+	// Connection state reset (before returning this connection to it's pool).
 	resetConnection?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
-	/**	Disconnected.
-	 **/
+	// Disconnected.
 	disconnect?: (dsn: Dsn, connectionId: number) => Promise<unknown>;
 
-	/**	Started to send a new query to the server.
-		`isPrepare` means that this is query preparation operation (the query is not executed, but stored on the server).
-		This function can return object that implements `SqlLoggerQuery` for further logging the query process.
-		Query SQL (if any) will be handed to the methods of `SqlLoggerQuery`.
-	 **/
+	// Started to send a new query to the server.
+	// `isPrepare` means that this is query preparation operation (the query is not executed, but stored on the server).
+	// This function can return object that implements `SqlLoggerQuery` for further logging the query process.
+	// Query SQL (if any) will be handed to the methods of `SqlLoggerQuery`.
 	query?: (dsn: Dsn, connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean) => Promise<SqlLoggerQuery | undefined>;
 
-	/**	Deallocated prepared query or multiple queries indentified by their `stmtIds`.
-	 **/
+	// Deallocated prepared query or multiple queries indentified by their `stmtIds`.
 	deallocatePrepare?: (dsn: Dsn, connectionId: number, stmtIds: number[]) => Promise<unknown>;
 
-	/**	This callback is called when current `MyConn` object is disposed of. This happens at the end of `MyPool.forConn()`, or at the end of a block with `using conn = ...`.
-	 **/
+	// This callback is called when current `MyConn` object is disposed of. This happens at the end of `MyPool.forConn()`, or at the end of a block with `using conn = ...`.
 	dispose?: () => Promise<unknown>;
 }
 
-/**	1. In the beginning one of `appendToQuery()` or `setStmtId()` is called.
-	To start writing a regular query, `appendToQuery()` is called one or multiple times.
-	To write a prepared query, `setStmtId()` is called (once).
-	2. Then, in case of prepared query, a sequence of `appendToParam()` (one or multiple times) and `paramEnd()` can be called.
-	3. Then, if writing queries batch, `nextQuery()` is called, and the process repeats from the beginning.
-	4. Then, after all the queries in batch are written, `start()` is called. At this point queries are sent to the database server.
-	5. Then, when the server responds, `end()` is called.
- **/
+// 1. In the beginning one of `appendToQuery()` or `setStmtId()` is called.
+// To start writing a regular query, `appendToQuery()` is called one or multiple times.
+// To write a prepared query, `setStmtId()` is called (once).
+// 2. Then, in case of prepared query, a sequence of `appendToParam()` (one or multiple times) and `paramEnd()` can be called.
+// 3. Then, if writing queries batch, `nextQuery()` is called, and the process repeats from the beginning.
+// 4. Then, after all the queries in batch are written, `start()` is called. At this point queries are sent to the database server.
+// 5. Then, when the server responds, `end()` is called.
 interface SqlLoggerQuery
 {	appendToQuery?: (data: Uint8Array) => Promise<unknown>;
 
@@ -1292,15 +1319,15 @@ interface SqlLoggerQuery
 
 	start?: () => Promise<unknown>;
 
-	/**	If this was query preparation (`SqlLogger.query(_, _, true)`), `stmtId` will be the statement ID that the server returned.
-		Else `stmtId` will be `-1`.
-	 **/
+	// If this was query preparation (`SqlLogger.query(_, _, true)`), `stmtId` will be the statement ID that the server returned.
+	// Else `stmtId` will be `-1`.
 	end?: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
 }
 ```
-This library provides a base class called `SqlLogToWritable` that you can use to implement a logger that logs to any `WritableStream<Uint8Array>` or `Deno.Writer`.
 
-The default logger (that is used if you specify `sqlLogger == true`) is also implemented through `SqlLogToWritable`:
+This library provides a base class called [SqlLogToWritable](generated-doc/class.SqlLogToWritable/README.md) that you can use to implement a logger that logs to any `WritableStream<Uint8Array>` or `Deno.Writer`.
+
+The default logger (that is used if you specify `sqlLogger == true`) is also implemented through [SqlLogToWritable](generated-doc/class.SqlLogToWritable/README.md):
 
 ```ts
 conn.setSqlLogger(true);
@@ -1315,10 +1342,10 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example22>~)' > /tmp/example22.ts
-// deno run --allow-env --allow-net --allow-write /tmp/example22.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1377,70 +1404,65 @@ console.log(`See log in ${LOG_FILE}`);
 
 To view the color-highlighted file we can do:
 
-```ts
+```bash
 less -r /tmp/sql.log
 ```
 
-You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.0/private/sql_log_to_writer.ts) how `SqlLogToWriter` class is implemented,
+You can see [here](https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.1/private/sql_log_to_writable.ts) how [SqlLogToWritable](generated-doc/class.SqlLogToWritable/README.md) class is implemented,
 and you can override it's public and protected methods to customize it's behavior.
 
 ## Transactions
 
-`MyConn` class has the following functions to work with transactions:
+[MyConn](generated-doc/class.MyConn/README.md) class has the following functions to work with transactions:
 
 ```ts
-/**	Commit current transaction (if any), and start new.
-	This is lazy operation. The corresponding command will be sent to the server later (however commit of the current transaction will happen immediately).
-	To start regular transaction, call `startTrx()` without parameters.
-	To start READONLY transaction, pass `{readonly: true}`.
-	To start distributed transaction, pass `{xaId: '...'}`.
-	If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
-	If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
- **/
-function MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
+// Commit current transaction (if any), and start new.
+// This is lazy operation. The corresponding command will be sent to the server later (however commit of the current transaction will happen immediately).
+// To start regular transaction, call `startTrx()` without parameters.
+// To start READONLY transaction, pass `{readonly: true}`.
+// To start distributed transaction, pass `{xaId: '...'}`.
+// If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
+// If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
+MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
 
-/**	Creates transaction savepoint, and returns ID number of this new savepoint.
-	Then you can call `conn.rollback(pointId)`.
-	This is lazy operation. The corresponding command will be sent to the server later.
-	Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
- **/
-function MyConn.savepoint(): number;
+// Creates transaction savepoint, and returns ID number of this new savepoint.
+// Then you can call `conn.rollback(pointId)`.
+// This is lazy operation. The corresponding command will be sent to the server later.
+// Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
+MyConn.savepoint(): number;
 
-/**	If the current transaction is of distributed type, this function prepares the 2-phase commit.
-	Else does nothing.
-	If this function succeeds, the transaction will be saved on the server till you call `commit()`.
-	The saved transaction can survive server restart and unexpected halt.
-	You need to commit it as soon as possible, to release all the locks that it holds.
-	Usually, you want to prepare transactions on all servers, and immediately commit them if `prepareCommit()` succeeded, or rollback them if it failed.
- **/
-function MyConn.prepareCommit(): Promise<void>;
+// If the current transaction is of distributed type, this function prepares the 2-phase commit.
+// Else does nothing.
+// If this function succeeds, the transaction will be saved on the server till you call `commit()`.
+// The saved transaction can survive server restart and unexpected halt.
+// You need to commit it as soon as possible, to release all the locks that it holds.
+// Usually, you want to prepare transactions on all servers, and immediately commit them if `prepareCommit()` succeeded, or rollback them if it failed.
+MyConn.prepareCommit(): Promise<void>;
 
-/**	Rollback to a savepoint, or all.
-	If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
-	If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
-	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
-	If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
-	If `toPointId` was `0` (not for XAs), the transaction will be restarted after the disconnect if rollback failed.
- **/
-function MyConn.rollback(toPointId?: number): Promise<void>;
+// Rollback to a savepoint, or all.
+// If `toPointId` is not given or undefined - rolls back the whole transaction (XA transactions can be rolled back before `prepareCommit()` called, or after that).
+// If `toPointId` is a number returned from `savepoint()` call, rolls back to that point (also works with XAs).
+// If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (doesn't work with XAs).
+// If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
+// If `toPointId` was `0` (not for XAs), the transaction will be restarted after the disconnect if rollback failed.
+MyConn.rollback(toPointId?: number): Promise<void>;
 
-/**	Commit.
-	If the current transaction is XA, and you didn't call `prepareCommit()` i'll throw error.
-	With `andChain` parameter will commit and then restart the same transaction (doesn't work with XAs).
-	If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
- **/
-function MyConn.commit(andChain=false): Promise<void>;
+// Commit.
+// If the current transaction is XA, and you didn't call `prepareCommit()` i'll throw error.
+// With `andChain` parameter will commit and then restart the same transaction (doesn't work with XAs).
+// If commit fails will rollback and throw error. If rollback also fails, will disconnect from server and throw ServerDisconnectedError.
+MyConn.commit(andChain=false): Promise<void>;
 ```
 
-To start a regular transaction call `startTrx()` without parameters. Then you can create savepoints, rollback to a savepoint, or rollback the whole transaction, or commit.
+To start a regular transaction call [MyConn.startTrx()](generated-doc/class.MyConn/README.md#-starttrxoptions-readonly-boolean-xaid-string-xaid1-string-promisevoid) without parameters. Then you can create savepoints, rollback to a savepoint, or rollback the whole transaction, or commit.
 
 ```ts
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
-// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.0/README.md' | perl -ne '$y=$1 if /^```(ts)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example23>~)' > /tmp/example23.ts
-// deno run --allow-env --allow-net /tmp/example23.ts
+// curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.1/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-p9mn>~)' > /tmp/example-p9mn.ts
+// deno run --allow-env --allow-net /tmp/example-p9mn.ts
 
-import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1488,42 +1510,38 @@ await conn.startTrx({xaId: Math.random()+''});
 await conn.startTrx({xaId1: Math.random()+'-'});
 ```
 
-If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and `conn.connectionId` (the latter may be not known at this point if there's no connection to the server yet, so it will be appended later).
+If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and [conn.connectionId](generated-doc/class.MyConn/README.md) (the latter may be not known at this point if there's no connection to the server yet, so it will be appended later).
 
-Transaction-related functions are also present in `MySession` object.
+Transaction-related functions are also present in [MySession](generated-doc/class.MySession/README.md) object.
 If you start a transaction on the session level, all the connections in this session will have this transaction, and when you ask new connections, the current transaction with all the savepoints will be started there automatically.
 
 ```ts
-/**	Commit current transaction (if any), and start new.
-	If there're active transactions, they will be properly (2-phase if needed) committed.
-	Then new transaction will be started on all connections in this session.
-	If then you'll ask a new connection, it will join the transaction.
-	If commit fails, this function does rollback, and throws the Error.
- **/
+// Commit current transaction (if any), and start new.
+// If there're active transactions, they will be properly (2-phase if needed) committed.
+// Then new transaction will be started on all connections in this session.
+// If then you'll ask a new connection, it will join the transaction.
+// If commit fails, this function does rollback, and throws the Error.
 function MySession.startTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<void>;
 
-/**	Create session-level savepoint, and return it's ID number.
-	Then you can call `session.rollback(pointId)`.
-	This is lazy operation. The corresponding command will be sent to the server later.
-	Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
-	Using `MySession.savepoint()` doesn't interfere with `MyConn.savepoint()`, so it's possible to use both.
- **/
+// Create session-level savepoint, and return it's ID number.
+// Then you can call `session.rollback(pointId)`.
+// This is lazy operation. The corresponding command will be sent to the server later.
+// Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
+// Using `MySession.savepoint()` doesn't interfere with `MyConn.savepoint()`, so it's possible to use both.
 function MySession.savepoint(): number;
 
-/**	Rollback all the active transactions in this session.
-	If `toPointId` is not given or undefined - rolls back the whole transaction.
-	If `toPointId` is a number returned from `savepoint()` call, rolls back all the transactions to that point.
-	If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (also works with XAs).
-	If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
-	If `toPointId` was `0`, the transaction will be restarted after the disconnect if rollback failed.
- **/
+// Rollback all the active transactions in this session.
+// If `toPointId` is not given or undefined - rolls back the whole transaction.
+// If `toPointId` is a number returned from `savepoint()` call, rolls back all the transactions to that point.
+// If `toPointId` is `0`, rolls back to the beginning of transaction, and doesn't end this transaction (also works with XAs).
+// If rollback (not to savepoint) failed, will disconnect from server and throw ServerDisconnectedError.
+// If `toPointId` was `0`, the transaction will be restarted after the disconnect if rollback failed.
 function MySession.rollback(toPointId?: number): Promise<void>;
 
-/**	Commit all the active transactions in this session.
-	If the session transaction was started with `{xa: true}`, will do 2-phase commit.
-	If failed will rollback. If failed and `andChain` was true, will rollback and restart the same transaction (also XA).
-	If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
- **/
+// Commit all the active transactions in this session.
+// If the session transaction was started with `{xa: true}`, will do 2-phase commit.
+// If failed will rollback. If failed and `andChain` was true, will rollback and restart the same transaction (also XA).
+// If rollback failed, will disconnect (and restart the transaction in case of `andChain`).
 function MySession.commit(andChain=false): Promise<void>;
 ```
 
@@ -1596,7 +1614,7 @@ Transactions manager tables must have one column called `xa_id`, as defined abov
 If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
 
 ```ts
-import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.0/mod.ts';
+import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.1/mod.ts';
 
 const dsn1 = new Dsn('mysql://app:app@localhost/test1');
 const dsn2 = new Dsn('mysql://app:app@localhost/test2');
@@ -1639,7 +1657,7 @@ await session.commit();
 When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
 This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, ID of chosen info table, and MySQL connection ID.
 
-When you call `session.commit()`, the 2-phase commit takes place on all the connections in this session.
+When you call [session.commit()](generated-doc/class.MySession/README.md#-commitandchain-booleanfalse-promisevoid), the 2-phase commit takes place on all the connections in this session.
 After the 1st phase succeeded, current XA ID is inserted to the chosen info table (in parallel connection in autocommit mode).
 And after successful 2nd phase, this record is deleted from the info table.
 

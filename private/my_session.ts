@@ -54,7 +54,7 @@ export class MySession
 	{	return this.#connsArr;
 	}
 
-	conn(dsn?: Dsn|string, fresh=false)
+	conn(dsn?: Dsn|string, fresh=false): MyConn
 	{	if (this.#isDisposed)
 		{	throw new Error(`This session object is already disposed of`);
 		}

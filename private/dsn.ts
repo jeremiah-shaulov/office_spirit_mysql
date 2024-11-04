@@ -10,20 +10,22 @@ type Any = any;
 /** Data source name. URL string that specifies how to connect to MySQL server.
 	Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`.
 	Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
+
 	Example: `mysql://root@localhost/` or `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`.
+
 	Possible parameters:
-	`connectionTimeout` (number) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds;
-	`reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
-	`keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
-	`keepAliveMax` (number) - how many times at most to recycle each connection;
-	`maxConns` (number) - limit number of simultaneous connections to this DSN in pool
-	`maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
-	`foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
-	`ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
-	`retryLockWaitTimeout` (boolean) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
-	`retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes; please note, that this will also rerun queries like `CALL`;
-	`datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
-	`correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
+	- `connectionTimeout` (number) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds;
+	- `reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
+	- `keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
+	- `keepAliveMax` (number) - how many times at most to recycle each connection;
+	- `maxConns` (number) - limit number of simultaneous connections to this DSN in pool
+	- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
+	- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
+	- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
+	- `retryLockWaitTimeout` (boolean) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
+	- `retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes; please note, that this will also rerun queries like `CALL`;
+	- `datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
+	- `correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
  **/
 export class Dsn
 {	#hostname: string;

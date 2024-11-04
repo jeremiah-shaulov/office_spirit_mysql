@@ -55,30 +55,45 @@ export class MyConn
 		pool.ref();
 	}
 
+	/**	Remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
+	 **/
 	get serverVersion()
 	{	return this.#protocol?.serverVersion ?? '';
 	}
 
+	/**	Thread ID of the connection, that `SHOW PROCESSLIST` shows.
+	 **/
 	get connectionId()
 	{	return this.#protocol?.connectionId ?? 0;
 	}
 
+	/**	True if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
+	 **/
 	get autocommit()
 	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0;
 	}
 
+	/**	True if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
+	 **/
 	get inTrx()
 	{	return this.pendingTrxSql.length!=0 || ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS) != 0;
 	}
 
+	/**	True if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
+	 **/
 	get inTrxReadonly()
 	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_IN_TRANS_READONLY) != 0;
 	}
 
+	/**	True, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
+	 **/
 	get noBackslashEscapes()
 	{	return ((this.#protocol?.statusFlags ?? 0) & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 	}
 
+	/**	If your server version supports change schema notifications, this will be current default schema (database) name.
+		Queries like `USE new_schema` will affect this value. With old servers this will always remain empty string.
+	 **/
 	get schema()
 	{	return this.#protocol?.schema ?? '';
 	}
@@ -401,7 +416,7 @@ export class MyConn
 	}
 
 	/**	Creates transaction savepoint, and returns ID number of this new savepoint.
-		Then you can call `conn.rollback(pointId)`.
+		Then you can call [conn.rollback(pointId)]{@link MyConn.rollback}.
 		This is lazy operation. The corresponding command will be sent to the server later.
 		Calling `savepoint()` immediately followed by `rollback(pointId)` to this point will send no commands.
 	 **/

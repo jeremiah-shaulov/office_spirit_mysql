@@ -55,15 +55,39 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 
 export class Resultsets<Row>
 {	constructor
-	(	public columns: Column[] = [],
+	(	/**	Information about columns in resultset.
+		 **/
+		public columns: Column[] = [],
+
+		/**	In INSERT queries this is last generated AUTO_INCREMENT ID
+		 **/
 		public lastInsertId: number|bigint = 0,
+
+		/**	In modifying queries, like INSERT, UPDATE and DELETE this shows how many rows were affected by the query
+		 **/
 		public affectedRows: number|bigint = 0,
+
+		/**	If "foundRows" connection attribute is set, will ask the server to report about "found rows" (matched by the WHERE clause), instead of affected, and "affectedRows" will not be used. See [this page](https://dev.mysql.com/doc/c-api/5.7/en/mysql-affected-rows.html) for more information.
+		 **/
 		public foundRows: number|bigint = 0,
+
+		/**	Number of warnings produced by the last query. To see the warning messages you can use `SHOW WARNINGS` query.
+		 **/
 		public warnings: number = 0,
+
+		/**	Human-readable information about last query result, if sent by server.
+		 **/
 		public statusInfo = '',
+
+		/**	Server can report about nonoptimal queries.
+		 **/
 		public noGoodIndexUsed = false,
+
 		public noIndexUsed = false,
 		public isSlowQuery = false,
+
+		/**	Number of `?`-placeholders in the SQL query.
+		 **/
 		public nPlaceholders = 0
 	)
 	{
@@ -81,7 +105,7 @@ export class Resultsets<Row>
 	{	return false;
 	}
 
-	/**	Execute (again) a prepared statement.
+	/**	If this is a prepared query, this function executes it again.
 	 **/
 	exec(_params: Param[]): ResultsetsPromise<Row>
 	{	throw new Error('Not implemented');
