@@ -60,7 +60,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 		}
 	}
 
-	protected nextConnBanner(dsn: Dsn, connectionId: number): Uint8Array|string|undefined
+	protected override nextConnBanner(dsn: Dsn, connectionId: number): Uint8Array|string|undefined
 	{	const msg = `\n/* ${dsn.hostname} #${connectionId} */\n\n`;
 		return this.withColor ? COLOR_SQL_COMMENT+msg+RESET_COLOR : msg;
 	}

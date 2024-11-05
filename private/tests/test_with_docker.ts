@@ -11,6 +11,9 @@ const {TESTS_DSN, WITH_DOCKER} = Deno.env.toObject();
 
 const decoder = new TextDecoder;
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 export function testWithDocker(tests: Array<(dsnStr: string) => Promise<void>>)
 {	function doRunTests(dsnStr: string)
 	{	return runTests(dsnStr, tests);
@@ -83,10 +86,16 @@ async function runTests(dsnStr: string, tests: Array<(dsnStr: string) => Promise
 		const since = Date.now();
 		let error;
 		try
-		{	const before = Object.assign({}, Deno.resources());
-			await t(dsnStr);
-			const after = Object.assign({}, Deno.resources());
-			assertEquals(before, after);
+		{	const deno: Any = Deno;
+			if (typeof(deno.resources) == 'function')
+			{	const before = Object.assign({}, deno.resources());
+				await t(dsnStr);
+				const after = Object.assign({}, deno.resources());
+				assertEquals(before, after);
+			}
+			else
+			{	await t(dsnStr);
+			}
 		}
 		catch (e)
 		{	error = e;

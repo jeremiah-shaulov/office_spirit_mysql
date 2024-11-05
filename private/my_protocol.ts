@@ -765,7 +765,7 @@ L:		while (true)
 		}
 	}
 
-	#rethrowError(error: Error): never
+	#rethrowError(error: unknown): never
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
@@ -780,7 +780,7 @@ L:		while (true)
 		throw error;
 	}
 
-	#rethrowErrorIfFatal(error: Error, isFromPool=false)
+	#rethrowErrorIfFatal(error: unknown, isFromPool=false)
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
 		{	try
@@ -992,7 +992,7 @@ L:		while (true)
 				{	error = e;
 				}
 				if (sqlLoggerQuery)
-				{	await sqlLoggerQuery.end(error, -1);
+				{	await sqlLoggerQuery.end(error instanceof Error ? error: new Error(error+''), -1);
 				}
 				if (nRetry>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
 				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
@@ -1117,7 +1117,7 @@ L:		while (true)
 				}
 				catch (e)
 				{	if (sqlLoggerQuery)
-					{	await sqlLoggerQuery.end(e, -1);
+					{	await sqlLoggerQuery.end(e instanceof Error ? e : new Error(e+''), -1);
 					}
 					if (error)
 					{	this.logger.error(error);
@@ -1209,7 +1209,7 @@ L:		while (true)
 		}
 		catch (e)
 		{	if (sqlLoggerQuery)
-			{	await sqlLoggerQuery.end(e, -1);
+			{	await sqlLoggerQuery.end(e instanceof Error ? e : new Error(e+''), -1);
 			}
 			this.#rethrowErrorIfFatal(e, isFromPool && letReturnUndefined);
 		}
@@ -1621,7 +1621,7 @@ L:		while (true)
 		}
 		catch (e)
 		{	if (sqlLoggerQuery)
-			{	await sqlLoggerQuery.end(e, -1);
+			{	await sqlLoggerQuery.end(e instanceof Error ? e : new Error(e+''), -1);
 			}
 			this.#rethrowError(e);
 		}

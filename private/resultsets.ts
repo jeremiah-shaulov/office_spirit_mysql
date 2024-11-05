@@ -176,18 +176,18 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	/**	Calls `this.discard()` and if this is a prepared statement, deallocates it.
 	 **/
-	[Symbol.asyncDispose]()
+	override [Symbol.asyncDispose]()
 	{	if (this.stmtId != -1)
 		{	this.disposePreparedStmt();
 		}
 		return this.discard();
 	}
 
-	get hasMore()
+	override get hasMore()
 	{	return this.hasMoreInternal;
 	}
 
-	exec(params: Param[])
+	override exec(params: Param[])
 	{	return new ResultsetsPromise<Row>
 		(	(y, n) =>
 			{	if (params.length != this.nPlaceholders)
@@ -205,7 +205,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		);
 	}
 
-	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
+	override async *[Symbol.asyncIterator](): AsyncGenerator<Row>
 	{	if (this.hasMoreInternal)
 		{	while (true)
 			{	if (!this.protocol)
@@ -220,7 +220,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		}
 	}
 
-	nextResultset()
+	override nextResultset()
 	{	if (!this.hasMoreInternal)
 		{	return Promise.resolve(false);
 		}
@@ -230,7 +230,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		return this.protocol.nextResultset();
 	}
 
-	async discard()
+	override async discard()
 	{	if (this.hasMoreInternal)
 		{	while (this.protocol && await this.protocol.nextResultset(true));
 		}

@@ -431,7 +431,7 @@ async function testBasic(dsnStr: string)
 
 async function testNoDsn(_dsnStr: string)
 {	{	await using pool = new MyPool;
-		let error;
+		let error: Any;
 		try
 		{	await pool.forConn(() => Promise.resolve());
 		}
@@ -442,7 +442,7 @@ async function testNoDsn(_dsnStr: string)
 	}
 
 	{	await using pool = new MyPool('');
-		let error = undefined;
+		let error: Any;
 		try
 		{	await pool.forConn(() => Promise.resolve());
 		}
@@ -506,8 +506,8 @@ async function testPrepared(dsnStr: string)
 	);
 
 	// SELECT call end()
-	let error: Error|undefined;
-	let error2: Error|undefined;
+	let error: Any;
+	let error2: Any;
 	await conn.forPrepared
 	(	"SELECT * FROM t_log WHERE id=?",
 		async prepared =>
@@ -1022,7 +1022,7 @@ async function testPoolDsn(_dsnStr: string)
 	pool.forSession
 	(	// deno-lint-ignore require-await
 		async session =>
-		{	let error;
+		{	let error: Any;
 			try
 			{	session.conn();
 			}
@@ -1233,7 +1233,7 @@ async function testTrx(dsnStr: string)
 				// readonly
 				await conn.startTrx({readonly: true});
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-				let error;
+				let error: Any;
 				try
 				{	await conn.query("INSERT INTO t_log SET a = 123");
 				}
@@ -1589,7 +1589,7 @@ async function testRetryQueryTimes(dsnStr: string)
 							}
 						}
 					);
-					let error;
+					let error: Any;
 					try
 					{	await conn2.query("UPDATE t_log SET message = 'Message **' WHERE id = 1");
 					}
@@ -1630,7 +1630,7 @@ async function testMaxConns(dsnStr: string)
 				const conn2 = session.conn(undefined, true);
 				await conn2.connect();
 
-				let error;
+				let error: Any;
 				const since = Date.now();
 				try
 				{	const conn3 = session.conn(undefined, true);
@@ -1736,7 +1736,7 @@ async function testLoadBigDump(dsnStr: string)
 									insertStatus = await conn.query({...o1, ...o2});
 								}
 							}
-							catch (e)
+							catch (e: Any)
 							{	if (e.message.indexOf('innodb_log_file_size') == -1)
 								{	throw e;
 								}

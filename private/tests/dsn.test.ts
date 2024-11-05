@@ -1,10 +1,13 @@
 import {Dsn} from '../dsn.ts';
 import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 Deno.test
 (	'Basic',
 	() =>
-	{	let error;
+	{	let error: Any;
 		try
 		{	new Dsn('http://example.com/');
 		}

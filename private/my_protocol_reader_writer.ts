@@ -301,7 +301,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 			}
 			catch (e)
-			{	throw new SendWithDataError(e.message, packetSize);
+			{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
 			}
 			finally
 			{	if (logPromise)
@@ -397,7 +397,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
+				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
 				}
 			}
 		}
@@ -446,7 +446,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
+				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
 				}
 				this.bufferEnd = 0;
 			}
@@ -466,7 +466,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 				}
 				catch (e)
-				{	throw new SendWithDataError(e.message, packetSize);
+				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
 				}
 				canSend -= value.length;
 				if (canSend > 0)

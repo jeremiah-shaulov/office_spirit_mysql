@@ -504,7 +504,7 @@ export class MyConn
 					{	// want chain
 						this.startTrx(inTrxReadonly ? {readonly: true} : undefined); // this must return resolved promise, and not throw exceptions
 					}
-					throw new ServerDisconnectedError(e.message);
+					throw new ServerDisconnectedError(e instanceof Error ? e.message : e+'');
 				}
 			}
 			this.#curXaId = '';
@@ -553,7 +553,7 @@ export class MyConn
 				{	protocol.logger.error(e2);
 					this.#doEnd(false);
 					protocol.logger.error(e);
-					throw new ServerDisconnectedError(e.message);
+					throw new ServerDisconnectedError(e instanceof Error ? e.message : e+'');
 				}
 				error = e;
 			}

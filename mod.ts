@@ -21,7 +21,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	// Create a connections pool. This is the only way in this library to create server connections
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -107,7 +107,7 @@
 	The following is essentially the same:
 
 	```ts
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -116,7 +116,7 @@
 	```
 	And:
 	```ts
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	const version = await pool.forConn
@@ -130,7 +130,7 @@
 
 	If the promise that [pool.forConn()]{@link MyPool.forConn} returns is not explicitly awaited for, it will be awaited for when the pool is disposed, so the following is also equivalent:
 	```ts
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	pool.forConn
@@ -183,7 +183,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
@@ -245,7 +245,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -271,7 +271,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -297,7 +297,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -330,7 +330,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -371,7 +371,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -400,7 +400,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -505,7 +505,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -527,7 +527,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {Dsn, MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	dsn.correctDates = true; // THE DIFFERENCE IS HERE
@@ -563,7 +563,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -586,7 +586,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -635,7 +635,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	// 1. Define the generator
 
@@ -700,7 +700,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	const N_ROWS = 100;
 	const N_QUERIES = 800;
@@ -808,7 +808,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -866,7 +866,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -889,7 +889,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -927,7 +927,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -961,7 +961,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {dirname} from "https://deno.land/std@0.224.0/path/mod.ts";
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1050,7 +1050,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1133,7 +1133,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1240,7 +1240,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
@@ -1303,7 +1303,7 @@
 	less -r /tmp/sql.log
 	```
 
-	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.2/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
+	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.3/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
 	and you can override it's public and protected methods to customize it's behavior.
 
 	## Transactions
@@ -1356,7 +1356,7 @@
 	// export DSN='mysql://root:hello@localhost/tests'
 	// deno run --allow-env --allow-net example.ts
 
-	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -1508,7 +1508,7 @@
 	If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
 
 	```ts
-	import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.2/mod.ts';
+	import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.3/mod.ts';
 
 	const dsn1 = new Dsn('mysql://app:app@localhost/test1');
 	const dsn2 = new Dsn('mysql://app:app@localhost/test2');

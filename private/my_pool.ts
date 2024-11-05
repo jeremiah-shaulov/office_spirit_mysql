@@ -647,7 +647,7 @@ class ProtocolsFactory
 			catch (e)
 			{	// with connectionTimeout==0 must not retry
 				now = Date.now();
-				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && e.name!='ConnectionRefused')
+				if (reconnectInterval==0 || now>=connectTill || !(e instanceof ServerDisconnectedError) && !(e instanceof Error && e.name=='ConnectionRefused'))
 				{	throw e;
 				}
 				const dsnHash = dsn.hash;
