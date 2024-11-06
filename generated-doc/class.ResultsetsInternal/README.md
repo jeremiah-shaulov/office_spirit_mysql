@@ -9,12 +9,13 @@ Methods that don't exist on Resultsets are for internal use.
 
 - [constructor](#-constructorrowtype-rowtype)
 - [destructor](#-symbolasyncdispose-promisevoid)
-- 5 properties:
+- 6 properties:
 [protocol](#-protocol-myprotocol--undefined),
 [isPreparedStmt](#-ispreparedstmt-boolean),
 [stmtId](#-stmtid-number),
 [hasMoreInternal](#-hasmoreinternal-boolean),
-[rowType](#-rowtype-rowtype)
+[rowType](#-rowtype-rowtype),
+[hasMore](#-get-hasmore-boolean)
 - 6 methods:
 [exec](#-execparams-param-resultsetspromiserow),
 [nextResultset](#-nextresultset-promiseboolean),
@@ -51,6 +52,12 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 #### 📄 rowType: [RowType](../enum.RowType/README.md)
+
+
+
+#### 📄 `get` hasMore(): `boolean`
+
+> True if there are more rows or resultsets to read.
 
 
 

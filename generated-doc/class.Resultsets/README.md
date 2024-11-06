@@ -3,14 +3,14 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Resultsets} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
+import {Resultsets} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorcolumns-column-lastinsertid-number--bigint0-affectedrows-number--bigint0-foundrows-number--bigint0-warnings-number0-statusinfo-string-nogoodindexused-booleanfalse-noindexused-booleanfalse-isslowquery-booleanfalse-nplaceholders-number0)
 - [destructor](#-symbolasyncdispose-promisevoid)
-- 10 properties:
+- 11 properties:
 [columns](#-columns-column),
 [lastInsertId](#-lastinsertid-number--bigint),
 [affectedRows](#-affectedrows-number--bigint),
@@ -20,7 +20,8 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts
 [noGoodIndexUsed](#-nogoodindexused-boolean),
 [noIndexUsed](#-noindexused-boolean),
 [isSlowQuery](#-isslowquery-boolean),
-[nPlaceholders](#-nplaceholders-number)
+[nPlaceholders](#-nplaceholders-number),
+[hasMore](#-get-hasmore-boolean)
 - 7 methods:
 [exec](#-execparams-param-resultsetspromiserow),
 [all](#-all-promiserow),
@@ -94,6 +95,12 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts
 #### 📄 nPlaceholders: `number`
 
 > Number of `?`-placeholders in the SQL query.
+
+
+
+#### 📄 `get` hasMore(): `boolean`
+
+> True if there are more rows or resultsets to read.
 
 
 

@@ -3,13 +3,14 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MySession} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
+import {MySession} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorpool-pool)
 - [destructor](#-symboldispose-void)
+- property [conns](#-get-conns-readonly-myconn)
 - 6 methods:
 [conn](#-conndsn-dsn--string-fresh-booleanfalse-myconn),
 [startTrx](#-starttrxoptions-readonly-boolean-xa-boolean-promisevoid),
@@ -27,6 +28,10 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
 
 > Disposes all the connections in this session.
 > This method doesn't throw.
+
+
+
+#### 📄 `get` conns(): readonly MyConn\[]
 
 
 

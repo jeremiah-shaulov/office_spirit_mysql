@@ -3,14 +3,24 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructordsn-dsn-pool-pool)
 - [destructor](#-symboldispose-void)
-- property [dsn](#-readonly-dsn-dsn)
+- 10 properties:
+[dsn](#-readonly-dsn-dsn),
+[serverVersion](#-get-serverversion-string),
+[connectionId](#-get-connectionid-number),
+[autocommit](#-get-autocommit-boolean),
+[inTrx](#-get-intrx-boolean),
+[inTrxReadonly](#-get-intrxreadonly-boolean),
+[noBackslashEscapes](#-get-nobackslashescapes-boolean),
+[schema](#-get-schema-string),
+[inXa](#-get-inxa-boolean),
+[xaId](#-get-xaid-string)
 - 31 methods:
 [connect](#-connect-promisevoid),
 [end](#-end-void),
@@ -59,6 +69,57 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
 
 
 #### 📄 `readonly` dsn: [Dsn](../class.Dsn/README.md)
+
+
+
+#### 📄 `get` serverVersion(): `string`
+
+> Remote server version, as it reports (for example my server reports "8.0.25-0ubuntu0.21.04.1").
+
+
+
+#### 📄 `get` connectionId(): `number`
+
+> Thread ID of the connection, that `SHOW PROCESSLIST` shows.
+
+
+
+#### 📄 `get` autocommit(): `boolean`
+
+> True if the connection is currently in autocommit mode. Queries like `SET autocommit=0` will affect this flag.
+
+
+
+#### 📄 `get` inTrx(): `boolean`
+
+> True if a transaction was started. Queries like `START TRANSACTION` and `ROLLBACK` will affect this flag.
+
+
+
+#### 📄 `get` inTrxReadonly(): `boolean`
+
+> True if a readonly transaction was started. Queries like `START TRANSACTION READ ONLY` and `ROLLBACK` will affect this flag.
+
+
+
+#### 📄 `get` noBackslashEscapes(): `boolean`
+
+> True, if the server is configured not to use backslash escapes in string literals. Queries like `SET sql_mode='NO_BACKSLASH_ESCAPES'` will affect this flag.
+
+
+
+#### 📄 `get` schema(): `string`
+
+> If your server version supports change schema notifications, this will be current default schema (database) name.
+> Queries like `USE new_schema` will affect this value. With old servers this will always remain empty string.
+
+
+
+#### 📄 `get` inXa(): `boolean`
+
+
+
+#### 📄 `get` xaId(): `string`
 
 
 

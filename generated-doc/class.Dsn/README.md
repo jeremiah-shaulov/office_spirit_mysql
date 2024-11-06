@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
+import {Dsn} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.
@@ -29,7 +29,7 @@ Possible parameters:
 ## This class has
 
 - [constructor](#-constructordsn-string--dsn)
-- 19 properties:
+- 23 properties:
 [hostname](#-accessor-hostname-string),
 [port](#-accessor-port-number),
 [username](#-accessor-username-string),
@@ -48,7 +48,11 @@ Possible parameters:
 [retryQueryTimes](#-accessor-retryquerytimes-number),
 [datesAsString](#-accessor-datesasstring-boolean),
 [correctDates](#-accessor-correctdates-boolean),
-[initSql](#-accessor-initsql-string)
+[initSql](#-accessor-initsql-string),
+[name](#-get-name-string),
+[hash](#-get-hash-number),
+[hashNoSchema](#-get-hashnoschema-number),
+[addr](#-get-addr-connectoptions--transport-unix-path-string)
 - method [toString](#-tostring-string)
 - [deprecated symbol](#-deprecated-accessor-multistatements-boolean)
 
@@ -130,6 +134,22 @@ Possible parameters:
 
 
 #### 📄 `accessor` initSql: `string`
+
+
+
+#### 📄 `get` name(): `string`
+
+
+
+#### 📄 `get` hash(): `number`
+
+
+
+#### 📄 `get` hashNoSchema(): `number`
+
+
+
+#### 📄 `get` addr(): ConnectOptions | \{transport: <mark>"unix"</mark>, path: `string`}
 
 
 

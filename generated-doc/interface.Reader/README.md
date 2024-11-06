@@ -35,7 +35,7 @@ bytes into an array buffer asynchronously.
 > https://jsr.io/@std/io/doc/iterate-reader/~/iterateReader iterateReader
 > to turn > `interface` Reader<br>
 >> {<br>
->> &nbsp; &nbsp; ⚙ Reader.[read](../interface.Reader/README.md#-readp-uint8array-promisenumber)(p: Uint8Array): Promise\<`number`><br>
+>> &nbsp; &nbsp; ⚙ [read](../interface.Reader/README.md#-readp-uint8array-promisenumber)(p: Uint8Array): Promise\<`number`><br>
 >> }
 > 
 >  into an AsyncIterator.

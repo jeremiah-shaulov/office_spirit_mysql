@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlError} from "https://deno.land/x/office_spirit_mysql/v0.19.3/mod.ts"
+import {SqlError} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
 ```
 
 ## This class has
