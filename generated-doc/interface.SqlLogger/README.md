@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlLogger} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
+import {SqlLogger} from "https://deno.land/x/office_spirit_mysql@v0.19.5/mod.ts"
 ```
 
 ## This interface has

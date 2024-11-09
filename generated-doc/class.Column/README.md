@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Column} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
+import {Column} from "https://deno.land/x/office_spirit_mysql@v0.19.5/mod.ts"
 ```
 
 Array of such objects is found on `Resultsets.columns`.
@@ -25,7 +25,7 @@ For SELECT queries MySQL server reports various information about each returned 
 [flags](#-flags-columnflags),
 [decimals](#-decimals-number),
 [charset](#-get-charset-string),
-[type](#-get-type-year----blob--decimal--tinyint-unsigned--tinyint--smallint-unsigned--smallint--integer-unsigned--integer--float--double--null--timestamp---22-more---geometry),
+[type](#-get-type-year----float--timestamp--blob--set--decimal--tinyint-unsigned--tinyint--smallint-unsigned--smallint--integer-unsigned--integer--double---22-more---geometry),
 [isNotNull](#-get-isnotnull-boolean),
 [isPrimaryKey](#-get-isprimarykey-boolean),
 [isUniqueKey](#-get-isuniquekey-boolean),
@@ -87,7 +87,7 @@ For SELECT queries MySQL server reports various information about each returned 
 
 
 
-#### 📄 `get` type(): <mark>"year"</mark> | <mark>""</mark> | <mark>"blob"</mark> | <mark>"decimal"</mark> | <mark>"tinyint unsigned"</mark> | <mark>"tinyint"</mark> | <mark>"smallint unsigned"</mark> | <mark>"smallint"</mark> | <mark>"integer unsigned"</mark> | <mark>"integer"</mark> | <mark>"float"</mark> | <mark>"double"</mark> | <mark>"NULL"</mark> | <mark>"timestamp"</mark> | ... 22 more ... | <mark>"geometry"</mark>
+#### 📄 `get` type(): <mark>"year"</mark> | <mark>""</mark> | <mark>"float"</mark> | <mark>"timestamp"</mark> | <mark>"blob"</mark> | <mark>"set"</mark> | <mark>"decimal"</mark> | <mark>"tinyint unsigned"</mark> | <mark>"tinyint"</mark> | <mark>"smallint unsigned"</mark> | <mark>"smallint"</mark> | <mark>"integer unsigned"</mark> | <mark>"integer"</mark> | <mark>"double"</mark> | ... 22 more ... | <mark>"geometry"</mark>
 
 > Get MySQL type of the column as string, like "varchar", "integer unsigned", "enum", etc.
 > If cannot determine the type, returns empty string.

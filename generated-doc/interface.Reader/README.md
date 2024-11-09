@@ -32,13 +32,8 @@ bytes into an array buffer asynchronously.
 > Implementations should not retain a reference to `p`.
 > 
 > Use
-> https://jsr.io/@std/io/doc/iterate-reader/~/iterateReader iterateReader
-> to turn > `interface` Reader<br>
->> {<br>
->> &nbsp; &nbsp; ⚙ [read](../interface.Reader/README.md#-readp-uint8array-promisenumber)(p: Uint8Array): Promise\<`number`><br>
->> }
-> 
->  into an AsyncIterator.
+> [`https://jsr.io/@std/io/doc/iterate-reader/\~/iterateReader iterateReader`](https://jsr.io/@std/io/doc/iterate-reader/%7e/iterateReader%20iterateReader)
+> to turn [`Reader`](../interface.Reader/README.md) into an `AsyncIterator`.
 
 
 

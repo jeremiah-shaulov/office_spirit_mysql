@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {CanRetry} from "https://deno.land/x/office_spirit_mysql/v0.19.4/mod.ts"
+import {CanRetry} from "https://deno.land/x/office_spirit_mysql@v0.19.5/mod.ts"
 ```
 
 #### NONE = <mark>0</mark>

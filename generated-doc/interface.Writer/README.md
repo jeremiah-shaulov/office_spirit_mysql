@@ -21,7 +21,7 @@ bytes from an array buffer to a file/resource asynchronously.
 > 
 > This function is one of the lowest
 > level APIs and most users should not work with this directly, but rather
-> use https://jsr.io/@std/io/doc/write-all/~/writeAll writeAll
+> use [`https://jsr.io/@std/io/doc/write-all/\~/writeAll writeAll`](https://jsr.io/@std/io/doc/write-all/%7e/writeAll%20writeAll)
 > instead.
 > 
 > Implementations should not retain a reference to `p`.
