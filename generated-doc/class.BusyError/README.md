@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {BusyError} from "https://deno.land/x/office_spirit_mysql@v0.19.5/mod.ts"
+import {BusyError} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 ```
 
 Making a query while previous resultset was not read to the end.
