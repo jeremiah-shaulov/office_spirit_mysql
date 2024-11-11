@@ -1113,7 +1113,7 @@
 	This function adds the `USE schema_name` query to pending, and it will be executed together with next most recent query.
 	If provided schema name is invalid, the exception will be thrown on the next query.
 
-	If no query follows, the `USE` statement never gets executed (and maybe even no actual database connection will be established, it this was the first command in the connection).
+	If no query follows, the `USE` statement never gets executed (and maybe even no actual database connection will be established, if this was the first command in the connection).
 
 	## SQL logging
 

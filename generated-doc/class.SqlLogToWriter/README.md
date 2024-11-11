@@ -11,7 +11,7 @@ plus it supports `WritableStream<Uint8Array>`.
 
 ## This class has
 
-- [constructor](#-constructorwriter-writer--writablestreamuint8array-withcolor-booleanfalse-querymaxbytes-numberdefaultquerymaxbytes-parammaxbytes-numberdefaultparammaxbytes-maxlines-numberdefaultmaxlines-logger-loggerconsole)
+- [constructor](#-constructorwriter-writer--writablestreamuint8array-withcolor-booleanfalse-querymaxbytes-numberdefault_query_max_bytes-parammaxbytes-numberdefault_param_max_bytes-maxlines-numberdefault_max_lines-logger-loggerconsole)
 - 4 properties:
 [withColor](#-withcolor-boolean),
 [queryMaxBytes](#-querymaxbytes-number),

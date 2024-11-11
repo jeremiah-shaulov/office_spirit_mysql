@@ -8,7 +8,7 @@ import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.19.6/
 
 ## This class has
 
-- [constructor](#-constructorwriter-writer--writablestreamuint8array-withcolor-booleanfalse-querymaxbytes-numberdefaultquerymaxbytes-parammaxbytes-numberdefaultparammaxbytes-maxlines-numberdefaultmaxlines-logger-loggerconsole)
+- [constructor](#-constructorwriter-writer--writablestreamuint8array-withcolor-booleanfalse-querymaxbytes-numberdefault_query_max_bytes-parammaxbytes-numberdefault_param_max_bytes-maxlines-numberdefault_max_lines-logger-loggerconsole)
 - 4 properties:
 [withColor](#-withcolor-boolean),
 [queryMaxBytes](#-querymaxbytes-number),
@@ -18,7 +18,7 @@ import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.19.6/
 [connect](#-connectdsn-dsn-connectionid-number-promisevoid),
 [resetConnection](#-resetconnectiondsn-dsn-connectionid-number-promisevoid),
 [disconnect](#-disconnectdsn-dsn-connectionid-number-promisevoid),
-[query](#-querydsn-dsn-connectionid-number-isprepare-boolean-nobackslashescapes-boolean-promisestart---promise-appendtoquerydata-uint8array-promisevoid-setstmtidstmtid-number-promisevoid-appendtoparamnparam-number-data-number--bigint--uint8array-promise-paramendnparam-number-promise-nextquery-promise-endresult-error--resultsets-stmtid-number-promise),
+[query](#-querydsn-dsn-connectionid-number-isprepare-boolean-nobackslashescapes-boolean-promisestart---promise-appendtoquerydata-uint8array-promisevoid-setstmtidstmtid-number-promisevoid-appendtoparamnparam-number-data-number--bigint--uint8array-promise-paramend_nparam-number-promise-nextquery-promise-endresult-error--resultsets-stmtid-number-promise),
 [deallocatePrepare](#-deallocatepreparedsn-dsn-connectionid-number-stmtids-number-promisevoid)
 - protected method [nextConnBanner](#-protected-nextconnbannerdsn-dsn-connectionid-number-string--uint8array)
 

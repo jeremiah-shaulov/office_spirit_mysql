@@ -143,6 +143,9 @@ export class MyPool
 	{	this.options(options);
 	}
 
+	/**	Patches configuration options (if `options` parameter is provided).
+		Returns the new options.
+	 **/
 	options(options?: Dsn|string|MyPoolOptions)
 	{	return this.#pool.updateOptions(options);
 	}
@@ -161,10 +164,16 @@ export class MyPool
 	{	return this[Symbol.asyncDispose]();
 	}
 
+	/**	Get {@link MySession} object, that allows to get connections to different database servers.
+		Unlike {@link getConn()}, getting connection from {@link MySession.conn()} returns the same
+		connection object if asked the same server.
+	 **/
 	getSession()
 	{	return new MySession(this.#pool);
 	}
 
+	/**	Execute callback with new {@link MySession} object, and then destroy the object.
+	 **/
 	async forSession<T>(callback: (session: MySession) => Promise<T>)
 	{	using session = this.getSession();
 		return await callback(session);
@@ -177,6 +186,10 @@ export class MyPool
 	{	return this.forSession(callback);
 	}
 
+	/**	Get connection to server.
+		@param dsn To which server to connect. If not specified, returns connection to pool-defaul @{link Dsn}.
+		@returns New connection object from the pool. It can be a reused connection, or new empty object that will establish the actual connection on first query.
+	 **/
 	getConn(dsn?: Dsn|string): MyConn
 	{	if (dsn == undefined)
 		{	dsn = this.#pool.options.dsn;
@@ -190,6 +203,8 @@ export class MyPool
 		return new MyConnInternal(dsn, this.#pool);
 	}
 
+	/**	Execute callback with new {@link MyConn} object, and then destroy the object.
+	 **/
 	async forConn<T>(callback: (conn: MyConn) => Promise<T>, dsn?: Dsn|string)
 	{	using conn = this.getConn(dsn);
 		return await callback(conn);

@@ -10,7 +10,7 @@
 - protected property [writer](#-protected-writer-writablestreamdefaultwriteruint8array)
 - 2 protected methods:
 [write](#-protected-writedsn-dsn-connectionid-number-data-uint8array--string-promisevoid),
-[nextConnBanner](#-protected-nextconnbannerdsn-dsn-connectionid-number-string--uint8array)
+[nextConnBanner](#-protected-nextconnbanner_dsn-dsn-_connectionid-number-string--uint8array)
 
 
 #### 🔧 `constructor`(writer: [Writer](../interface.Writer/README.md) | WritableStream\<Uint8Array>, logger: [Logger](../interface.Logger/README.md)=console)

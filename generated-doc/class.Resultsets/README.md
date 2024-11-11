@@ -23,7 +23,7 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts
 [nPlaceholders](#-nplaceholders-number),
 [hasMore](#-get-hasmore-boolean)
 - 7 methods:
-[exec](#-execparams-param-resultsetspromiserow),
+[exec](#-exec_params-param-resultsetspromiserow),
 [all](#-all-promiserow),
 [first](#-first-promiserow),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),

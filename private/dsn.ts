@@ -14,18 +14,18 @@ type Any = any;
 	Example: `mysql://root@localhost/` or `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`.
 
 	Possible parameters:
-	- `connectionTimeout` (number) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds;
-	- `reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
-	- `keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
-	- `keepAliveMax` (number) - how many times at most to recycle each connection;
-	- `maxConns` (number) - limit number of simultaneous connections to this DSN in pool
-	- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
-	- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
-	- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
-	- `retryLockWaitTimeout` (boolean) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
-	- `retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes; please note, that this will also rerun queries like `CALL`;
-	- `datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
-	- `correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
+	- {@link connectionTimeout}
+	- {@link reconnectInterval}
+	- {@link keepAliveTimeout}
+	- {@link keepAliveMax}
+	- {@link maxConns}
+	- {@link maxColumnLen}
+	- {@link foundRows}
+	- {@link ignoreSpace}
+	- {@link retryLockWaitTimeout}
+	- {@link retryQueryTimes}
+	- {@link datesAsString}
+	- {@link correctDates}
  **/
 export class Dsn
 {	#hostname: string;
@@ -100,6 +100,8 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Path to unix-domain socket file, through which to connect to the server.
+	 **/
 	get pipe()
 	{	return this.#pipe;
 	}
@@ -111,6 +113,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Milliseconds. If connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds.
+		@default 5000
+	 **/
 	get connectionTimeout()
 	{	return this.#connectionTimeout;
 	}
@@ -119,6 +124,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Milliseconds. Will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`.
+		@default 500
+	 **/
 	get reconnectInterval()
 	{	return this.#reconnectInterval;
 	}
@@ -127,6 +135,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Milliseconds. Each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection.
+		@default 10000
+	 **/
 	get keepAliveTimeout()
 	{	return this.#keepAliveTimeout;
 	}
@@ -135,6 +146,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	How many times at most to recycle each connection.
+		@default Infinity
+	 **/
 	get keepAliveMax()
 	{	return this.#keepAliveMax;
 	}
@@ -143,6 +157,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Limit number of simultaneous connections to this DSN in pool.
+		@default 250
+	 **/
 	get maxConns()
 	{	return this.#maxConns;
 	}
@@ -151,6 +168,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Bytes. If a column was longer, it's value is skipped, and it will be returned as NULL.
+		@default 10MiB
+	 **/
 	get maxColumnLen()
 	{	return this.#maxColumnLen;
 	}
@@ -159,6 +179,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If present, will use "found rows" instead of "affected rows" in resultsets.
+		@default false
+	 **/
 	get foundRows()
 	{	return this.#foundRows;
 	}
@@ -167,6 +190,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If present, parser on server side can ignore spaces before '(' in built-in function names.
+		@default false
+	 **/
 	get ignoreSpace()
 	{	return this.#ignoreSpace;
 	}
@@ -186,6 +212,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
+		@default false
+	 **/
 	get retryLockWaitTimeout()
 	{	return this.#retryLockWaitTimeout;
 	}
@@ -194,6 +223,10 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes.
+		Please note, that this will also rerun queries like `CALL`.
+		@default 0
+	 **/
 	get retryQueryTimes()
 	{	return this.#retryQueryTimes;
 	}
@@ -202,6 +235,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings.
+		@default false
+	 **/
 	get datesAsString()
 	{	return this.#datesAsString;
 	}
@@ -210,6 +246,10 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	Enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types.
+		This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7.
+		@default false
+	 **/
 	get correctDates()
 	{	return this.#correctDates;
 	}
@@ -218,6 +258,8 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	SQL statement, or several statements separated with `;`, that will be executed to initialize each connection right after connecting.
+	 **/
 	get initSql()
 	{	return this.#initSql;
 	}
@@ -226,16 +268,33 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	String representation of this object. Synonym of {@link toString()}.
+	 **/
 	get name()
 	{	return this.#name;
 	}
 
+	/**	Numeric hash of {@link name} string.
+	 **/
 	get hash()
 	{	return this.#hash;
 	}
 
+	/**	Numeric hash of string that represents all parts of this object except schema name.
+	 **/
 	get hashNoSchema()
 	{	return this.#hashNoSchema;
+	}
+
+	/**	`Deno.ConnectOptions` object for hostname and port, or unix-domain socket.
+	 **/
+	get addr(): Deno.ConnectOptions | {transport: 'unix', path: string}
+	{	if (this.#pipe)
+		{	return {transport: 'unix', path: this.#pipe} as Any; // "as any" in order to avoid requireing --unstable
+		}
+		else
+		{	return {transport: 'tcp', hostname: this.#hostname, port: this.#port};
+		}
 	}
 
 	constructor(dsn: string|Dsn)
@@ -352,15 +411,6 @@ export class Dsn
 		this.#name = name;
 		this.#hash = crc32(name);
 		this.#hashNoSchema = crc32(name0 + name1);
-	}
-
-	get addr(): Deno.ConnectOptions | {transport: 'unix', path: string}
-	{	if (this.#pipe)
-		{	return {transport: 'unix', path: this.#pipe} as Any; // "as any" in order to avoid requireing --unstable
-		}
-		else
-		{	return {transport: 'tcp', hostname: this.#hostname, port: this.#port};
-		}
 	}
 
 	toString()

@@ -13,18 +13,18 @@ Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
 Example: `mysql://root@localhost/` or `mysql://root:hello@[::1]/?keepAliveTimeout=10000&foundRows`.
 
 Possible parameters:
-- `connectionTimeout` (number) milliseconds - if connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds;
-- `reconnectInterval` (number) milliseconds - will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`;
-- `keepAliveTimeout` (number) milliseconds - each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection;
-- `keepAliveMax` (number) - how many times at most to recycle each connection;
-- `maxConns` (number) - limit number of simultaneous connections to this DSN in pool
-- `maxColumnLen` (number) bytes - if a column was longer, it's value is skipped, and it will be returned as NULL;
-- `foundRows` (boolean) - if present, will use "found rows" instead of "affected rows" in resultsets;
-- `ignoreSpace` (boolean) - if present, parser on server side can ignore spaces before '(' in built-in function names;
-- `retryLockWaitTimeout` (boolean) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
-- `retryQueryTimes` (number) - automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes; please note, that this will also rerun queries like `CALL`;
-- `datesAsString` (boolean) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings;
-- `correctDates` (boolean) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7;
+- [connectionTimeout](../class.Dsn/README.md#-accessor-connectiontimeout-number)
+- [reconnectInterval](../class.Dsn/README.md#-accessor-reconnectinterval-number)
+- [keepAliveTimeout](../class.Dsn/README.md#-accessor-keepalivetimeout-number)
+- [keepAliveMax](../class.Dsn/README.md#-accessor-keepalivemax-number)
+- [maxConns](../class.Dsn/README.md#-accessor-maxconns-number)
+- [maxColumnLen](../class.Dsn/README.md#-accessor-maxcolumnlen-number)
+- [foundRows](../class.Dsn/README.md#-accessor-foundrows-boolean)
+- [ignoreSpace](../class.Dsn/README.md#-accessor-ignorespace-boolean)
+- [retryLockWaitTimeout](../class.Dsn/README.md#-accessor-retrylockwaittimeout-boolean)
+- [retryQueryTimes](../class.Dsn/README.md#-accessor-retryquerytimes-number)
+- [datesAsString](../class.Dsn/README.md#-accessor-datesasstring-boolean)
+- [correctDates](../class.Dsn/README.md#-accessor-correctdates-boolean)
 
 ## This class has
 
@@ -83,73 +83,135 @@ Possible parameters:
 
 #### 📄 `accessor` pipe: `string`
 
+> Path to unix-domain socket file, through which to connect to the server.
+
 
 
 #### 📄 `accessor` connectionTimeout: `number`
+
+> Default value: `5000`
+> 
+> Milliseconds. If connection to the server is failing, it will be retried during this period of time, each `reconnectInterval` milliseconds.
 
 
 
 #### 📄 `accessor` reconnectInterval: `number`
 
+> Default value: `500`
+> 
+> Milliseconds. Will retry connecting to the server each this number of milliseconds, during the `connectionTimeout`.
+
 
 
 #### 📄 `accessor` keepAliveTimeout: `number`
+
+> Default value: `10000`
+> 
+> Milliseconds. Each connection will persist for this period of time, before termination, so it can be reused when someone else asks for the same connection.
 
 
 
 #### 📄 `accessor` keepAliveMax: `number`
 
+> Default value: `Infinity`
+> 
+> How many times at most to recycle each connection.
+
 
 
 #### 📄 `accessor` maxConns: `number`
+
+> Default value: `250`
+> 
+> Limit number of simultaneous connections to this DSN in pool.
 
 
 
 #### 📄 `accessor` maxColumnLen: `number`
 
+> Default value: `10MiB`
+> 
+> Bytes. If a column was longer, it's value is skipped, and it will be returned as NULL.
+
 
 
 #### 📄 `accessor` foundRows: `boolean`
+
+> Default value: `false`
+> 
+> If present, will use "found rows" instead of "affected rows" in resultsets.
 
 
 
 #### 📄 `accessor` ignoreSpace: `boolean`
 
+> Default value: `false`
+> 
+> If present, parser on server side can ignore spaces before '(' in built-in function names.
+
 
 
 #### 📄 `accessor` retryLockWaitTimeout: `boolean`
+
+> Default value: `false`
+> 
+> If set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
 
 
 
 #### 📄 `accessor` retryQueryTimes: `number`
 
+> Default value: `0`
+> 
+> Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes.
+> Please note, that this will also rerun queries like `CALL`.
+
 
 
 #### 📄 `accessor` datesAsString: `boolean`
+
+> Default value: `false`
+> 
+> If present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings.
 
 
 
 #### 📄 `accessor` correctDates: `boolean`
 
+> Default value: `false`
+> 
+> Enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types.
+> This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7.
+
 
 
 #### 📄 `accessor` initSql: `string`
+
+> SQL statement, or several statements separated with `;`, that will be executed to initialize each connection right after connecting.
 
 
 
 #### 📄 `get` name(): `string`
 
+> String representation of this object. Synonym of [toString()](../class.Dsn/README.md#-tostring-string).
+
 
 
 #### 📄 `get` hash(): `number`
+
+> Numeric hash of [name](../class.Dsn/README.md#-get-name-string) string.
 
 
 
 #### 📄 `get` hashNoSchema(): `number`
 
+> Numeric hash of string that represents all parts of this object except schema name.
+
 
 
 #### 📄 `get` addr(): ConnectOptions | \{transport: <mark>"unix"</mark>, path: `string`}
+
+> `Deno.ConnectOptions` object for hostname and port, or unix-domain socket.
 
 
 

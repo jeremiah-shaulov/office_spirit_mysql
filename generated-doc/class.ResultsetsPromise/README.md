@@ -19,6 +19,12 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.19.6
 #### 🔧 `constructor`(executor: (resolve: (value: T | PromiseLike\<T>) => `void`, reject: (reason?: `any`) => `void`) => `void`)
 
 > Creates a new Promise.
+> 
+> 🎚️ Parameter **executor**:
+> 
+> A callback used to initialize the promise. This callback is passed two arguments:
+> a resolve callback used to resolve the promise with a value or the result of another promise,
+> and a reject callback used to reject the promise with a provided reason or error.
 
 
 

@@ -1,6 +1,6 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.36/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts --mainTitle 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.38/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts --mainTitle 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md
 -->
 
 # office\_spirit\_mysql - MySQL and MariaDB driver for Deno.
@@ -877,7 +877,7 @@ There's family of functions:
 > ⚙ MyConn.[prepareArr](generated-doc/class.MyConn/README.md#-preparearrcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType\[]>><br>
 > ⚙ MyConn.[prepareCol](generated-doc/class.MyConn/README.md#-preparecolcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype)\<ColumnType=[ColumnValue](generated-doc/type.ColumnValue/README.md)>(sql: [SqlSource](generated-doc/type.SqlSource/README.md)): Promise\<[Resultsets](generated-doc/class.Resultsets/README.md)\<ColumnType>>
 
-The difference between them is the result type that [Resultsets.exec()](generated-doc/class.Resultsets/README.md#-execparams-param-resultsetspromiserow) returns.
+The difference between them is the result type that [Resultsets.exec()](generated-doc/class.Resultsets/README.md#-exec_params-param-resultsetspromiserow) returns.
 
 ```ts
 Resultsets<Row>.exec(params: any[]): ResultsetsPromise<Row>
@@ -1152,7 +1152,7 @@ function MyConn.use(schema: string): void;
 This function adds the `USE schema_name` query to pending, and it will be executed together with next most recent query.
 If provided schema name is invalid, the exception will be thrown on the next query.
 
-If no query follows, the `USE` statement never gets executed (and maybe even no actual database connection will be established, it this was the first command in the connection).
+If no query follows, the `USE` statement never gets executed (and maybe even no actual database connection will be established, if this was the first command in the connection).
 
 ## SQL logging
 
