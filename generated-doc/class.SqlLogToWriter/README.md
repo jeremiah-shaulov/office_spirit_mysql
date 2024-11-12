@@ -1,4 +1,4 @@
-# `class` SqlLogToWriter `extends` [SqlLogToWritable](../class.SqlLogToWritable/README.md)
+# `deprecated` `class` SqlLogToWriter `extends` [SqlLogToWritable](../class.SqlLogToWritable/README.md)
 
 [Documentation Index](../README.md)
 

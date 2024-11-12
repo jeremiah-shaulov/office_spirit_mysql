@@ -303,7 +303,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 #### ⚙ `deprecated` makeLastColumnReader\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<`any`>
 
 > Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
-
+> 
 > `deprecated`
 > 
 > As `Deno.Reader` is deprecated, this method is deprecated as well.

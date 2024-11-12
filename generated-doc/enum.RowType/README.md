@@ -6,7 +6,7 @@
 
 
 
-#### LAST\_COLUMN\_READER = <mark>1</mark>
+#### `deprecated` LAST\_COLUMN\_READER = <mark>1</mark>
 
 > Old.
 

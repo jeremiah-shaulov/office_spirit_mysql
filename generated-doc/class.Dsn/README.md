@@ -224,7 +224,7 @@ Possible parameters:
 #### 📄 `deprecated` `accessor` multiStatements: `boolean`
 
 > SQL can contain multiple statements separated with ';', so you can upload dumps, but SQL injection attacks become more risky.
-
+> 
 > `deprecated`
 > 
 > To execute multiple statements use `queriesVoid()` function and the such.
