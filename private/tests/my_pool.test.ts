@@ -5,9 +5,9 @@ import {Resultsets} from '../resultsets.ts';
 import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {testWithDocker} from "./test_with_docker.ts";
 import {RdStream} from '../deps.ts';
-import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
 import {Reader, Seeker} from '../deno_ifaces.ts';
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 const encoder = new TextEncoder;
 

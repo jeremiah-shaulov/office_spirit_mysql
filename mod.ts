@@ -184,8 +184,8 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool, Dsn} from './mod.ts';
-	import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assert} from 'jsr:@std/assert@1.0.7/assert';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	const dsn1 = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost');
 	const dsn2 = new Dsn(dsn1); // copy
@@ -331,7 +331,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -372,7 +372,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool, ColumnValue} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -401,7 +401,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -809,7 +809,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -1051,7 +1051,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -1134,7 +1134,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 	using conn = pool.getConn();
@@ -1241,7 +1241,7 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool, SqlLogToWritable} from './mod.ts';
-	import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 

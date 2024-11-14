@@ -1,4 +1,4 @@
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 /*	Option 1. Run tests using already existing and running database server:
 		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --allow-all --coverage=.vscode/coverage/profile private/tests
