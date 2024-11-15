@@ -1,6 +1,6 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.39/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts --mainTitle 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.40/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts --mainTitle 'office_spirit_mysql - MySQL and MariaDB driver for Deno.' --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md
 -->
 
 # office\_spirit\_mysql - MySQL and MariaDB driver for Deno.
@@ -205,8 +205,8 @@ With `true` second argument, always new connection is returned. Otherwise, if th
 // deno run --allow-env --allow-net /tmp/example-65ya.ts
 
 import {MyPool, Dsn} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assert} from 'https://deno.land/std@0.224.0/assert/assert.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 const dsn1 = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost');
 const dsn2 = new Dsn(dsn1); // copy
@@ -356,7 +356,7 @@ For example, using `queryCol().first()` you can get the result of `SELECT Count(
 // deno run --allow-env --allow-net /tmp/example-ajdy.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -398,7 +398,7 @@ By default `query*()` functions produce rows where each column is of `ColumnValu
 // deno run --allow-env --allow-net /tmp/example-7bvr.ts
 
 import {MyPool, ColumnValue} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -428,7 +428,7 @@ If you're sure about column types, you can override the column type with `any` (
 // deno run --allow-env --allow-net /tmp/example-dbu0.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -843,7 +843,7 @@ The returned object must be asynchronously disposed to free the prepared stateme
 // deno run --allow-env --allow-net /tmp/example-wr6k.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1090,7 +1090,7 @@ And you must read or discard all the resultsets before being able to issue next 
 // deno run --allow-env --allow-net /tmp/example-rjwg.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1174,7 +1174,7 @@ By default no SQL is logged. If you set `sqlLogger` to `true`, a default logger 
 // deno run --allow-env --allow-net /tmp/example-c5vl.ts
 
 import {MyPool} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 using conn = pool.getConn();
@@ -1282,7 +1282,7 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 // deno run --allow-env --allow-net /tmp/example-mbya.ts
 
 import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.224.0/assert/assert_equals.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
