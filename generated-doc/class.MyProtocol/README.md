@@ -31,6 +31,7 @@
 [fetch](#-fetchrowrowtype-rowtype-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
 [end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol)
+- 20 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 58 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 ## Static members

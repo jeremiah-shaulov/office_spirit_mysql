@@ -11,6 +11,7 @@ end() called during operation.
 ## This class has
 
 - [2 constructors](#-constructormessage-string)
+- base class
 
 
 #### 🔧 `constructor`(message?: `string`)

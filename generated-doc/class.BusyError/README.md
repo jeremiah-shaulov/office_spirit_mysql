@@ -11,6 +11,7 @@ Making a query while previous resultset was not read to the end.
 ## This class has
 
 - [2 constructors](#-constructormessage-string)
+- base class
 
 
 #### 🔧 `constructor`(message?: `string`)

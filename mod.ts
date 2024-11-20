@@ -1562,6 +1562,7 @@
 	If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
 
 	@module
+	@summary office_spirit_mysql - MySQL and MariaDB driver for Deno.
  **/
 
 export {MyPool} from './private/my_pool.ts';

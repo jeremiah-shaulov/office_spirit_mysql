@@ -14,6 +14,7 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.19.6
 [first](#-first-promiseany),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
+- base class
 
 
 #### 🔧 `constructor`(executor: (resolve: (value: T | PromiseLike\<T>) => `void`, reject: (reason?: `any`) => `void`) => `void`)

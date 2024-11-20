@@ -13,6 +13,7 @@ import {SqlError} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 [canRetry](#-readonly-canretry-any),
 [errorCode](#-errorcode-number),
 [sqlState](#-sqlstate-string)
+- base class
 
 
 #### 🔧 `constructor`(message: `string`, errorCode: `number`=0, sqlState: `string`="", autocommit: `boolean`=false, inTrx: `boolean`=false)

@@ -639,7 +639,7 @@ export class MyConn
 			else
 			{	// Prepare to execute immediately: named parameters
 				const letReturnUndefined = nRetriesRemaining-- > 0;
-				const {stmtId, values, query1} = await this.getNamedParamsQueries(protocol, params, letReturnUndefined);
+				const {stmtId, values, query1} = await this.#getNamedParamsQueries(protocol, params, letReturnUndefined);
 				if (values)
 				{	const resultsets =
 					(	!query1 ?
@@ -657,7 +657,7 @@ export class MyConn
 		}
 	}
 
-	async getNamedParamsQueries(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
+	async #getNamedParamsQueries(protocol: MyProtocol, params: Record<string, Param>, letReturnUndefined: boolean)
 	{	const paramKeys = Object.keys(params);
 		if (paramKeys.length == 0)
 		{	return {stmtId: -1, values: paramKeys, query1: undefined};

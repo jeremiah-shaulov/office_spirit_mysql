@@ -8,28 +8,29 @@ Methods that don't exist on Resultsets are for internal use.
 ## This class has
 
 - [constructor](#-constructorrowtype-rowtype)
-- [destructor](#-symbolasyncdispose-promisevoid)
+- [destructor](#-override-symbolasyncdispose-promisevoid)
 - 6 properties:
 [protocol](#-protocol-myprotocol--undefined),
 [isPreparedStmt](#-ispreparedstmt-boolean),
 [stmtId](#-stmtid-number),
 [hasMoreInternal](#-hasmoreinternal-boolean),
 [rowType](#-rowtype-rowtype),
-[hasMore](#-get-hasmore-boolean)
+[hasMore](#-override-get-hasmore-boolean)
 - 6 methods:
-[exec](#-execparams-param-resultsetspromiserow),
-[nextResultset](#-nextresultset-promiseboolean),
-[discard](#-discard-promisevoid),
+[exec](#-override-execparams-param-resultsetspromiserow),
+[nextResultset](#-override-nextresultset-promiseboolean),
+[discard](#-override-discard-promisevoid),
 [disposePreparedStmt](#-disposepreparedstmt-void),
 [resetFields](#-resetfields-void),
-[\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
+[\[Symbol.asyncIterator\]](#-override-symbolasynciterator-asyncgeneratorrow-any-any)
+- 13 inherited members from [Resultsets](../class.Resultsets/README.md)
 
 
 #### 🔧 `constructor`(rowType: [RowType](../enum.RowType/README.md))
 
 
 
-#### 🔨 \[Symbol.asyncDispose](): Promise\<`void`>
+#### 🔨 `override` \[Symbol.asyncDispose](): Promise\<`void`>
 
 > Calls `this.discard()` and if this is a prepared statement, deallocates it.
 
@@ -55,25 +56,25 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 
-#### 📄 `get` hasMore(): `boolean`
+#### 📄 `override` `get` hasMore(): `boolean`
 
 > True if there are more rows or resultsets to read.
 
 
 
-#### ⚙ exec(params: [Param](../type.Param/README.md)\[]): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Row>
+#### ⚙ `override` exec(params: [Param](../type.Param/README.md)\[]): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Row>
 
 > If this is a prepared query, this function executes it again.
 
 
 
-#### ⚙ nextResultset(): Promise\<`boolean`>
+#### ⚙ `override` nextResultset(): Promise\<`boolean`>
 
 > Advances to the next resultset of this query, if there is one. Returns true if moved to the next resultset.
 
 
 
-#### ⚙ discard(): Promise\<`void`>
+#### ⚙ `override` discard(): Promise\<`void`>
 
 > Reads and discards all the rows in all the resultsets of this query.
 
@@ -87,7 +88,7 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 
-#### ⚙ \[Symbol.asyncIterator](): AsyncGenerator\<Row, `any`, `any`>
+#### ⚙ `override` \[Symbol.asyncIterator](): AsyncGenerator\<Row, `any`, `any`>
 
 
 

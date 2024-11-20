@@ -21,7 +21,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 [schema](#-get-schema-string),
 [inXa](#-get-inxa-boolean),
 [xaId](#-get-xaid-string)
-- 31 methods:
+- 30 methods:
 [connect](#-connect-promisevoid),
 [end](#-end-void),
 [use](#-useschema-string-void),
@@ -51,8 +51,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 [prepareCommit](#-preparecommit-promisevoid),
 [rollback](#-rollbacktopointid-number-promisevoid),
 [commit](#-commitandchain-booleanfalse-promisevoid),
-[setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void),
-[getNamedParamsQueries](#-getnamedparamsqueriesprotocol-myprotocol-params-recordstring-param-letreturnundefined-boolean-promisestmtid-number-values-any-query1-uint8array)
+[setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void)
 - protected property [pendingTrxSql](#-protected-pendingtrxsql-string)
 - [7 deprecated symbols](#-deprecated-executesql-sqlsource-params-params-promiseresultsetsvoid)
 
@@ -281,10 +280,6 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 
 
 #### ⚙ setSqlLogger(sqlLogger?: [SqlLogger](../interface.SqlLogger/README.md) | `true`): `void`
-
-
-
-#### ⚙ getNamedParamsQueries(protocol: [MyProtocol](../class.MyProtocol/README.md), params: Record\<`string`, [Param](../type.Param/README.md)>, letReturnUndefined: `boolean`): Promise\<\{stmtId: `number`, values: `any`\[], query1: Uint8Array}>
 
 
 

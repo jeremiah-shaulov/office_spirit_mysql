@@ -10,6 +10,7 @@ import {ServerDisconnectedError} from "https://deno.land/x/office_spirit_mysql@v
 
 - [constructor](#-constructormessage-string-errorcode-number0)
 - property [errorCode](#-errorcode-number)
+- base class
 
 
 #### 🔧 `constructor`(message: `string`, errorCode: `number`=0)

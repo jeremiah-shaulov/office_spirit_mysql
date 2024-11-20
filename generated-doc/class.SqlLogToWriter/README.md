@@ -12,30 +12,10 @@ plus it supports `WritableStream<Uint8Array>`.
 ## This class has
 
 - [constructor](#-constructorwriter-writer--writablestreamuint8array-withcolor-booleanfalse-querymaxbytes-numberdefault_query_max_bytes-parammaxbytes-numberdefault_param_max_bytes-maxlines-numberdefault_max_lines-logger-loggerconsole)
-- 4 properties:
-[withColor](#-withcolor-boolean),
-[queryMaxBytes](#-querymaxbytes-number),
-[paramMaxBytes](#-parammaxbytes-number),
-[maxLines](#-maxlines-number)
+- 4 inherited members from [SqlLogToWritableBase](../class.SqlLogToWritableBase/README.md)
 
 
 #### 🔧 `constructor`(writer: [Writer](../interface.Writer/README.md) | WritableStream\<Uint8Array>, withColor: `boolean`=false, queryMaxBytes: `number`=DEFAULT\_QUERY\_MAX\_BYTES, paramMaxBytes: `number`=DEFAULT\_PARAM\_MAX\_BYTES, maxLines: `number`=DEFAULT\_MAX\_LINES, logger: [Logger](../interface.Logger/README.md)=console)
-
-
-
-#### 📄 withColor: `boolean`
-
-
-
-#### 📄 queryMaxBytes: `number`
-
-
-
-#### 📄 paramMaxBytes: `number`
-
-
-
-#### 📄 maxLines: `number`
 
 
 

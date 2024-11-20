@@ -49,6 +49,7 @@ To send a long packet, use `sendWithData()`.
 [writeReadChunk](#-protected-writereadchunkvalue-reader-promisenumber),
 [send](#-protected-send-promisevoid),
 [sendWithData](#-protected-sendwithdatadata-sqlsource-nobackslashescapes-boolean-logdata-data-uint8array--promiseunknown-canwait-booleanfalse-putparamsto-any-promiseboolean)
+- 58 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 #### ⚙ setHeader(payloadLength: `number`): `void`
