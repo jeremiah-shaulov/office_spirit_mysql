@@ -1,4 +1,4 @@
-# `class` SqlLogToWritable `extends` [SqlLogToWritableBase](../class.SqlLogToWritableBase/README.md) `implements` \<[SqlLogger](../interface.SqlLogger/README.md)>
+# `class` SqlLogToWritable `extends` [SqlLogToWritableBase](../class.SqlLogToWritableBase/README.md) `implements` [SqlLogger](../interface.SqlLogger/README.md)
 
 [Documentation Index](../README.md)
 

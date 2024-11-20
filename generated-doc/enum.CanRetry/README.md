@@ -6,6 +6,11 @@
 import {CanRetry} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 ```
 
+How fatal is the SQL error. Maybe just the same query can be retried second time, and there's chance that it'll succeed.
+Maybe the current transaction can be retried with the same sequence of queries, and it can succeed.
+Maybe disconnecting and reconnecting can solve the error.
+Or nothing of the above.
+
 #### NONE = <mark>0</mark>
 
 

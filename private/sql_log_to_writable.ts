@@ -41,6 +41,8 @@ const RESET_COLOR = '\x1B[0m';
 
 const keywords = new SqlWordsList('USE SELECT DISTINCT AS FROM INNER LEFT RIGHT CROSS JOIN ON WHERE GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION INSERT INTO VALUES ON DUPLICATE KEY UPDATE SET DELETE REPLACE CREATE TABLE IF EXISTS DROP ALTER INDEX AUTO_INCREMENT PRIMARY FOREIGN REFERENCES CASCADE DEFAULT ADD CHANGE COLUMN SCHEMA DATABASE TRIGGER BEFORE AFTER EVENT CALL PROCEDURE FUNCTION BEGIN START TRANSACTION COMMIT ROLLBACK SAVEPOINT XA PREPARE FOR EACH ROW NOT AND OR XOR BETWEEN SEPARATOR IS NULL IN FALSE TRUE LIKE CHAR MATCH AGAINST INTERVAL YEAR MONTH WEEK DAY HOUR MINUTE SECOND MICROSECOND CASE WHEN THEN ELSE END BINARY COLLATE CHARSET');
 
+/**	@category SQL Logging
+ **/
 export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 {	#msgOk = 'OK';
 	#msgError = 'ERROR:';
@@ -345,6 +347,7 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 
 /**	Please, use new class called `SqlLogToWritable` that has the same functionality as old `SqlLogToWriter`,
 	plus it supports `WritableStream<Uint8Array>`.
+	@category SQL Logging
 	@deprecated
  **/
 export class SqlLogToWriter extends SqlLogToWritable

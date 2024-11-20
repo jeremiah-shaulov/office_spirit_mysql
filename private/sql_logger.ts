@@ -2,6 +2,8 @@ import {Resultsets} from "./resultsets.ts";
 import {Logger} from "./my_protocol.ts";
 import {Dsn} from "./dsn.ts";
 
+/**	@category SQL Logging
+ **/
 export interface SqlLogger
 {	/**	A new connection established.
 	 **/
@@ -38,6 +40,7 @@ export interface SqlLogger
 	3. Then, if writing queries batch, `nextQuery()` is called, and the process repeats from the beginning.
 	4. Then, after all the queries in batch are written, `start()` is called. At this point queries are sent to the database server.
 	5. Then, when the server responds, `end()` is called.
+	@category SQL Logging
  **/
 export interface SqlLoggerQuery
 {	appendToQuery?: (data: Uint8Array) => Promise<unknown>;
@@ -59,6 +62,7 @@ export interface SqlLoggerQuery
 }
 
 /**	Like {@link SqlLoggerQuery}, but all functions are non-optional, and uses `paramStart()` instead of `nParam` argument in `appendToParam()` and `paramEnd()`.
+	@category SQL Logging
  **/
 export interface SafeSqlLoggerQuery
 {	appendToQuery: (data: Uint8Array) => Promise<unknown>;
@@ -71,6 +75,8 @@ export interface SafeSqlLoggerQuery
 	end: (result: Resultsets<unknown>|Error|undefined, stmtId: number) => Promise<unknown>;
 }
 
+/**	@category SQL Logging
+ **/
 export class SafeSqlLogger
 {	#dsn;
 	#underlying;

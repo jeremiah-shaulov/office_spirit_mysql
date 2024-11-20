@@ -6,6 +6,8 @@
 import {ServerDisconnectedError} from "https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts"
 ```
 
+Server didn't respond properly.
+
 ## This class has
 
 - [constructor](#-constructormessage-string-errorcode-number0)

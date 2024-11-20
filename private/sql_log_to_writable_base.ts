@@ -10,6 +10,8 @@ const MAX_BUFFER_SIZE = 1*1024*1024;
 
 const encoder = new TextEncoder;
 
+/**	@category SQL Logging
+ **/
 export class SqlLogToWritableBase implements SqlLogger
 {	#pending = new Map<Dsn, Map<number, Uint8Array>>;
 	#ongoing: Promise<void> | undefined;
