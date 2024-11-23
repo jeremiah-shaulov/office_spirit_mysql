@@ -1,9 +1,9 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.45/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.49/tsa.ts doc-md --outFile=README.md --outUrl=https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md --importUrl=https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts mod.ts
 -->
 
-# office\_spirit\_mysql - MySQL and MariaDB driver for Deno.
+# office_spirit_mysql - MySQL and MariaDB driver for Deno.
 
 [Documentation Index](generated-doc/README.md)
 
