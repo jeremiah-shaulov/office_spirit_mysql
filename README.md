@@ -1270,7 +1270,7 @@ conn.setSqlLogger(true);
 
 // Is the same as:
 
-conn.setSqlLogger(new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, 10_000, 3_000, 100));
+conn.setSqlLogger(new SqlLogToWritable(Deno.stderr, !Deno.noColor, 10_000, 3_000, 100));
 ```
 
 Here is how to subclass `SqlLogToWritable` to log to a file:
@@ -1279,7 +1279,7 @@ Here is how to subclass `SqlLogToWritable` to log to a file:
 // To download and run this example:
 // export DSN='mysql://root:hello@localhost/tests'
 // curl 'https://raw.githubusercontent.com/jeremiah-shaulov/office_spirit_mysql/v0.19.6/README.md' | perl -ne '$y=$1 if /^```(.)?/;  print $_ if $y&&$m;  $m=$y&&($m||m~<example-mbya>~)' > /tmp/example-mbya.ts
-// deno run --allow-env --allow-net /tmp/example-mbya.ts
+// deno run --allow-env --allow-net --allow-write /tmp/example-mbya.ts
 
 import {MyPool, SqlLogToWritable} from 'https://deno.land/x/office_spirit_mysql@v0.19.6/mod.ts';
 import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
@@ -1291,7 +1291,7 @@ const LOG_FILE = '/tmp/sql.log';
 class SqlLogToFile extends SqlLogToWritable
 {	protected disposable: Disposable;
 
-	private constructor(fileLike: {readonly writable: WritableStream<Uint8Array>}&Disposable, withColor=false)
+	private constructor(fileLike: {readonly writable: WritableStream<Uint8Array>} & Disposable, withColor=false)
 	{	super(fileLike.writable, withColor);
 		this.disposable = fileLike;
 	}

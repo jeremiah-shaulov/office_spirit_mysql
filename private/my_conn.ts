@@ -568,7 +568,7 @@ export class MyConn
 	}
 
 	setSqlLogger(sqlLogger?: SqlLogger|true)
-	{	this.#sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger) : sqlLogger, this.#pool.options.logger);
+	{	this.#sqlLogger = !sqlLogger ? undefined : new SafeSqlLogger(this.dsn, sqlLogger===true ? new SqlLogToWritable(Deno.stderr, !Deno.noColor, undefined, undefined, undefined, this.#pool.options.logger) : sqlLogger, this.#pool.options.logger);
 		this.#protocol?.setSqlLogger(this.#sqlLogger);
 	}
 

@@ -1230,7 +1230,7 @@
 
 	// Is the same as:
 
-	conn.setSqlLogger(new SqlLogToWritable(Deno.stderr.writable, !Deno.noColor, 10_000, 3_000, 100));
+	conn.setSqlLogger(new SqlLogToWritable(Deno.stderr, !Deno.noColor, 10_000, 3_000, 100));
 	```
 
 	Here is how to subclass `SqlLogToWritable` to log to a file:
@@ -1238,7 +1238,7 @@
 	```ts
 	// To run this example:
 	// export DSN='mysql://root:hello@localhost/tests'
-	// deno run --allow-env --allow-net example.ts
+	// deno run --allow-env --allow-net --allow-write example.ts
 
 	import {MyPool, SqlLogToWritable} from './mod.ts';
 	import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
@@ -1250,7 +1250,7 @@
 	class SqlLogToFile extends SqlLogToWritable
 	{	protected disposable: Disposable;
 
-		private constructor(fileLike: {readonly writable: WritableStream<Uint8Array>}&Disposable, withColor=false)
+		private constructor(fileLike: {readonly writable: WritableStream<Uint8Array>} & Disposable, withColor=false)
 		{	super(fileLike.writable, withColor);
 			this.disposable = fileLike;
 		}
