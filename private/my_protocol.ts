@@ -1160,7 +1160,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: Any[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
+	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: unknown[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;

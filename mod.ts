@@ -618,7 +618,7 @@
 
 	```ts
 	interface ToSqlBytes
-	{	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
+	{	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: unknown[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
 	}
 	```
 
@@ -647,7 +647,7 @@
 		{
 		}
 
-		toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array)
+		toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: unknown[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array)
 		{	let sql;
 			if (putParamsTo)
 			{	putParamsTo.push(this.idValue);

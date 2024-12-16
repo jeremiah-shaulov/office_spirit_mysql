@@ -7,11 +7,8 @@ import {Reader, Seeker} from './deno_ifaces.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
 
-// deno-lint-ignore no-explicit-any
-type Any = any;
-
 interface ToSqlBytes
-{	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: Any[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
+{	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: unknown[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
 }
 export type SqlSource =
 	string |
@@ -246,7 +243,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 	 **/
-	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, logData?: (data: Uint8Array) => Promise<unknown>, canWait=false, putParamsTo?: Any[])
+	protected async sendWithData(data: SqlSource, noBackslashEscapes: boolean, logData?: (data: Uint8Array) => Promise<unknown>, canWait=false, putParamsTo?: unknown[])
 	{	debugAssert(this.bufferEnd > this.bufferStart); // call startWritingNewPacket() first
 		if (typeof(data)=='object' && 'toSqlBytesWithParamsBackslashAndBuffer' in data)
 		{	data = data.toSqlBytesWithParamsBackslashAndBuffer(putParamsTo, noBackslashEscapes, this.buffer.subarray(this.bufferEnd));
