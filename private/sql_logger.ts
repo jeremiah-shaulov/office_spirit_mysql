@@ -88,34 +88,31 @@ export class SafeSqlLogger
 		this.#logger = logger;
 	}
 
-	connect(connectionId: number)
+	async connect(connectionId: number)
 	{	try
-		{	return this.#underlying.connect?.(this.#dsn, connectionId) || Promise.resolve();
+		{	return await this.#underlying.connect?.(this.#dsn, connectionId) ;
 		}
 		catch (e)
 		{	this.#logger.error(e);
 		}
-		return Promise.resolve();
 	}
 
-	resetConnection(connectionId: number)
+	async resetConnection(connectionId: number)
 	{	try
-		{	return this.#underlying.resetConnection?.(this.#dsn, connectionId) || Promise.resolve();
+		{	return await this.#underlying.resetConnection?.(this.#dsn, connectionId);
 		}
 		catch (e)
 		{	this.#logger.error(e);
 		}
-		return Promise.resolve();
 	}
 
-	disconnect(connectionId: number)
+	async disconnect(connectionId: number)
 	{	try
-		{	return this.#underlying.disconnect?.(this.#dsn, connectionId) || Promise.resolve();
+		{	return await this.#underlying.disconnect?.(this.#dsn, connectionId);
 		}
 		catch (e)
 		{	this.#logger.error(e);
 		}
-		return Promise.resolve();
 	}
 
 	async query(connectionId: number, isPrepare: boolean, noBackslashEscapes: boolean): Promise<SafeSqlLoggerQuery| undefined>
@@ -125,78 +122,71 @@ export class SafeSqlLogger
 			{	const logger = this.#logger;
 				let curNParam = -1;
 				const query =
-				{	appendToQuery(data: Uint8Array)
+				{	async appendToQuery(data: Uint8Array)
 					{	try
-						{	return underlyingQuery.appendToQuery?.(data) ?? Promise.resolve();
+						{	return await underlyingQuery.appendToQuery?.(data);
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
-					setStmtId(stmtId: number)
+					async setStmtId(stmtId: number)
 					{	try
-						{	return underlyingQuery.setStmtId?.(stmtId) ?? Promise.resolve();
+						{	return await underlyingQuery.setStmtId?.(stmtId);
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
 					paramStart(nParam: number)
 					{	curNParam = nParam;
 					},
 
-					appendToParam(data: Uint8Array|number|bigint)
+					async appendToParam(data: Uint8Array|number|bigint)
 					{	try
-						{	return underlyingQuery.appendToParam?.(curNParam, data) ?? Promise.resolve();
+						{	return await underlyingQuery.appendToParam?.(curNParam, data);
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
-					paramEnd()
+					async paramEnd()
 					{	try
-						{	return underlyingQuery.paramEnd?.(curNParam) ?? Promise.resolve();
+						{	return await underlyingQuery.paramEnd?.(curNParam);
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
-					nextQuery()
+					async nextQuery()
 					{	try
-						{	return underlyingQuery.nextQuery?.() ?? Promise.resolve();
+						{	return await underlyingQuery.nextQuery?.();
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
-					start()
+					async start()
 					{	try
-						{	return underlyingQuery.start?.() ?? Promise.resolve();
+						{	return await underlyingQuery.start?.();
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					},
 
-					end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
+					async end(result: Resultsets<unknown>|Error|undefined, stmtId: number)
 					{	try
-						{	return underlyingQuery.end?.(result, stmtId) ?? Promise.resolve();
+						{	return await underlyingQuery.end?.(result, stmtId);
 						}
 						catch (e)
 						{	logger.error(e);
 						}
-						return Promise.resolve();
 					}
 				};
 				return query;
@@ -207,23 +197,21 @@ export class SafeSqlLogger
 		}
 	}
 
-	deallocatePrepare(connectionId: number, stmtIds: number[])
+	async deallocatePrepare(connectionId: number, stmtIds: number[])
 	{	try
-		{	return this.#underlying.deallocatePrepare?.(this.#dsn, connectionId, stmtIds) || Promise.resolve();
+		{	return await this.#underlying.deallocatePrepare?.(this.#dsn, connectionId, stmtIds);
 		}
 		catch (e)
 		{	this.#logger.error(e);
 		}
-		return Promise.resolve();
 	}
 
-	dispose()
+	async dispose()
 	{	try
-		{	return this.#underlying.dispose?.() || Promise.resolve();
+		{	return await this.#underlying.dispose?.();
 		}
 		catch (e)
 		{	this.#logger.error(e);
 		}
-		return Promise.resolve();
 	}
 }
