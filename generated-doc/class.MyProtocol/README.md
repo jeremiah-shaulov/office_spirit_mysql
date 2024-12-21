@@ -25,7 +25,7 @@
 [writeComInitDb](#-writecominitdbschema-string-void),
 [sendComQuery](#-sendcomqueryrowsql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-promiseresultsetsinternalrow),
 [sendThreeQueries](#-sendthreequeriesrowprestmtid-number-prestmtparams-unknown--undefined-prequery-uint8array--string--undefined-ignoreprequeryerror-boolean-sql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-promiseresultsetsinternalrow),
-[sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-any--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
+[sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
 [disposePreparedStmt](#-disposepreparedstmtstmtid-number-void),
 [execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
 [fetch](#-fetchrowrowtype-rowtype-promiserow),
@@ -123,7 +123,7 @@
 
 
 
-#### ⚙ sendComStmtPrepare\<Row>(sql: [SqlSource](../type.SqlSource/README.md), putParamsTo: [Any](../private.type.Any/README.md)\[] | `undefined`, rowType: [RowType](../enum.RowType/README.md), letReturnUndefined: `boolean`=false, skipColumns: `boolean`=false): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
+#### ⚙ sendComStmtPrepare\<Row>(sql: [SqlSource](../type.SqlSource/README.md), putParamsTo: `unknown`\[] | `undefined`, rowType: [RowType](../enum.RowType/README.md), letReturnUndefined: `boolean`=false, skipColumns: `boolean`=false): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
 
 > On success returns ResultsetsProtocol<Row>.
 > On error throws exception.

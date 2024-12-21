@@ -48,7 +48,7 @@ To send a long packet, use `sendWithData()`.
 [writeNulString](#-protected-writenulstringvalue-string-void),
 [writeReadChunk](#-protected-writereadchunkvalue-reader-promisenumber),
 [send](#-protected-send-promisevoid),
-[sendWithData](#-protected-sendwithdatadata-sqlsource-nobackslashescapes-boolean-logdata-data-uint8array--promiseunknown-canwait-booleanfalse-putparamsto-any-promiseboolean)
+[sendWithData](#-protected-sendwithdatadata-sqlsource-nobackslashescapes-boolean-logdata-data-uint8array--promiseunknown-canwait-booleanfalse-putparamsto-unknown-promiseboolean)
 - 58 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
@@ -132,7 +132,7 @@ To send a long packet, use `sendWithData()`.
 
 
 
-#### ⚙ `protected` sendWithData(data: [SqlSource](../type.SqlSource/README.md), noBackslashEscapes: `boolean`, logData?: (data: Uint8Array) => Promise\<`unknown`>, canWait: `boolean`=false, putParamsTo?: [Any](../private.type.Any.2/README.md)\[]): Promise\<`boolean`>
+#### ⚙ `protected` sendWithData(data: [SqlSource](../type.SqlSource/README.md), noBackslashEscapes: `boolean`, logData?: (data: Uint8Array) => Promise\<`unknown`>, canWait: `boolean`=false, putParamsTo?: `unknown`\[]): Promise\<`boolean`>
 
 > Append long data to the end of current packet, and send the packet (or split to several packets and send them).
 

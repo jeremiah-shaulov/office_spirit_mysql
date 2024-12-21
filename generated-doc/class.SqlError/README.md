@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlError} from "https://deno.land/x/office_spirit_mysql@v0.19.7/mod.ts"
+import {SqlError} from "https://deno.land/x/office_spirit_mysql@v0.19.8/mod.ts"
 ```
 
 Query was sent to the server, and this error is reported by the server (not a connection error or such).

@@ -6,27 +6,27 @@
 
 - [constructor](#-constructordsn-dsn-underlying-sqllogger-logger-logger)
 - 6 methods:
-[connect](#-connectconnectionid-number-any),
-[resetConnection](#-resetconnectionconnectionid-number-any),
-[disconnect](#-disconnectconnectionid-number-any),
+[connect](#-connectconnectionid-number-promiseany),
+[resetConnection](#-resetconnectionconnectionid-number-promiseany),
+[disconnect](#-disconnectconnectionid-number-promiseany),
 [query](#-queryconnectionid-number-isprepare-boolean-nobackslashescapes-boolean-promisesafesqlloggerquery),
-[deallocatePrepare](#-deallocateprepareconnectionid-number-stmtids-number-any),
-[dispose](#-dispose-any)
+[deallocatePrepare](#-deallocateprepareconnectionid-number-stmtids-number-promiseany),
+[dispose](#-dispose-promiseany)
 
 
 #### 🔧 `constructor`(dsn: [Dsn](../class.Dsn/README.md), underlying: [SqlLogger](../interface.SqlLogger/README.md), logger: [Logger](../interface.Logger/README.md))
 
 
 
-#### ⚙ connect(connectionId: `number`): `any`
+#### ⚙ connect(connectionId: `number`): Promise\<`any`>
 
 
 
-#### ⚙ resetConnection(connectionId: `number`): `any`
+#### ⚙ resetConnection(connectionId: `number`): Promise\<`any`>
 
 
 
-#### ⚙ disconnect(connectionId: `number`): `any`
+#### ⚙ disconnect(connectionId: `number`): Promise\<`any`>
 
 
 
@@ -34,11 +34,11 @@
 
 
 
-#### ⚙ deallocatePrepare(connectionId: `number`, stmtIds: `number`\[]): `any`
+#### ⚙ deallocatePrepare(connectionId: `number`, stmtIds: `number`\[]): Promise\<`any`>
 
 
 
-#### ⚙ dispose(): `any`
+#### ⚙ dispose(): Promise\<`any`>
 
 
 
