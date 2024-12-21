@@ -134,7 +134,7 @@ export class MyConn
 	}
 
 	end()
-	{	this.#doEnd(false);
+	{	this.#doEnd(false, false);
 	}
 
 	/**	Immediately places the connection back to it's pool where it gets eventually reset or disconnected.
@@ -144,7 +144,7 @@ export class MyConn
 	{	const isDisposed = this.#isDisposed;
 		this.#isDisposed = true;
 		try
-		{	this.#doEnd(true);
+		{	this.#doEnd(true, false);
 		}
 		finally
 		{	if (!isDisposed)
@@ -153,19 +153,21 @@ export class MyConn
 		}
 	}
 
-	#doEnd(withDisposeSqlLogger: boolean)
+	#doEnd(withDisposeSqlLogger: boolean, noResetPending: boolean)
 	{	const protocol = this.#protocol;
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
 		this.#isConnecting = false;
 		this.#savepointEnum = 0;
-		this.#curXaId = '';
-		this.#curXaIdAppendConn = false;
 		this.#isXaPrepared = false;
-		this.#pendingChangeSchema = '';
-		this.pendingTrxSql.length = 0;
 		this.#preparedStmtsForParams.length = 0;
 		this.#protocol = undefined;
+		if (!noResetPending)
+		{	this.#pendingChangeSchema = '';
+			this.pendingTrxSql.length = 0;
+			this.#curXaId = '';
+			this.#curXaIdAppendConn = false;
+		}
 		if (protocol)
 		{	this.#pool.returnProtocol(protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
@@ -498,7 +500,7 @@ export class MyConn
 				}
 				catch (e)
 				{	const {inTrxReadonly} = this;
-					this.#doEnd(false);
+					this.#doEnd(false, false);
 					protocol.logger.error(e);
 					if (typeof(toPointId) == 'number')
 					{	// want chain
@@ -551,7 +553,7 @@ export class MyConn
 				}
 				catch (e2)
 				{	protocol.logger.error(e2);
-					this.#doEnd(false);
+					this.#doEnd(false, false);
 					protocol.logger.error(e);
 					throw new ServerDisconnectedError(e instanceof Error ? e.message : e+'');
 				}
@@ -575,7 +577,7 @@ export class MyConn
 	async #doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType, multiStatements: SetOption|MultiStatements): Promise<ResultsetsInternal<Row>>
 	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
-		while (true)
+L:		while (true)
 		{	if (!this.#protocol)
 			{	await this.connect();
 			}
@@ -595,9 +597,9 @@ export class MyConn
 						}
 						sql = `XA START '${this.#curXaId}'`;
 					}
-					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0)) // TODO: how to process error?
-					{	this.#doEnd(false);
-						continue;
+					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0))
+					{	this.#doEnd(false, true);
+						continue L;
 					}
 				}
 				pendingTrxSql.length = 0;
@@ -652,7 +654,7 @@ export class MyConn
 				}
 			}
 
-			this.#doEnd(false);
+			this.#doEnd(false, false);
 			// redo
 		}
 	}
