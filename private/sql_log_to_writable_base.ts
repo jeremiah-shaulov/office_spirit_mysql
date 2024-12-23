@@ -10,13 +10,14 @@ const MAX_BUFFER_SIZE = 1*1024*1024;
 
 const encoder = new TextEncoder;
 
+const writerStatePerSink = new WeakMap<Writer|WritableStream<Uint8Array>, {connectionId: number, dsn: Dsn}>;
+
 /**	@category SQL Logging
  **/
 export class SqlLogToWritableBase implements SqlLogger
-{	#pending = new Map<Dsn, Map<number, Uint8Array>>;
+{	#origWriter;
+	#pending = new Map<Dsn, Map<number, Uint8Array>>;
 	#ongoing: Promise<void> | undefined;
-	#prevDsn: Dsn | undefined;
-	#prevConnectionId = -1;
 	#continueAfterFlush = new Array<VoidFunction>;
 	#isDisposed = false;
 	#isBroken = false;
@@ -24,7 +25,8 @@ export class SqlLogToWritableBase implements SqlLogger
 	protected writer: WritableStreamDefaultWriter<Uint8Array>;
 
 	constructor(writer: Writer|WritableStream<Uint8Array>, protected logger: Logger=console)
-	{	if (!(writer instanceof WritableStream))
+	{	this.#origWriter = writer;
+		if (!(writer instanceof WritableStream))
 		{	const w = writer;
 			writer = new WrStream({write: b => w.write(b)});
 		}
@@ -102,19 +104,37 @@ export class SqlLogToWritableBase implements SqlLogger
 						if (!buf)
 						{	break; // must not happen
 						}
-						if (connectionId!=this.#prevConnectionId || dsn!=this.#prevDsn)
-						{	this.#prevDsn = dsn;
-							this.#prevConnectionId = connectionId;
-							let banner = this.nextConnBanner(dsn, connectionId);
-							if (banner)
-							{	if (typeof(banner) == 'string')
-								{	banner = encoder.encode(banner);
-								}
-								await this.writer.write(banner);
-								buf = byConn.get(connectionId)!;
+						let writerState = writerStatePerSink.get(this.#origWriter);
+						let banner: Uint8Array|undefined;
+						if (connectionId!==writerState?.connectionId || dsn!==writerState?.dsn)
+						{	if (!writerState)
+							{	writerState = {connectionId, dsn};
 							}
+							else
+							{	writerState.connectionId = connectionId;
+								writerState.dsn = dsn;
+							}
+							writerStatePerSink.set(this.#origWriter, writerState);
+							const curBanner = this.nextConnBanner(dsn, connectionId);
+							banner = typeof(curBanner)=='string' ? encoder.encode(curBanner) : curBanner;
 						}
-						if (buf.byteOffset != 0)
+						if (banner)
+						{	// Prepend banner
+							if (buf.buffer.byteLength >= buf.length+banner.length)
+							{	const newBuf = new Uint8Array(buf.buffer);
+								newBuf.copyWithin(banner.length, buf.byteOffset, buf.byteOffset+buf.length);
+								newBuf.set(banner);
+								buf = newBuf.subarray(0, buf.length+banner.length);
+							}
+							else
+							{	const newBuf = new Uint8Array(buf.length+banner.length);
+								newBuf.set(banner);
+								newBuf.set(buf, banner.length);
+								buf = newBuf;
+							}
+							byConn.set(connectionId, buf);
+						}
+						else if (buf.byteOffset != 0)
 						{	// in this case `reallocAppend()` can `copyWithin()` while `this.writer.write()` is working, so i'll do this now
 							const newBuf = new Uint8Array(buf.buffer);
 							newBuf.copyWithin(0, buf.byteOffset, buf.byteOffset+buf.length);
