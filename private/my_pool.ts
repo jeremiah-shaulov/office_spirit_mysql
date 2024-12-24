@@ -209,6 +209,10 @@ export class MyPool
 	{	using conn = this.getConn(dsn);
 		return await callback(conn);
 	}
+
+	getStatus()
+	{	return this.#pool.getStatus();
+	}
 }
 
 export class Pool
@@ -247,6 +251,17 @@ export class Pool
 	{	if (--this.#useCnt==0 && this.#nBusyAll==0)
 		{	this.#onend?.();
 		}
+	}
+
+	getStatus()
+	{	const status = new Map<Dsn, {nBusy: number, nIdle: number}>;
+		for (const {idle, busy} of this.#protocolsPerSchema.values())
+		{	const dsn = idle[0]?.dsn ?? busy[0]?.dsn;
+			if (dsn)
+			{	status.set(dsn, {nBusy: busy.length, nIdle: idle.length});
+			}
+		}
+		return status;
 	}
 
 	async getProtocol(dsn: Dsn, pendingChangeSchema: string, sqlLogger: SafeSqlLogger|undefined)
