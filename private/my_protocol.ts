@@ -790,7 +790,8 @@ L:		while (true)
 			{	this.logger.error(e);
 			}
 			if (isFromPool)
-			{	return;
+			{	this.#setState(ProtocolState.ERROR);
+				return;
 			}
 			state = ProtocolState.ERROR;
 		}
@@ -2098,7 +2099,8 @@ L:		while (true)
 		if (state != ProtocolState.TERMINATED)
 		{	this.#state = ProtocolState.TERMINATED;
 			if (state == ProtocolState.QUERYING)
-			{	const promise = new Promise<ProtocolState>(y => {this.#onEndSession = y});
+			{	debugAssert(this.#curLastColumnReader);
+				const promise = new Promise<ProtocolState>(y => {this.#onEndSession = y});
 				try
 				{	if (this.#curLastColumnReader instanceof RdStream)
 					{	await this.#curLastColumnReader.cancel();
