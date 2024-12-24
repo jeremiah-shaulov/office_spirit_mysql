@@ -2157,6 +2157,8 @@ L:		while (true)
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
 				const protocol = new MyProtocol(this.writer, this.reader, this.#closer, this.decoder, this.recycleBuffer(), this.dsn, this.logger);
+				protocol.useTill = this.useTill;
+				protocol.useNTimes = this.useNTimes;
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
