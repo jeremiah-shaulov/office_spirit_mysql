@@ -6,10 +6,11 @@
 
 - [destructor](#-symbolasyncdispose-promisevoid)
 - property [options](#-options-optionsmanager)
-- 5 methods:
+- 6 methods:
 [updateOptions](#-updateoptionsoptions-dsn--string--mypooloptions-mypooloptions),
 [ref](#-ref-void),
 [unref](#-unref-void),
+[getStatus](#-getstatus-mapdsn-nbusy-number-nidle-number),
 [getProtocol](#-getprotocoldsn-dsn-pendingchangeschema-string-sqllogger-safesqllogger--undefined-promisemyprotocol),
 [returnProtocol](#-returnprotocolprotocol-myprotocol-rollbackpreparedxaid-string-withdisposesqllogger-boolean-promisevoid)
 
@@ -31,6 +32,10 @@
 
 
 #### ⚙ unref(): `void`
+
+
+
+#### ⚙ getStatus(): Map\<[Dsn](../class.Dsn/README.md), \{nBusy: `number`, nIdle: `number`}>
 
 
 

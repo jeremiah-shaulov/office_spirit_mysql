@@ -3,19 +3,20 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.8/mod.ts"
+import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.9/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructoroptions-dsn--string--mypooloptions)
 - [destructor](#-symbolasyncdispose-promisevoid)
-- 5 methods:
+- 6 methods:
 [options](#-optionsoptions-dsn--string--mypooloptions-mypooloptions),
 [getSession](#-getsession-mysession),
 [forSession](#-forsessiontcallback-session-mysession--promiset-promiset),
 [getConn](#-getconndsn-dsn--string-myconn),
-[forConn](#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset)
+[forConn](#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset),
+[getStatus](#-getstatus-mapdsn-nbusy-number-nidle-number)
 - [2 deprecated symbols](#-deprecated-shutdown-promisevoid)
 
 
@@ -68,6 +69,10 @@ import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.8/mod.ts"
 #### ⚙ forConn\<T>(callback: (conn: [MyConn](../class.MyConn/README.md)) => Promise\<T>, dsn?: [Dsn](../class.Dsn/README.md) | `string`): Promise\<T>
 
 > Execute callback with new [MyConn](../class.MyConn/README.md) object, and then destroy the object.
+
+
+
+#### ⚙ getStatus(): Map\<[Dsn](../class.Dsn/README.md), \{nBusy: `number`, nIdle: `number`}>
 
 
 

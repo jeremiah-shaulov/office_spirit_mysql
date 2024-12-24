@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.19.8/mod.ts"
+import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.19.9/mod.ts"
 ```
 
 ## This class has

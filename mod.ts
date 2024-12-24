@@ -1303,7 +1303,7 @@
 	less -r /tmp/sql.log
 	```
 
-	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.8/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
+	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.9/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
 	and you can override it's public and protected methods to customize it's behavior.
 
 	## Transactions
