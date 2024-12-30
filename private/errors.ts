@@ -23,10 +23,7 @@ export class SqlError extends Error
 
 	constructor(message: string, readonly errorCode=0, public sqlState='', autocommit=false, inTrx=false)
 	{	super(message);
-		if (errorCode == ErrorCodes.ER_LOCK_WAIT_TIMEOUT)
-		{	this.canRetry = CanRetry.QUERY;
-		}
-		else if (errorCode == ErrorCodes.ER_LOCK_DEADLOCK)
+		if (errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT || errorCode==ErrorCodes.ER_LOCK_DEADLOCK)
 		{	this.canRetry = autocommit && !inTrx ? CanRetry.QUERY : CanRetry.TRX;
 		}
 		else if (errorCode == ErrorCodes.ER_SERVER_SHUTDOWN)

@@ -322,7 +322,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				{	sqlState = this.readShortString(6) ?? await this.readShortStringAsync(6);
 				}
 				const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
-				throw new SqlError(errorMessage, errorCode, sqlState);
+				throw new SqlError(errorMessage, errorCode, sqlState, (this.statusFlags & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0, (this.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) != 0);
 			}
 			default: // Use plugin for authentication
 			{	let data = this.readShortEofBytes() ?? await this.readShortEofBytesAsync();
@@ -436,7 +436,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 				}
 				const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
 				debugAssert(this.isAtEndOfPacket());
-				throw new SqlError(errorMessage, errorCode, sqlState);
+				throw new SqlError(errorMessage, errorCode, sqlState, (this.statusFlags & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0, (this.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) != 0);
 			}
 			default:
 			{	return type|PACKET_NOT_READ_BIT;
