@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.19.12/mod.ts"
+import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.
