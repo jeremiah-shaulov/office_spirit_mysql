@@ -207,15 +207,27 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	override async *[Symbol.asyncIterator](): AsyncGenerator<Row>
 	{	if (this.hasMoreInternal)
-		{	while (true)
-			{	if (!this.protocol)
-				{	throw new CanceledError(`Connection terminated`);
+		{	try
+			{	while (true)
+				{	if (!this.protocol)
+					{	throw new CanceledError(`Connection terminated`);
+					}
+					const row: Row|undefined = await this.protocol.fetch(this.rowType);
+					if (row === undefined)
+					{	break;
+					}
+					yield row;
 				}
-				const row: Row|undefined = await this.protocol.fetch(this.rowType);
-				if (row === undefined)
-				{	break;
+			}
+			finally
+			{	if (this.hasMoreInternal)
+				{	while (this.protocol)
+					{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+						if (row === undefined)
+						{	break;
+						}
+					}
 				}
-				yield row;
 			}
 		}
 	}
