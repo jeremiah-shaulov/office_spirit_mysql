@@ -149,7 +149,7 @@ export type PoolStatus =
 	/**	Health status that reflects the ratio of successful and failed connection attempts.
 		The connection attempts are those when no idle connection was found in the pool, and new connection was created.
 		This library tracks the health status for the last 1 minute, and you can specify the period (1 - 60 sec) for which to return the status in {@link MyPool.getStatus()}.
-		0.0 - all failed, 1.0 - all successful.
+		0.0 - all failed, 1.0 - all successful, NaN - there were no connection attempts.
 	 **/
 	healthStatus: number;
 };
@@ -772,14 +772,13 @@ class HealthStatus
 	log(ok: boolean, now=Date.now())
 	{	const sec = Math.trunc(now/1000);
 		const data = this.#data;
-		let diff = sec - this.#iSec;
+		const diff = sec - this.#iSec;
 		if (diff >= 0)
 		{	let i = this.#i;
 			if (diff >= TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
 			{	data.fill(0);
 				i = 0;
 				this.#iSec = sec;
-				diff = 0;
 			}
 			else
 			{	for (let iEnd=i+diff; i<iEnd;)
@@ -793,10 +792,10 @@ class HealthStatus
 			}
 			const value = data[i];
 			if ((ok ? value&0xFFFF : value>>16) < 0xFFFF)
-			{	data[i] += ok ? 1 : 0x10000;
+			{	data[i] = value + (ok ? 1 : 0x10000);
 			}
 			else if ((ok ? value>>16 : value&0xFFFF) >= 0x10000/2)
-			{	data[i] -= ok ? 0x10000 : 1;
+			{	data[i] = value - (ok ? 0x10000 : 1);
 			}
 		}
 	}
