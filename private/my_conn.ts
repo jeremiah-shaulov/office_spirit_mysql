@@ -163,13 +163,13 @@ export class MyConn
 		this.#preparedStmtsForParams.length = 0;
 		this.#protocol = undefined;
 		if (!noResetPending)
-		{	this.#pendingChangeSchema = '';
-			this.pendingTrxSql.length = 0;
+		{	this.pendingTrxSql.length = 0;
 			this.#curXaId = '';
 			this.#curXaIdAppendConn = false;
 		}
 		if (protocol)
-		{	this.#pool.returnProtocol(protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
+		{	this.#pendingChangeSchema = protocol.schema;
+			this.#pool.returnProtocol(protocol, isXaPrepared ? curXaId : '', withDisposeSqlLogger);
 		}
 	}
 
