@@ -1,5 +1,5 @@
 import {Dsn} from './dsn.ts';
-import {MyConn, MyConnInternal, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
+import {DisconnectStatus, MyConn, MyConnInternal, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
 import {Pool, XaInfoTable} from "./my_pool.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWritable} from "./sql_log_to_writable.ts";
@@ -329,5 +329,19 @@ export class MySession
 		for (const conn of this.#connsArr)
 		{	conn.setSqlLogger(sqlLogger);
 		}
+	}
+
+	/**	Terminates each connection in the session, even if in the middle of query execution.
+		@returns Returns information about each terminated connection.
+	 **/
+	forceImmediateDisconnect()
+	{	const infos = new Array<DisconnectStatus>;
+		for (const conn of this.#connsArr)
+		{	const info = conn.forceImmediateDisconnect();
+			if (info)
+			{	infos.push(info);
+			}
+		}
+		return infos;
 	}
 }

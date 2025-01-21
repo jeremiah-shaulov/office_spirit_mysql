@@ -768,11 +768,13 @@ L:		while (true)
 	#rethrowError(error: unknown): never
 	{	let state = ProtocolState.IDLE;
 		if (!(error instanceof SqlError))
-		{	try
-			{	this.#closer[Symbol.dispose]();
-			}
-			catch (e)
-			{	this.logger.error(e);
+		{	if (this.#state != ProtocolState.ERROR)
+			{	try
+				{	this.#closer[Symbol.dispose]();
+				}
+				catch (e)
+				{	this.logger.error(e);
+				}
 			}
 			state = ProtocolState.ERROR;
 		}
@@ -2222,5 +2224,21 @@ L:		while (true)
 			}
 		}
 		return this.recycleBuffer();
+	}
+
+	/**	@returns Returns `true` if there was ongoing query. In this case probably you need to reconnect and KILL it.
+	 **/
+	forceImmediateDisconnect()
+	{	const state = this.#state;
+		if (state!=ProtocolState.ERROR && state!=ProtocolState.TERMINATED)
+		{	try
+			{	this.#closer[Symbol.dispose]();
+			}
+			catch (e)
+			{	this.logger.error(e);
+			}
+			this.#state = ProtocolState.ERROR;
+		}
+		return state == ProtocolState.QUERYING;
 	}
 }

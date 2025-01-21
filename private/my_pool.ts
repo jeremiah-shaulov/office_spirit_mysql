@@ -335,8 +335,18 @@ export class Pool
 	}
 
 	async returnProtocol(protocol: MyProtocol, rollbackPreparedXaId: string, withDisposeSqlLogger: boolean)
+	{	const protocolForReuse = await this.#protocolsFactory.closeConn(protocol, rollbackPreparedXaId, --protocol.useNTimes>0 && protocol.useTill>Date.now(), withDisposeSqlLogger);
+		this.#doReturnProtocol(protocol, protocolForReuse);
+	}
+
+	returnProtocolAndForceImmediateDisconnect(protocol: MyProtocol)
+	{	const wasInQueryingState = protocol.forceImmediateDisconnect();
+		this.#doReturnProtocol(protocol);
+		return wasInQueryingState;
+	}
+
+	#doReturnProtocol(protocol: MyProtocol, protocolForReuse?: MyProtocol)
 	{	const {dsn} = protocol;
-		const protocolForReuse = await this.#protocolsFactory.closeConn(protocol, rollbackPreparedXaId, --protocol.useNTimes>0 && protocol.useTill>Date.now(), withDisposeSqlLogger);
 		let conns = this.#protocolsPerSchema.get(dsn.hash);
 		let i = -1;
 		if (conns)

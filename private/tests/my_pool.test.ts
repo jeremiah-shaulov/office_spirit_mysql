@@ -1965,3 +1965,53 @@ async function testBindBigParam(dsnStr: string)
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
 }
+
+async function testForceImmediateDisconnect(dsnStr: string)
+{	const maxColumnLen = 0x1000000;
+	const dsn = new Dsn(dsnStr);
+	dsn.maxColumnLen = maxColumnLen;
+	await using pool = new MyPool(dsn);
+	using session = pool.getSession();
+	using conn = session.conn();
+
+	// CREATE DATABASE
+	await conn.query("DROP DATABASE IF EXISTS test1");
+	await conn.query("CREATE DATABASE `test1` /*!40100 CHARSET latin1 COLLATE latin1_general_ci*/");
+
+	// USE
+	await conn.query("USE test1");
+
+	async function logFound()
+	{	for (let i=0; i<20; i++)
+		{	await new Promise(y => setTimeout(y, 500));
+			const res = await conn.query("SHOW TABLES LIKE 't_log'").all();
+			if (res.length)
+			{	return true;
+			}
+		}
+		return false;
+	}
+
+	// CREATE TEMPORARY TABLE
+	const [res1] = await Promise.allSettled
+	(	[	conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)"),
+			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
+		]
+	);
+
+	assertEquals(res1.status, 'rejected');
+	assertEquals(await logFound(), false);
+
+	// CREATE TABLE
+	const [res2] = await Promise.allSettled
+	(	[	conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)"),
+			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
+		]
+	);
+
+	assertEquals(res2.status, 'rejected');
+	assertEquals(await logFound(), true);
+
+	// Drop database that i created
+	await conn.query("DROP DATABASE test1");
+}

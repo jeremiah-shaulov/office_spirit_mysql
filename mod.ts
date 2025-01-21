@@ -1569,7 +1569,7 @@ export {MyPool} from './private/my_pool.ts';
 export type {MyPoolOptions} from './private/my_pool.ts';
 export {MySession} from './private/my_session.ts';
 export {Dsn} from './private/dsn.ts';
-export {MyConn} from './private/my_conn.ts';
+export {MyConn, type DisconnectStatus} from './private/my_conn.ts';
 export {ResultsetsPromise, Resultsets, Column} from './private/resultsets.ts';
 export type {ColumnValue, JsonNode, Params} from './private/resultsets.ts';
 export {Charset, MysqlType, ColumnFlags, ErrorCodes} from './private/constants.ts';
