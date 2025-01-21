@@ -16,6 +16,7 @@ const DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH_MSEC = 1000;
 const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
+const TRACK_HEALH_STATUS_FOR_PERIOD_SEC = 60;
 
 export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
@@ -136,6 +137,23 @@ class OptionsManager
 
 type HaveSlotsCallback = {y: VoidFunction, till: number};
 
+export type PoolStatus =
+{	/**	Number of connections that are in use.
+	 **/
+	nBusy: number;
+
+	/**	Number of connections that are idle.
+	 **/
+	nIdle: number;
+
+	/**	Health status that reflects the ratio of successful and failed connection attempts.
+		The connection attempts are those when no idle connection was found in the pool, and new connection was created.
+		This library tracks the health status for the last 1 minute, and you can specify the period (1 - 60 sec) for which to return the status in {@link MyPool.getStatus()}.
+		0.0 - all failed, 1.0 - all successful.
+	 **/
+	healthStatus: number;
+};
+
 export class MyPool
 {	#pool = new Pool;
 
@@ -210,8 +228,8 @@ export class MyPool
 		return await callback(conn);
 	}
 
-	getStatus()
-	{	return this.#pool.getStatus();
+	getStatus(healthStatusForPeriod=TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
+	{	return this.#pool.getStatus(healthStatusForPeriod);
 	}
 }
 
@@ -253,12 +271,14 @@ export class Pool
 		}
 	}
 
-	getStatus()
-	{	const status = new Map<Dsn, {nBusy: number, nIdle: number}>;
-		for (const {idle, busy} of this.#protocolsPerSchema.values())
+	getStatus(healthStatusForPeriod: number)
+	{	const now = Date.now();
+		const status = new Map<Dsn, {nBusy: number, nIdle: number, healthStatus: number}>;
+		for (const {idle, busy, healthStatus} of this.#protocolsPerSchema.values())
 		{	const dsn = idle[0]?.dsn ?? busy[0]?.dsn;
 			if (dsn)
-			{	status.set(dsn, {nBusy: busy.length, nIdle: idle.length});
+			{	const h = healthStatus.getHealthStatusForPeriod(healthStatusForPeriod, now);
+				status.set(dsn, {nBusy: busy.length, nIdle: idle.length, healthStatus: h});
 			}
 		}
 		return status;
@@ -279,7 +299,7 @@ export class Pool
 			this.#protocolsPerSchema.set(dsn.hash, conns);
 		}
 		debugAssert(conns.nConnecting >= 0);
-		const {idle, busy, haveSlotsCallbacks} = conns;
+		const {idle, busy, haveSlotsCallbacks, healthStatus} = conns;
 		// 2. Wait for a free slot
 		const till = now + connectionTimeout;
 		while (busy.length+conns.nConnecting >= maxConns)
@@ -305,10 +325,12 @@ export class Pool
 				{	protocol = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
+					healthStatus.log(true, now);
 				}
 				catch (e)
 				{	conns.nConnecting--;
 					this.#decNBusyAll(maxConns, haveSlotsCallbacks);
+					healthStatus.log(false, now);
 					throw e;
 				}
 			}
@@ -441,7 +463,7 @@ export class Pool
 	{	const protocolsPerSchema = this.#protocolsPerSchema;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
-		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks}] of protocolsPerSchema)
+		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks, healthStatus}] of protocolsPerSchema)
 		{	let nIdle = idle.length;
 			for (let i=nIdle-1; i>=0; i--)
 			{	const protocol = idle[i];
@@ -454,7 +476,7 @@ export class Pool
 			}
 			idle.length = nIdle;
 			// All removed?
-			if (busy.length+nIdle+nConnecting == 0)
+			if (busy.length+nIdle+nConnecting==0 && healthStatus.isEmpty())
 			{	protocolsPerSchema.delete(dsnHash);
 			}
 			//
@@ -490,6 +512,7 @@ class Protocols
 	busy = new Array<MyProtocol>;
 	nConnecting = 0;
 	haveSlotsCallbacks = new Array<HaveSlotsCallback>;
+	healthStatus = new HealthStatus;
 }
 
 class XaTask
@@ -730,5 +753,75 @@ class ProtocolsFactory
 		else
 		{	return protocolOrBuffer;
 		}
+	}
+}
+
+class HealthStatus
+{	#data = new Uint32Array(TRACK_HEALH_STATUS_FOR_PERIOD_SEC);
+	#i = 0;
+	#iSec = 0;
+
+	isEmpty(now=Date.now())
+	{	const sec = Math.trunc(now/1000);
+		const diff = sec - this.#iSec;
+		return diff > TRACK_HEALH_STATUS_FOR_PERIOD_SEC;
+	}
+
+	log(ok: boolean, now=Date.now())
+	{	const sec = Math.trunc(now/1000);
+		const data = this.#data;
+		let diff = sec - this.#iSec;
+		if (diff >= 0)
+		{	let i = this.#i;
+			if (diff >= TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
+			{	data.fill(0);
+				i = 0;
+				this.#iSec = sec;
+				diff = 0;
+			}
+			else
+			{	for (let iEnd=i+diff; i<iEnd;)
+				{	if (++i == TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
+					{	i = 0;
+						iEnd -= TRACK_HEALH_STATUS_FOR_PERIOD_SEC;
+					}
+					data[i] = 0;
+				}
+				this.#i = i;
+			}
+			const value = data[i];
+			if ((ok ? value&0xFFFF : value>>16) < 0xFFFF)
+			{	data[i] += ok ? 1 : 0x10000;
+			}
+			else if ((ok ? value>>16 : value&0xFFFF) >= 0x10000/2)
+			{	data[i] -= ok ? 0x10000 : 1;
+			}
+		}
+	}
+
+	getHealthStatusForPeriod(periodSec=TRACK_HEALH_STATUS_FOR_PERIOD_SEC, now=Date.now())
+	{	const sec = Math.trunc(now/1000);
+		const data = this.#data;
+		let diff = sec - this.#iSec;
+		if (diff < 0)
+		{	periodSec += diff;
+			diff = 0;
+		}
+		if (diff>=TRACK_HEALH_STATUS_FOR_PERIOD_SEC || periodSec<=0)
+		{	return NaN;
+		}
+		let i = this.#i + diff;
+		let nOk = 0;
+		let nFail = 0;
+		for (let iEnd=i+periodSec; i<iEnd;)
+		{	if (++i == TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
+			{	i = 0;
+				iEnd -= TRACK_HEALH_STATUS_FOR_PERIOD_SEC;
+			}
+			const value = data[i];
+			nOk += value & 0xFFFF;
+			nFail += value >> 16;
+		}
+		return nOk / (nOk + nFail);
 	}
 }
