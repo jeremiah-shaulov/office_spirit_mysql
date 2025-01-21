@@ -228,8 +228,10 @@ export class MyPool
 		return await callback(conn);
 	}
 
-	getStatus(healthStatusForPeriod=TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
-	{	return this.#pool.getStatus(healthStatusForPeriod);
+	/**	@param healthStatusForPeriodSec The period in seconds for which to return the health status (1 - 60 inclusive).
+	 **/
+	getStatus(healthStatusForPeriodSec=TRACK_HEALH_STATUS_FOR_PERIOD_SEC)
+	{	return this.#pool.getStatus(healthStatusForPeriodSec);
 	}
 }
 
@@ -271,13 +273,13 @@ export class Pool
 		}
 	}
 
-	getStatus(healthStatusForPeriod: number)
+	getStatus(healthStatusForPeriodSec: number)
 	{	const now = Date.now();
-		const status = new Map<Dsn, {nBusy: number, nIdle: number, healthStatus: number}>;
+		const status = new Map<Dsn, PoolStatus>;
 		for (const {idle, busy, healthStatus} of this.#protocolsPerSchema.values())
 		{	const dsn = idle[0]?.dsn ?? busy[0]?.dsn;
 			if (dsn)
-			{	const h = healthStatus.getHealthStatusForPeriod(healthStatusForPeriod, now);
+			{	const h = healthStatus.getHealthStatusForPeriod(healthStatusForPeriodSec, now);
 				status.set(dsn, {nBusy: busy.length, nIdle: idle.length, healthStatus: h});
 			}
 		}

@@ -1565,7 +1565,7 @@
 	@summary office_spirit_mysql - MySQL and MariaDB driver for Deno.
  **/
 
-export {MyPool} from './private/my_pool.ts';
+export {MyPool, type PoolStatus} from './private/my_pool.ts';
 export type {MyPoolOptions} from './private/my_pool.ts';
 export {MySession} from './private/my_session.ts';
 export {Dsn} from './private/dsn.ts';
