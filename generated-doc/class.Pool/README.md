@@ -6,13 +6,14 @@
 
 - [destructor](#-symbolasyncdispose-promisevoid)
 - property [options](#-options-optionsmanager)
-- 6 methods:
+- 7 methods:
 [updateOptions](#-updateoptionsoptions-dsn--string--mypooloptions-mypooloptions),
 [ref](#-ref-void),
 [unref](#-unref-void),
-[getStatus](#-getstatus-mapdsn-nbusy-number-nidle-number),
+[getStatus](#-getstatushealthstatusforperiodsec-number-mapdsn-poolstatus),
 [getProtocol](#-getprotocoldsn-dsn-pendingchangeschema-string-sqllogger-safesqllogger--undefined-promisemyprotocol),
-[returnProtocol](#-returnprotocolprotocol-myprotocol-rollbackpreparedxaid-string-withdisposesqllogger-boolean-promisevoid)
+[returnProtocol](#-returnprotocolprotocol-myprotocol-rollbackpreparedxaid-string-withdisposesqllogger-boolean-promisevoid),
+[returnProtocolAndForceImmediateDisconnect](#-returnprotocolandforceimmediatedisconnectprotocol-myprotocol-boolean)
 
 
 #### 🔨 \[Symbol.asyncDispose](): Promise\<`void`>
@@ -35,7 +36,7 @@
 
 
 
-#### ⚙ getStatus(): Map\<[Dsn](../class.Dsn/README.md), \{nBusy: `number`, nIdle: `number`}>
+#### ⚙ getStatus(healthStatusForPeriodSec: `number`): Map\<[Dsn](../class.Dsn/README.md), PoolStatus>
 
 
 
@@ -44,6 +45,10 @@
 
 
 #### ⚙ returnProtocol(protocol: [MyProtocol](../class.MyProtocol/README.md), rollbackPreparedXaId: `string`, withDisposeSqlLogger: `boolean`): Promise\<`void`>
+
+
+
+#### ⚙ returnProtocolAndForceImmediateDisconnect(protocol: [MyProtocol](../class.MyProtocol/README.md)): `boolean`
 
 
 

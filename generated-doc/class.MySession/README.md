@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts"
+import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
 ```
 
 ## This class has
@@ -11,13 +11,14 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts
 - [constructor](#-constructorpool-pool)
 - [destructor](#-symboldispose-void)
 - property [conns](#-get-conns-readonly-myconn)
-- 6 methods:
+- 7 methods:
 [conn](#-conndsn-dsn--string-fresh-booleanfalse-myconn),
 [startTrx](#-starttrxoptions-readonly-boolean-xa-boolean-promisevoid),
 [savepoint](#-savepoint-number),
 [rollback](#-rollbacktopointid-number-promisevoid),
 [commit](#-commitandchain-booleanfalse-promisevoid),
-[setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void)
+[setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void),
+[forceImmediateDisconnect](#-forceimmediatedisconnect-disconnectstatus)
 
 
 #### 🔧 `constructor`(pool: [Pool](../class.Pool/README.md))
@@ -80,6 +81,16 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts
 
 
 #### ⚙ setSqlLogger(sqlLogger?: [SqlLogger](../interface.SqlLogger/README.md) | `true`): `void`
+
+
+
+#### ⚙ forceImmediateDisconnect(): DisconnectStatus\[]
+
+> Terminates each connection in the session, even if in the middle of query execution.
+> 
+> ✔️ Return value:
+> 
+> Returns information about each terminated connection.
 
 
 

@@ -13,10 +13,10 @@
 | [Column](class.Column/README.md) |                            |                                        |                                  |                                                        |                                          |
 
 
-| Types                                              |                                           |                                 |                                           |                                     |                                   |
-| -------------------------------------------------- | ----------------------------------------- | ------------------------------- | ----------------------------------------- | ----------------------------------- | --------------------------------- |
-| [MyPoolOptions](interface.MyPoolOptions/README.md) | [SqlSource](type.SqlSource/README.md)     | [Params](type.Params/README.md) | [ColumnValue](type.ColumnValue/README.md) | [JsonNode](type.JsonNode/README.md) | [Charset](enum.Charset/README.md) |
-| [MysqlType](enum.MysqlType/README.md)              | [ColumnFlags](enum.ColumnFlags/README.md) |                                 |                                           |                                     |                                   |
+| Types                                              |                                           |                                         |                                                     |                                     |                                   |
+| -------------------------------------------------- | ----------------------------------------- | --------------------------------------- | --------------------------------------------------- | ----------------------------------- | --------------------------------- |
+| [MyPoolOptions](interface.MyPoolOptions/README.md) | [SqlSource](type.SqlSource/README.md)     | [Params](type.Params/README.md)         | [ColumnValue](type.ColumnValue/README.md)           | [JsonNode](type.JsonNode/README.md) | [Charset](enum.Charset/README.md) |
+| [MysqlType](enum.MysqlType/README.md)              | [ColumnFlags](enum.ColumnFlags/README.md) | [PoolStatus](type.PoolStatus/README.md) | [DisconnectStatus](type.DisconnectStatus/README.md) |                                     |                                   |
 
 ## Errors
 

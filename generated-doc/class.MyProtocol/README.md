@@ -16,7 +16,7 @@
 [useNTimes](#-usentimes-number),
 [dsn](#-dsn-dsn),
 [logger](#-logger-logger)
-- 14 methods:
+- 15 methods:
 [getTimezoneMsecOffsetFromSystem](#-gettimezonemsecoffsetfromsystem-number),
 [authSendUint8Packet](#-authsenduint8packetvalue-number-promisevoid),
 [authSendBytesPacket](#-authsendbytespacketvalue-uint8array-promisevoid),
@@ -30,7 +30,8 @@
 [execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
 [fetch](#-fetchrowrowtype-rowtype-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
-[end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol)
+[end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol),
+[forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
 - 20 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 58 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
@@ -155,6 +156,14 @@
 > If the connection was alive, and `recycleConnection` was true, returns new `MyProtocol` object with the same `Deno.Conn` to the database, and current object marks as terminated (method calls will throw `CanceledError`).
 > If the connection was dead, returns Uint8Array buffer to be recycled.
 > This function doesn't throw errors (errors can be considered fatal).
+
+
+
+#### ⚙ forceImmediateDisconnect(): `boolean`
+
+> ✔️ Return value:
+> 
+> Returns `true` if there was ongoing query. In this case probably you need to reconnect and KILL it.
 
 
 

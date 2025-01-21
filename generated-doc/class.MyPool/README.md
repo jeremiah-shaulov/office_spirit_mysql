@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts"
+import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
 ```
 
 ## This class has
@@ -16,7 +16,7 @@ import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts"
 [forSession](#-forsessiontcallback-session-mysession--promiset-promiset),
 [getConn](#-getconndsn-dsn--string-myconn),
 [forConn](#-forconntcallback-conn-myconn--promiset-dsn-dsn--string-promiset),
-[getStatus](#-getstatus-mapdsn-nbusy-number-nidle-number)
+[getStatus](#-getstatushealthstatusforperiodsec-numbertrack_healh_status_for_period_sec-mapdsn-poolstatus)
 - [2 deprecated symbols](#-deprecated-shutdown-promisevoid)
 
 
@@ -72,7 +72,11 @@ import {MyPool} from "https://deno.land/x/office_spirit_mysql@v0.19.13/mod.ts"
 
 
 
-#### ⚙ getStatus(): Map\<[Dsn](../class.Dsn/README.md), \{nBusy: `number`, nIdle: `number`}>
+#### ⚙ getStatus(healthStatusForPeriodSec: `number`=TRACK\_HEALH\_STATUS\_FOR\_PERIOD\_SEC): Map\<[Dsn](../class.Dsn/README.md), PoolStatus>
+
+> 🎚️ Parameter **healthStatusForPeriodSec**:
+> 
+> The period in seconds for which to return the health status (1 - 60 inclusive).
 
 
 
