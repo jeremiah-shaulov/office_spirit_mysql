@@ -558,7 +558,7 @@ class XaTask
 		{	using session = new MySession(pool);
 			// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
 			type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
-			const byInfoDsn = new Map<string, Item[]>;
+			const byInfoDsn = new Map<Dsn, Item[]>;
 			const byConn = new Map<MyConn, Item[]>;
 			const results = await Promise.allSettled
 			(	pool.options.managedXaDsns.map
@@ -592,30 +592,27 @@ class XaTask
 						}
 						// 3. Find xaInfoTables
 						for (const {xaId, xaId1, time, pid, hash, connectionId} of xas)
-						{	let infoDsnStr = '';
-							let table = '';
-							if (!isNaN(hash))
+						{	if (!isNaN(hash))
 							{	const xaInfoTable = pool.options.xaInfoTables.find(v => v.hash == hash);
 								if (xaInfoTable)
-								{	infoDsnStr = xaInfoTable.dsn.name;
-									table = xaInfoTable.table;
+								{	const {dsn, table} = xaInfoTable;
+									const item = {conn, table, xaId, xaId1, time, pid, connectionId, commit: false};
+									// add to byInfoDsn
+									let items = byInfoDsn.get(dsn);
+									if (!items)
+									{	items = [];
+										byInfoDsn.set(dsn, items);
+									}
+									items.push(item);
+									// add to byConn
+									items = byConn.get(conn);
+									if (!items)
+									{	items = [];
+										byConn.set(conn, items);
+									}
+									items.push(item);
 								}
 							}
-							const item = {conn, table, xaId, xaId1, time, pid, connectionId, commit: false};
-							// add to byInfoDsn
-							let items = byInfoDsn.get(infoDsnStr);
-							if (!items)
-							{	items = [];
-								byInfoDsn.set(infoDsnStr, items);
-							}
-							items.push(item);
-							// add to byConn
-							items = byConn.get(conn);
-							if (!items)
-							{	items = [];
-								byConn.set(conn, items);
-							}
-							items.push(item);
 						}
 					}
 				)
@@ -627,33 +624,31 @@ class XaTask
 			}
 			// 2. Find out should i rollback or commit, according to xaInfoTables
 			const promises2 = new Array<Promise<void>>;
-			for (const [dsnStr, items] of byInfoDsn)
-			{	if (dsnStr)
-				{	promises2[promises2.length] = Promise.resolve(session.conn(dsnStr)).then
-					(	async conn =>
-						{	const byTable = new Map<string, typeof items>;
-							for (const item of items)
-							{	const {table} = item;
-								if (table && table.indexOf('`')==-1)
-								{	let items2 = byTable.get(table);
-									if (!items2)
-									{	items2 = [];
-										byTable.set(table, items2);
-									}
-									items2.push(item);
+			for (const [dsn, items] of byInfoDsn)
+			{	promises2[promises2.length] = Promise.resolve(session.conn(dsn)).then
+				(	async conn =>
+					{	const byTable = new Map<string, typeof items>;
+						for (const item of items)
+						{	const {table} = item;
+							if (table && table.indexOf('`')==-1)
+							{	let items2 = byTable.get(table);
+								if (!items2)
+								{	items2 = [];
+									byTable.set(table, items2);
 								}
+								items2.push(item);
 							}
-							for (const [table, items2] of byTable)
-							{	for await (const xaId1 of await conn.queryCol("SELECT `xa_id` FROM `"+table+"` WHERE `xa_id` IN ('"+items2.map(v => v.xaId1).join("','")+"')"))
-								{	const item = items2.find(v => v.xaId1 === xaId1)
-									if (item)
-									{	item.commit = true;
-									}
+						}
+						for (const [table, items2] of byTable)
+						{	for await (const xaId1 of await conn.queryCol("SELECT `xa_id` FROM `"+table+"` WHERE `xa_id` IN ('"+items2.map(v => v.xaId1).join("','")+"')"))
+							{	const item = items2.find(v => v.xaId1 === xaId1)
+								if (item)
+								{	item.commit = true;
 								}
 							}
 						}
-					);
-				}
+					}
+				);
 			}
 			const results2 = await Promise.allSettled(promises2);
 			for (const res of results2)
