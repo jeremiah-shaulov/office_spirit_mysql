@@ -332,12 +332,14 @@ export class MySession
 	}
 
 	/**	Terminates each connection in the session, even if in the middle of query execution.
+		@param noRollbackCurXa Set to true to opt-out from automated rollback of distributed transaction.
+		@param noKillCurQuery Set to true to opt-out from automated KILL of the running query.
 		@returns Returns information about each terminated connection.
 	 **/
-	forceImmediateDisconnect()
+	forceImmediateDisconnect(noRollbackCurXa=false, noKillCurQuery=false)
 	{	const infos = new Array<DisconnectStatus>;
 		for (const conn of this.#connsArr)
-		{	const info = conn.forceImmediateDisconnect();
+		{	const info = conn.forceImmediateDisconnect(noRollbackCurXa, noKillCurQuery);
 			if (info)
 			{	infos.push(info);
 			}

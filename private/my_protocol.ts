@@ -20,6 +20,8 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 const PACKET_NOT_READ_BIT = 256;
+const ERROR_CODE_UNKNOWN_THREAK_ID = 1094;
+const ERROR_CODE_UNKNOWN_XA_ID = 1397;
 
 export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
 
@@ -67,6 +69,12 @@ export const enum MultiStatements
 {	NO_MATTER = 2
 }
 
+export type TakeCareOfDisconneced =
+{	dsn: Dsn;
+	rollbackPreparedXaId: string;
+	killConnectionId: number;
+};
+
 export class MyProtocol extends MyProtocolReaderWriter
 {	serverVersion = '';
 	connectionId = 0;
@@ -104,7 +112,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		this.#closer = closer;
 	}
 
-	static async inst(dsn: Dsn, pendingChangeSchema: string, useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
+	static async inst(dsn: Dsn, pendingChangeSchema: string, takeCareOfDisconneced: TakeCareOfDisconneced[], useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
 	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
@@ -139,6 +147,9 @@ export class MyProtocol extends MyProtocolReaderWriter
 			if (authPlugin2)
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.#readAuthResponse(password, authPlugin2);
+			}
+			if (takeCareOfDisconneced.length)
+			{	await protocol.#clearDisconnected(takeCareOfDisconneced);
 			}
 			if (initSql)
 			{	await protocol.sendComQuery(initSql, RowType.VOID, false, SetOption.MULTI_STATEMENTS_ON);
@@ -523,6 +534,48 @@ export class MyProtocol extends MyProtocolReaderWriter
 		this.startWritingNewPacket();
 		this.writeBytes(value);
 		return this.send();
+	}
+
+	async #clearDisconnected(takeCareOfDisconneced: TakeCareOfDisconneced[])
+	{	const {hashNoSchema} = this.dsn;
+		const failed = new Array<TakeCareOfDisconneced>;
+		while (true)
+		{	const i = takeCareOfDisconneced.findIndex(v => v.dsn.hashNoSchema == hashNoSchema);
+			if (i == -1)
+			{	break;
+			}
+			let {dsn, rollbackPreparedXaId, killConnectionId} = takeCareOfDisconneced[i];
+			takeCareOfDisconneced[i] = takeCareOfDisconneced[takeCareOfDisconneced.length - 1];
+			takeCareOfDisconneced.length--;
+			if (killConnectionId)
+			{	try
+				{	await this.sendComQuery(`KILL ${Number(killConnectionId)}`);
+					killConnectionId = 0;
+				}
+				catch (e)
+				{	if (e instanceof SqlError && e.errorCode==ERROR_CODE_UNKNOWN_THREAK_ID)
+					{	killConnectionId = 0;
+					}
+				}
+			}
+			if (rollbackPreparedXaId)
+			{	try
+				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
+					rollbackPreparedXaId = '';
+				}
+				catch (e)
+				{	if (e instanceof SqlError && e.errorCode==ERROR_CODE_UNKNOWN_XA_ID)
+					{	rollbackPreparedXaId = '';
+					}
+				}
+			}
+			if (killConnectionId || rollbackPreparedXaId)
+			{	failed.push({dsn, rollbackPreparedXaId, killConnectionId});
+			}
+		}
+		for (const f of failed)
+		{	takeCareOfDisconneced.push(f);
+		}
 	}
 
 	#initResultsets(resultsets: ResultsetsInternal<unknown>)

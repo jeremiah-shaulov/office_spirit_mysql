@@ -162,11 +162,13 @@ export class MyConn
 	}
 
 	/**	Disconnect from MySQL server, even if in the middle of query execution.
-		The query will not be interrupted, so you may want to reconnect and KILL it.
-		Also you'll need to ROLLBACK any distributed transaction that was in prepared state.
+		This doesn't lead to query interruption, however by default this library will reconnect to the server (or will use first new established connection to this DSN) and will issue KILL (only if the connection was in "querying" state).
+		Also by default this library will ROLLBACK any distributed transaction that was in prepared state (in a new connection to this DSN).
+		@param noRollbackCurXa Set to true to opt-out from automated rollback of distributed transaction.
+		@param noKillCurQuery Set to true to opt-out from automated KILL of the running query.
 	 **/
-	forceImmediateDisconnect(): DisconnectStatus|undefined
-	{	return this.#doEnd(false, false, true);
+	forceImmediateDisconnect(noRollbackCurXa=false, noKillCurQuery=false): DisconnectStatus|undefined
+	{	return this.#doEnd(false, false, true, noRollbackCurXa, noKillCurQuery);
 	}
 
 	/**	Immediately places the connection back to it's pool where it gets eventually reset or disconnected.
@@ -185,7 +187,7 @@ export class MyConn
 		}
 	}
 
-	#doEnd(withDisposeSqlLogger: boolean, noResetPending: boolean, forceImmediateDisconnect: boolean)
+	#doEnd(withDisposeSqlLogger: boolean, noResetPending: boolean, forceImmediateDisconnect: boolean, forceImmediateDisconnectNoRollbackCurXa=false, forceImmediateDisconnectNoKillCurQuery=false)
 	{	const protocol = this.#protocol;
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
@@ -207,7 +209,7 @@ export class MyConn
 			}
 			else
 			{	const {dsn, connectionId} = protocol;
-				const wasInQueryingState = this.#pool.returnProtocolAndForceImmediateDisconnect(protocol);
+				const wasInQueryingState = this.#pool.returnProtocolAndForceImmediateDisconnect(protocol, forceImmediateDisconnectNoRollbackCurXa ? '' : preparedXaId, !forceImmediateDisconnectNoKillCurQuery);
 				return {dsn, connectionId, wasInQueryingState, preparedXaId};
 			}
 		}

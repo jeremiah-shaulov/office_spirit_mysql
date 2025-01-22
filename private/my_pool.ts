@@ -2,7 +2,7 @@ import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
 import {ServerDisconnectedError} from "./errors.ts";
 import {DEFAULT_MAX_CONNS, MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
-import {MyProtocol, OnLoadFile, Logger} from './my_protocol.ts';
+import {MyProtocol, OnLoadFile, Logger, TakeCareOfDisconneced} from './my_protocol.ts';
 import {MySession} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 import {SafeSqlLogger} from "./sql_logger.ts";
@@ -14,7 +14,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MSEC = 5000;
 const DEFAULT_RECONNECT_INTERVAL_MSEC = 500;
 const DEFAULT_KEEP_ALIVE_TIMEOUT_MSEC = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
-const KEEPALIVE_CHECK_EACH_MSEC = 1000;
+const KEEPALIVE_CHECK_AND_CLEAR_DISCONNECTED_EACH_MSEC = 1000;
 const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
 const TRACK_HEALH_STATUS_FOR_PERIOD_SEC = 60;
 
@@ -244,6 +244,7 @@ export class Pool
 	#hTimer: number|undefined;
 	#onend: VoidFunction|undefined;
 	#xaTask = new XaTask;
+	#takeCareOfDisconneced = new Array<TakeCareOfDisconneced>;
 
 	options = new OptionsManager;
 
@@ -252,7 +253,7 @@ export class Pool
 		{	await new Promise<void>(y => this.#onend = y);
 		}
 		// close idle connections
-		await this.#closeKeptAliveTimedOut(true);
+		await this.#closeKeptAliveTimedOutAndClearDisconnected(true);
 	}
 
 	updateOptions(options?: Dsn|string|MyPoolOptions)
@@ -324,7 +325,7 @@ export class Pool
 			{	conns.nConnecting++;
 				this.#nBusyAll++;
 				try
-				{	protocol = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.options.onLoadFile, sqlLogger, this.options.logger);
+				{	protocol = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.#takeCareOfDisconneced, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
 					healthStatus.log(true, now);
@@ -349,7 +350,7 @@ export class Pool
 			protocol.useTill = Math.min(protocol.useTill, now+keepAliveTimeout);
 			protocol.useNTimes = Math.min(protocol.useNTimes, keepAliveMax);
 			if (this.#hTimer == undefined)
-			{	this.#hTimer = setInterval(() => {this.#closeKeptAliveTimedOut()}, KEEPALIVE_CHECK_EACH_MSEC);
+			{	this.#hTimer = setInterval(() => {this.#closeKeptAliveTimedOutAndClearDisconnected()}, KEEPALIVE_CHECK_AND_CLEAR_DISCONNECTED_EACH_MSEC);
 				this.#xaTask.start(this);
 			}
 			busy.push(protocol);
@@ -363,8 +364,12 @@ export class Pool
 		this.#doReturnProtocol(protocol, protocolForReuse);
 	}
 
-	returnProtocolAndForceImmediateDisconnect(protocol: MyProtocol)
+	returnProtocolAndForceImmediateDisconnect(protocol: MyProtocol, rollbackPreparedXaId: string, killCurQuery: boolean)
 	{	const wasInQueryingState = protocol.forceImmediateDisconnect();
+		killCurQuery &&= wasInQueryingState;
+		if (rollbackPreparedXaId || killCurQuery)
+		{	this.#takeCareOfDisconneced.push({dsn: protocol.dsn, rollbackPreparedXaId, killConnectionId: killCurQuery ? protocol.connectionId : 0});
+		}
 		this.#doReturnProtocol(protocol);
 		return wasInQueryingState;
 	}
@@ -444,7 +449,7 @@ export class Pool
 		const n = haveSlotsCallbacks.length;
 		if (n == 0)
 		{	if (nBusyAll == 0)
-			{	if (this.#nIdleAll == 0)
+			{	if (this.#nIdleAll+this.#takeCareOfDisconneced.length == 0)
 				{	clearInterval(this.#hTimer);
 					this.#hTimer = undefined;
 				}
@@ -461,15 +466,16 @@ export class Pool
 		}
 	}
 
-	#closeKeptAliveTimedOut(closeAllIdle=false)
+	#closeKeptAliveTimedOutAndClearDisconnected(closeAllIdle=false)
 	{	const protocolsPerSchema = this.#protocolsPerSchema;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks, healthStatus}] of protocolsPerSchema)
 		{	let nIdle = idle.length;
+			const wantCloseAllIdle = closeAllIdle || this.#takeCareOfDisconneced.findIndex(v => v.dsn.hash == dsnHash)!=-1;
 			for (let i=nIdle-1; i>=0; i--)
 			{	const protocol = idle[i];
-				if (protocol.useTill<=now || closeAllIdle)
+				if (wantCloseAllIdle || protocol.useTill<=now)
 				{	idle[i] = idle[--nIdle];
 					this.#nIdleAll--;
 					const maxConns = protocol.dsn.maxConns || DEFAULT_MAX_CONNS;
@@ -484,7 +490,20 @@ export class Pool
 			//
 			this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
 		}
-		if (this.#nBusyAll+this.#nIdleAll == 0)
+L:		for (const {dsn} of this.#takeCareOfDisconneced)
+		{	const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
+			for (const [dsnHash, {busy, nConnecting}] of protocolsPerSchema)
+			{	if (dsnHash == dsn.hash)
+				{	if (busy.length+nConnecting >= maxConns)
+					{	continue L;
+					}
+				}
+			}
+			promises[promises.length] = this.getProtocol(dsn, '', undefined).then
+			(	protocol => this.returnProtocol(protocol, '', false)
+			);
+		}
+		if (this.#nBusyAll+this.#nIdleAll+this.#takeCareOfDisconneced.length == 0)
 		{	clearInterval(this.#hTimer);
 			this.#hTimer = undefined;
 		}
@@ -699,7 +718,7 @@ class ProtocolsFactory
 {	#unusedBuffers = new Array<Uint8Array>;
 	#curRetryingPromises = new Map<number, Promise<true>>;
 
-	async newConn(dsn: Dsn, pendingChangeSchema: string, onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
+	async newConn(dsn: Dsn, pendingChangeSchema: string, takeCareOfDisconneced: TakeCareOfDisconneced[], onLoadFile: OnLoadFile|undefined, sqlLogger: SafeSqlLogger|undefined, logger: Logger)
 	{	const unusedBuffer = this.#unusedBuffers.pop();
 		const connectionTimeout = dsn.connectionTimeout>=0 ? dsn.connectionTimeout : DEFAULT_CONNECTION_TIMEOUT_MSEC;
 		const reconnectInterval = dsn.reconnectInterval>=0 ? dsn.reconnectInterval : DEFAULT_RECONNECT_INTERVAL_MSEC;
@@ -707,7 +726,7 @@ class ProtocolsFactory
 		const connectTill = now + connectionTimeout;
 		for (let i=0; true; i++)
 		{	try
-			{	return await MyProtocol.inst(dsn, pendingChangeSchema, unusedBuffer, onLoadFile, sqlLogger, logger);
+			{	return await MyProtocol.inst(dsn, pendingChangeSchema, takeCareOfDisconneced, unusedBuffer, onLoadFile, sqlLogger, logger);
 			}
 			catch (e)
 			{	// with connectionTimeout==0 must not retry
