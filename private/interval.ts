@@ -29,9 +29,9 @@ export class Interval
 			this.#hTimer = setTimeout
 			(	async () =>
 				{	if (this.#state == IntervalState.Active)
-					{	this.#state = IntervalState.Executing;
-						do
-						{	try
+					{	do
+						{	this.#state = IntervalState.Executing;
+							try
 							{	await this.callback();
 							}
 							catch (e)
@@ -73,7 +73,7 @@ export class Interval
 	{	const state = this.#state;
 		this.#state = IntervalState.Terminated;
 		clearTimeout(this.#hTimer);
-		if (state == IntervalState.Executing)
+		if (state==IntervalState.Executing || state==IntervalState.ExecutingAndWantReexecute)
 		{	return new Promise<void>(y => {this.#onEnd = y});
 		}
 	}
