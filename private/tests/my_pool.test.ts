@@ -35,6 +35,7 @@ testWithDocker
 		testLoadFile,
 		testMultiStatements,
 		testBindBigParam,
+		testForceImmediateDisconnect,
 	]
 );
 
