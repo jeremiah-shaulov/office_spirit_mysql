@@ -33,6 +33,10 @@ export class SqlError extends Error
 		{	this.canRetry = CanRetry.NONE;
 		}
 	}
+
+	override toString()
+	{	return `SQLSTATE ${this.sqlState}, error code ${this.errorCode}: ${this.message}`;
+	}
 }
 
 /**	Server didn't respond properly.

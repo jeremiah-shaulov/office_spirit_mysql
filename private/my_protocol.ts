@@ -20,8 +20,6 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 const PACKET_NOT_READ_BIT = 256;
-const ERROR_CODE_UNKNOWN_THREAK_ID = 1094;
-const ERROR_CODE_UNKNOWN_XA_ID = 1397;
 
 export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
 
@@ -553,7 +551,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 					killConnectionId = 0;
 				}
 				catch (e)
-				{	if (e instanceof SqlError && e.errorCode==ERROR_CODE_UNKNOWN_THREAK_ID)
+				{	if (e instanceof SqlError && e.errorCode==ErrorCodes.ER_NO_SUCH_THREAD)
 					{	killConnectionId = 0;
 					}
 				}
@@ -564,7 +562,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 					rollbackPreparedXaId = '';
 				}
 				catch (e)
-				{	if (e instanceof SqlError && e.errorCode==ERROR_CODE_UNKNOWN_XA_ID)
+				{	if (e instanceof SqlError && e.errorCode==ErrorCodes.ER_XAER_NOTA)
 					{	rollbackPreparedXaId = '';
 					}
 				}
@@ -2238,7 +2236,7 @@ L:		while (true)
 					}
 				}
 				catch (e)
-				{	this.logger.error(e);
+				{	this.logger.error(`Connection not recycled: ${e}`);
 				}
 				this.buffer = protocol.buffer; // revert `this.recycleBuffer()`
 			}
