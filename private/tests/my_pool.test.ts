@@ -1620,7 +1620,7 @@ async function testMaxConns(dsnStr: string)
 
 		pool.options({maxConnsWaitQueue});
 
-		pool.forSession
+		await pool.forSession
 		(	async session =>
 			{	const conn1 = session.conn(undefined, true);
 				await conn1.connect();
