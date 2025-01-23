@@ -1,5 +1,5 @@
 import {debugAssert} from './debug_assert.ts';
-import {SetOption, StatusFlags} from './constants.ts';
+import {ErrorCodes, SetOption, StatusFlags} from './constants.ts';
 import {MyProtocol, RowType, MultiStatements} from './my_protocol.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
@@ -161,16 +161,6 @@ export class MyConn
 	{	this.#doEnd(false, false, false, false);
 	}
 
-	/**	Disconnect from MySQL server, even if in the middle of query execution.
-		This doesn't lead to query interruption, however by default this library will reconnect to the server (or will use first new established connection to this DSN) and will issue KILL (only if the connection was in "querying" state).
-		Also by default this library will ROLLBACK any distributed transaction that was in prepared state (in a new connection to this DSN).
-		@param noRollbackCurXa Set to true to opt-out from automated rollback of distributed transaction.
-		@param noKillCurQuery Set to true to opt-out from automated KILL of the running query.
-	 **/
-	forceImmediateDisconnect(noRollbackCurXa=false, noKillCurQuery=false): DisconnectStatus|undefined
-	{	return this.#doEnd(false, false, false, true, noRollbackCurXa, noKillCurQuery);
-	}
-
 	/**	Immediately places the connection back to it's pool where it gets eventually reset or disconnected.
 		This method doesn't throw.
 	 **/
@@ -212,6 +202,36 @@ export class MyConn
 		}
 		if (unrefPool)
 		{	this.#pool.unref();
+		}
+	}
+
+	/**	Disconnect from MySQL server, even if in the middle of query execution.
+		This doesn't lead to query interruption, however by default this library will reconnect to the server (or will use first new established connection to this DSN) and will issue KILL (only if the connection was in "querying" state).
+		Also by default this library will ROLLBACK any distributed transaction that was in prepared state (in a new connection to this DSN).
+		@param noRollbackCurXa Set to true to opt-out from automated rollback of distributed transaction.
+		@param noKillCurQuery Set to true to opt-out from automated KILL of the running query.
+	 **/
+	forceImmediateDisconnect(noRollbackCurXa=false, noKillCurQuery=false): DisconnectStatus|undefined
+	{	return this.#doEnd(false, false, false, true, noRollbackCurXa, noKillCurQuery);
+	}
+
+	async killQuery()
+	{	try
+		{	if (this.#protocol)
+			{	const {connectionId} = this.#protocol;
+				const protocol = await this.#pool.getProtocol(this.dsn, '', this.#sqlLogger);
+				try
+				{	await protocol.sendComQuery(`KILL QUERY ${Number(connectionId)}`);
+				}
+				finally
+				{	this.#pool.returnProtocol(protocol, '', false);
+				}
+			}
+		}
+		catch (e)
+		{	if (!(e instanceof SqlError && e.errorCode==ErrorCodes.ER_NO_SUCH_THREAD))
+			{	this.#pool.options.logger.error(e);
+			}
 		}
 	}
 
