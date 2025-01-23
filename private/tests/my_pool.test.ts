@@ -1240,7 +1240,7 @@ async function testTrx(dsnStr: string)
 				catch (e)
 				{	error = e;
 				}
-				assert(error?.message.indexOf(`Cannot execute statement in a READ ONLY transaction`) >= 0);
+				assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
 				await conn.rollback();
 
 				// xa when regular trx active (must commit)
@@ -1437,17 +1437,15 @@ async function testTrx(dsnStr: string)
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
 				await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
-				console.log('%cThe following exceptions must be ignored', 'color:blue');
 
-				let error;
+				let error: Any;
 				try
 				{	await session.commit();
 				}
 				catch (e)
 				{	error = e;
 				}
-				console.error(error);
-				assert(error);
+				assertEquals(error?.errorCode, ErrorCodes.ER_XAER_RMFAIL);
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				await conn1.query("DELETE FROM t_log");
