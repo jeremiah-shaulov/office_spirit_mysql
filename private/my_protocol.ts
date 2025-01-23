@@ -972,7 +972,7 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER, noConvertError=false)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -1052,6 +1052,9 @@ L:		while (true)
 				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
 					nRetry--;
 					continue;
+				}
+				if (noConvertError)
+				{	throw error;
 				}
 				this.#rethrowErrorIfFatal(error, isFromPool && letReturnUndefined);
 			}
@@ -2199,10 +2202,12 @@ L:		while (true)
 				{	// ok
 				}
 				try
-				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`);
+				{	await this.sendComQuery(`XA ROLLBACK '${rollbackPreparedXaId}'`, RowType.VOID, false, MultiStatements.NO_MATTER, true);
 				}
 				catch (e)
-				{	this.logger.error(e);
+				{	if (!(e instanceof SqlError && e.errorCode==ErrorCodes.ER_XAER_NOTA)) // maybe already rolled back
+					{	this.logger.error(e);
+					}
 				}
 			}
 			this.#curLastColumnReader = undefined;
