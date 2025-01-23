@@ -375,6 +375,7 @@ export class Pool
 		killCurQuery &&= wasInQueryingState;
 		if (rollbackPreparedXaId || killCurQuery)
 		{	this.#takeCareOfDisconneced.push({dsn: protocol.dsn, rollbackPreparedXaId, killConnectionId: killCurQuery ? protocol.connectionId : 0});
+			this.#hCommonTask.start(true);
 		}
 		this.#doReturnProtocol(protocol);
 		return wasInQueryingState;
