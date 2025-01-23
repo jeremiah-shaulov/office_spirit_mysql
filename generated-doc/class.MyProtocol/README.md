@@ -4,7 +4,7 @@
 
 ## This class has
 
-- static method [inst](#-static-instdsn-dsn-pendingchangeschema-string-usebuffer-uint8array-onloadfile-onloadfile-sqllogger-safesqllogger-logger-loggerconsole-promisemyprotocol)
+- static method [inst](#-static-instdsn-dsn-pendingchangeschema-string-takecareofdisconneced-takecareofdisconneced-usebuffer-uint8array-onloadfile-onloadfile-sqllogger-safesqllogger-logger-loggerconsole-promisemyprotocol)
 - [protected constructor](#-protected-constructorwriter-writablestreamdefaultwriteruint8array-reader-readablestreambyobreader-closer-disposable-decoder-textdecoder-usebuffer-uint8array--undefined-dsn-dsn-logger-loggerconsole)
 - 9 properties:
 [serverVersion](#-serverversion-string),
@@ -23,7 +23,7 @@
 [use](#-useschema-string-void),
 [setSqlLogger](#-setsqlloggersqllogger-safesqllogger-void),
 [writeComInitDb](#-writecominitdbschema-string-void),
-[sendComQuery](#-sendcomqueryrowsql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-promiseresultsetsinternalrow),
+[sendComQuery](#-sendcomqueryrowsql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-noconverterror-booleanfalse-promiseresultsetsinternalrow),
 [sendThreeQueries](#-sendthreequeriesrowprestmtid-number-prestmtparams-unknown--undefined-prequery-uint8array--string--undefined-ignoreprequeryerror-boolean-sql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-promiseresultsetsinternalrow),
 [sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
 [disposePreparedStmt](#-disposepreparedstmtstmtid-number-void),
@@ -37,7 +37,7 @@
 
 ## Static members
 
-#### ⚙ `static` inst(dsn: [Dsn](../class.Dsn/README.md), pendingChangeSchema: `string`, useBuffer?: Uint8Array, onLoadFile?: [OnLoadFile](../type.OnLoadFile/README.md), sqlLogger?: [SafeSqlLogger](../class.SafeSqlLogger/README.md), logger: [Logger](../interface.Logger/README.md)=console): Promise\<[MyProtocol](../class.MyProtocol/README.md)>
+#### ⚙ `static` inst(dsn: [Dsn](../class.Dsn/README.md), pendingChangeSchema: `string`, takeCareOfDisconneced: [TakeCareOfDisconneced](../type.TakeCareOfDisconneced/README.md)\[], useBuffer?: Uint8Array, onLoadFile?: [OnLoadFile](../type.OnLoadFile/README.md), sqlLogger?: [SafeSqlLogger](../class.SafeSqlLogger/README.md), logger: [Logger](../interface.Logger/README.md)=console): Promise\<[MyProtocol](../class.MyProtocol/README.md)>
 
 
 
@@ -103,7 +103,7 @@
 
 
 
-#### ⚙ sendComQuery\<Row>(sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
+#### ⚙ sendComQuery\<Row>(sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER, noConvertError: `boolean`=false): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
 
 > On success returns ResultsetsProtocol<Row>.
 > On error throws exception.

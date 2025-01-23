@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
+import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 ```
 
 ## This class has
@@ -18,7 +18,7 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts
 [rollback](#-rollbacktopointid-number-promisevoid),
 [commit](#-commitandchain-booleanfalse-promisevoid),
 [setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void),
-[forceImmediateDisconnect](#-forceimmediatedisconnect-disconnectstatus)
+[forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus)
 
 
 #### 🔧 `constructor`(pool: [Pool](../class.Pool/README.md))
@@ -84,9 +84,17 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts
 
 
 
-#### ⚙ forceImmediateDisconnect(): DisconnectStatus\[]
+#### ⚙ forceImmediateDisconnect(noRollbackCurXa: `boolean`=false, noKillCurQuery: `boolean`=false): DisconnectStatus\[]
 
 > Terminates each connection in the session, even if in the middle of query execution.
+> 
+> 🎚️ Parameter **noRollbackCurXa**:
+> 
+> Set to true to opt-out from automated rollback of distributed transaction.
+> 
+> 🎚️ Parameter **noKillCurQuery**:
+> 
+> Set to true to opt-out from automated KILL of the running query.
 > 
 > ✔️ Return value:
 > 

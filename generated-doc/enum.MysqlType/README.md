@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MysqlType} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
+import {MysqlType} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 ```
 
 #### MYSQL\_TYPE\_DECIMAL = <mark>0</mark>

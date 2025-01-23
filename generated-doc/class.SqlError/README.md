@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlError} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
+import {SqlError} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 ```
 
 Query was sent to the server, and this error is reported by the server (not a connection error or such).
@@ -15,6 +15,7 @@ Query was sent to the server, and this error is reported by the server (not a co
 [canRetry](#-readonly-canretry-any),
 [errorCode](#-errorcode-number),
 [sqlState](#-sqlstate-string)
+- method [toString](#-override-tostring-string)
 - base class
 
 
@@ -31,6 +32,12 @@ Query was sent to the server, and this error is reported by the server (not a co
 
 
 #### 📄 sqlState: `string`
+
+
+
+#### ⚙ `override` toString(): `string`
+
+> Returns a string representation of an object.
 
 
 

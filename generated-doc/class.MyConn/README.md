@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 ```
 
 ## This class has
@@ -21,10 +21,11 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
 [schema](#-get-schema-string),
 [inXa](#-get-inxa-boolean),
 [xaId](#-get-xaid-string)
-- 31 methods:
+- 32 methods:
 [connect](#-connect-promisevoid),
 [end](#-end-void),
-[forceImmediateDisconnect](#-forceimmediatedisconnect-disconnectstatus),
+[forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus),
+[killQuery](#-killquery-promisevoid),
 [use](#-useschema-string-void),
 [query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord),
 [queryMap](#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype),
@@ -133,11 +134,23 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.14/mod.ts"
 
 
 
-#### ⚙ forceImmediateDisconnect(): DisconnectStatus
+#### ⚙ forceImmediateDisconnect(noRollbackCurXa: `boolean`=false, noKillCurQuery: `boolean`=false): DisconnectStatus
 
 > Disconnect from MySQL server, even if in the middle of query execution.
-> The query will not be interrupted, so you may want to reconnect and KILL it.
-> Also you'll need to ROLLBACK any distributed transaction that was in prepared state.
+> This doesn't lead to query interruption, however by default this library will reconnect to the server (or will use first new established connection to this DSN) and will issue KILL (only if the connection was in "querying" state).
+> Also by default this library will ROLLBACK any distributed transaction that was in prepared state (in a new connection to this DSN).
+> 
+> 🎚️ Parameter **noRollbackCurXa**:
+> 
+> Set to true to opt-out from automated rollback of distributed transaction.
+> 
+> 🎚️ Parameter **noKillCurQuery**:
+> 
+> Set to true to opt-out from automated KILL of the running query.
+
+
+
+#### ⚙ killQuery(): Promise\<`void`>
 
 
 

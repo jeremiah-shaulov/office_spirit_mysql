@@ -13,7 +13,7 @@
 [getStatus](#-getstatushealthstatusforperiodsec-number-mapdsn-poolstatus),
 [getProtocol](#-getprotocoldsn-dsn-pendingchangeschema-string-sqllogger-safesqllogger--undefined-promisemyprotocol),
 [returnProtocol](#-returnprotocolprotocol-myprotocol-rollbackpreparedxaid-string-withdisposesqllogger-boolean-promisevoid),
-[returnProtocolAndForceImmediateDisconnect](#-returnprotocolandforceimmediatedisconnectprotocol-myprotocol-boolean)
+[returnProtocolAndForceImmediateDisconnect](#-returnprotocolandforceimmediatedisconnectprotocol-myprotocol-rollbackpreparedxaid-string-killcurquery-boolean-boolean)
 
 
 #### 🔨 \[Symbol.asyncDispose](): Promise\<`void`>
@@ -48,7 +48,7 @@
 
 
 
-#### ⚙ returnProtocolAndForceImmediateDisconnect(protocol: [MyProtocol](../class.MyProtocol/README.md)): `boolean`
+#### ⚙ returnProtocolAndForceImmediateDisconnect(protocol: [MyProtocol](../class.MyProtocol/README.md), rollbackPreparedXaId: `string`, killCurQuery: `boolean`): `boolean`
 
 
 
