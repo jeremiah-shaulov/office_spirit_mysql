@@ -158,7 +158,7 @@ export class MyConn
 	}
 
 	end()
-	{	this.#doEnd(false, false, false);
+	{	this.#doEnd(false, false, false, false);
 	}
 
 	/**	Disconnect from MySQL server, even if in the middle of query execution.
@@ -168,7 +168,7 @@ export class MyConn
 		@param noKillCurQuery Set to true to opt-out from automated KILL of the running query.
 	 **/
 	forceImmediateDisconnect(noRollbackCurXa=false, noKillCurQuery=false): DisconnectStatus|undefined
-	{	return this.#doEnd(false, false, true, noRollbackCurXa, noKillCurQuery);
+	{	return this.#doEnd(false, false, false, true, noRollbackCurXa, noKillCurQuery);
 	}
 
 	/**	Immediately places the connection back to it's pool where it gets eventually reset or disconnected.
@@ -177,17 +177,10 @@ export class MyConn
 	[Symbol.dispose]()
 	{	const isDisposed = this.#isDisposed;
 		this.#isDisposed = true;
-		try
-		{	this.#doEnd(true, false, false);
-		}
-		finally
-		{	if (!isDisposed)
-			{	this.#pool.unref();
-			}
-		}
+		this.#doEnd(true, false, !isDisposed, false);
 	}
 
-	#doEnd(withDisposeSqlLogger: boolean, noResetPending: boolean, forceImmediateDisconnect: boolean, forceImmediateDisconnectNoRollbackCurXa=false, forceImmediateDisconnectNoKillCurQuery=false)
+	#doEnd(withDisposeSqlLogger: boolean, noResetPending: boolean, unrefPool: boolean, forceImmediateDisconnect: boolean, forceImmediateDisconnectNoRollbackCurXa=false, forceImmediateDisconnectNoKillCurQuery=false)
 	{	const protocol = this.#protocol;
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
@@ -205,13 +198,20 @@ export class MyConn
 		{	this.#pendingChangeSchema = protocol.schema;
 			const preparedXaId = isXaPrepared ? curXaId : '';
 			if (!forceImmediateDisconnect)
-			{	this.#pool.returnProtocol(protocol, preparedXaId, withDisposeSqlLogger);
+			{	const promise = this.#pool.returnProtocol(protocol, preparedXaId, withDisposeSqlLogger);
+				if (unrefPool)
+				{	promise.finally(() => this.#pool.unref());
+					unrefPool = false;
+				}
 			}
 			else
 			{	const {dsn, connectionId} = protocol;
 				const wasInQueryingState = this.#pool.returnProtocolAndForceImmediateDisconnect(protocol, forceImmediateDisconnectNoRollbackCurXa ? '' : preparedXaId, !forceImmediateDisconnectNoKillCurQuery);
 				return {dsn, connectionId, wasInQueryingState, preparedXaId};
 			}
+		}
+		if (unrefPool)
+		{	this.#pool.unref();
 		}
 	}
 
@@ -542,7 +542,7 @@ export class MyConn
 				}
 				catch (e)
 				{	const {inTrxReadonly} = this;
-					this.#doEnd(false, false, false);
+					this.#doEnd(false, false, false, false);
 					protocol.logger.error(e);
 					if (typeof(toPointId) == 'number')
 					{	// want chain
@@ -595,7 +595,7 @@ export class MyConn
 				}
 				catch (e2)
 				{	protocol.logger.error(e2);
-					this.#doEnd(false, false, false);
+					this.#doEnd(false, false, false, false);
 					protocol.logger.error(e);
 					throw new ServerDisconnectedError(e instanceof Error ? e.message : e+'');
 				}
@@ -640,7 +640,7 @@ L:		while (true)
 						sql = `XA START '${this.#curXaId}'`;
 					}
 					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0))
-					{	this.#doEnd(false, true, false);
+					{	this.#doEnd(false, true, false, false);
 						continue L;
 					}
 				}
@@ -696,7 +696,7 @@ L:		while (true)
 				}
 			}
 
-			this.#doEnd(false, false, false);
+			this.#doEnd(false, false, false, false);
 			// redo
 		}
 	}

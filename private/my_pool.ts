@@ -251,10 +251,12 @@ export class Pool
 	options = new OptionsManager;
 
 	async [Symbol.asyncDispose]()
-	{	await Promise.all
+	{	if (this.#useCnt!=0 || this.#nBusyAll!=0)
+		{	await new Promise<void>(y => this.#onend = y);
+		}
+		await Promise.all
 		(	[	this.#hCommonTask[Symbol.asyncDispose](),
 				this.#hXaTask[Symbol.asyncDispose](),
-				this.#useCnt!=0 || this.#nBusyAll!=0 ? new Promise<void>(y => this.#onend = y) : undefined
 			]
 		);
 		// close idle connections
