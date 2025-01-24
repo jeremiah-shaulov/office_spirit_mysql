@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.16/mod.ts"
 ```
 
 ## This class has
@@ -25,7 +25,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 [connect](#-connect-promisevoid),
 [end](#-end-void),
 [forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus),
-[killQuery](#-killquery-promisevoid),
+[killQuery](#-killquery-promiseboolean),
 [use](#-useschema-string-void),
 [query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord),
 [queryMap](#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype),
@@ -150,7 +150,15 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.19.15/mod.ts"
 
 
 
-#### ⚙ killQuery(): Promise\<`void`>
+#### ⚙ killQuery(): Promise\<`boolean`>
+
+> Send "KILL QUERY" to the server in parallel connection.
+> Does nothing if the connection was not established ([MyConn.connectionId](../class.MyConn/README.md#-get-connectionid-number) returns `0`).
+> This function doesn't throw.
+> 
+> ✔️ Return value:
+> 
+> `false` if couldn't connect to the server or issure the query (with respect to [Dsn.connectionTimeout](../class.Dsn/README.md#-accessor-connectiontimeout-number) and [Dsn.reconnectInterval](../class.Dsn/README.md#-accessor-reconnectinterval-number)). `true` if successfully killed, or if there was nothing to kill.
 
 
 

@@ -1303,64 +1303,8 @@
 	less -r /tmp/sql.log
 	```
 
-	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.15/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
+	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.16/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
 	and you can override it's public and protected methods to customize it's behavior.
-
-	## Interrupting long queries
-
-	To interrupt a long running query, you can get a parallel connection to the same server, and execute `KILL QUERY`.
-	This library provides a function that does this for you:
-
-	```ts
-	// To run this example:
-	// export DSN='mysql://root:hello@localhost/tests'
-	// deno run --allow-env --allow-net example.ts
-
-	import {MyPool} from './mod.ts';
-
-	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
-
-	const startTime = Date.now();
-
-	using conn = pool.getConn();
-	const sleepPromise = conn.queryVoid("DO SLEEP(3)");
-	await new Promise(resolve => setTimeout(resolve, 1000));
-	await conn.killQuery(); // killQuery never returns rejected promise, so it's safe to use it without try-catch (otherwise promise rejection could lead to not awaiting `sleepPromise`)
-	await sleepPromise;
-
-	console.log(`Completed in ${Date.now()-startTime} ms`);
-	```
-
-	Also this library allows you to force immediate disconnection from the server.
-	The library will then take care of interrupting currently running query in the background, and also rolling back a distributed transaction, if one is in progress.
-
-	You can terminate the connection by calling {@link MyConn.forceImmediateDisconnect()}.
-	Or you can do this on session level by calling {@link MySession.forceImmediateDisconnect()}, and this will immediately terminate all the connections in the session.
-
-	```ts
-	// To run this example:
-	// export DSN='mysql://root:hello@localhost/tests'
-	// deno run --allow-env --allow-net example.ts
-
-	import {MyPool} from './mod.ts';
-
-	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
-
-	const startTime = Date.now();
-
-	using conn = pool.getConn();
-	const sleepPromise = conn.queryVoid("DO SLEEP(3)");
-	await new Promise(resolve => setTimeout(resolve, 1000));
-	conn.forceImmediateDisconnect();
-	try
-	{	await sleepPromise;
-	}
-	catch (e)
-	{	console.log(e);
-	}
-
-	console.log(`Completed in ${Date.now()-startTime} ms`);
-	```
 
 	## Transactions
 
@@ -1616,6 +1560,62 @@
 	If a corresponding record is found in the corresponding info table, the transaction will be committed.
 	If no record found, or there were no info tables, the transaction will be rolled back.
 	If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
+
+	## Interrupting long queries
+
+	To interrupt a long running query, you can get a parallel connection to the same server, and execute `KILL QUERY`.
+	This library provides a function that does this for you:
+
+	```ts
+	// To run this example:
+	// export DSN='mysql://root:hello@localhost/tests'
+	// deno run --allow-env --allow-net example.ts
+
+	import {MyPool} from './mod.ts';
+
+	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+	const startTime = Date.now();
+
+	using conn = pool.getConn();
+	const sleepPromise = conn.queryVoid("DO SLEEP(3)");
+	await new Promise(resolve => setTimeout(resolve, 1000));
+	await conn.killQuery(); // killQuery never returns rejected promise, so it's safe to use it without try-catch (otherwise promise rejection could lead to not awaiting `sleepPromise`)
+	await sleepPromise;
+
+	console.log(`Completed in ${Date.now()-startTime} ms`);
+	```
+
+	Also this library allows you to force immediate disconnection from the server.
+	The library will then take care of interrupting currently running query in the background, and also rolling back a distributed transaction, if one is in progress.
+
+	You can terminate the connection by calling {@link MyConn.forceImmediateDisconnect()}.
+	Or you can do this on session level by calling {@link MySession.forceImmediateDisconnect()}, and this will immediately terminate all the connections in the session.
+
+	```ts
+	// To run this example:
+	// export DSN='mysql://root:hello@localhost/tests'
+	// deno run --allow-env --allow-net example.ts
+
+	import {MyPool} from './mod.ts';
+
+	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+	const startTime = Date.now();
+
+	using conn = pool.getConn();
+	const sleepPromise = conn.queryVoid("DO SLEEP(3)");
+	await new Promise(resolve => setTimeout(resolve, 1000));
+	conn.forceImmediateDisconnect();
+	try
+	{	await sleepPromise;
+	}
+	catch (e)
+	{	console.log(e);
+	}
+
+	console.log(`Completed in ${Date.now()-startTime} ms`);
+	```
 
 	@module
 	@summary office_spirit_mysql - MySQL and MariaDB driver for Deno.
