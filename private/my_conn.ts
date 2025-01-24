@@ -215,11 +215,16 @@ export class MyConn
 	{	return this.#doEnd(false, false, false, true, noRollbackCurXa, noKillCurQuery);
 	}
 
+	/**	Send "KILL QUERY" to the server in parallel connection.
+		Does nothing if the connection was not established ({@link MyConn.connectionId} returns `0`).
+		This function doesn't throw.
+		@returns `false` if couldn't connect to the server or issure the query (with respect to {@link Dsn.connectionTimeout} and {@link Dsn.reconnectInterval}). `true` if successfully killed, or if there was nothing to kill.
+	 **/
 	async killQuery()
-	{	try
-		{	if (this.#protocol)
-			{	const {connectionId} = this.#protocol;
-				const protocol = await this.#pool.getProtocol(this.dsn, '', this.#sqlLogger);
+	{	if (this.#protocol)
+		{	const {connectionId} = this.#protocol;
+			try
+			{	const protocol = await this.#pool.getProtocol(this.dsn, '', this.#sqlLogger);
 				try
 				{	await protocol.sendComQuery(`KILL QUERY ${Number(connectionId)}`);
 				}
@@ -227,12 +232,14 @@ export class MyConn
 				{	this.#pool.returnProtocol(protocol, '', false);
 				}
 			}
-		}
-		catch (e)
-		{	if (!(e instanceof SqlError && e.errorCode==ErrorCodes.ER_NO_SUCH_THREAD))
-			{	this.#pool.options.logger.error(e);
+			catch (e)
+			{	if (!(e instanceof SqlError && e.errorCode==ErrorCodes.ER_NO_SUCH_THREAD))
+				{	this.#pool.options.logger.error(e);
+					return false;
+				}
 			}
 		}
+		return true;
 	}
 
 	/**	Add "USE schema" command to pending.
