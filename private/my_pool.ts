@@ -527,7 +527,12 @@ L:		for (const info of takeCareOfDisconneced)
 				}
 			}
 			promises[promises.length] = this.getProtocol(dsn, '', undefined).then
-			(	protocol => this.returnProtocol(protocol, '', false),
+			(	protocol =>
+				{	if (closeAllIdle)
+					{	protocol.useNTimes = 1;
+					}
+					return this.returnProtocol(protocol, '', false);
+				},
 				error =>
 				{	this.#takeCareOfDisconneced.push(info);
 					this.options.logger.error(error);
