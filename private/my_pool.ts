@@ -565,7 +565,7 @@ L:		for (const info of takeCareOfDisconneced)
 						{	const {time, pid, hash, connectionId, xaId1} = m;
 							if (!isNaN(hash))
 							{	xas[xas.length] = {xaId, xaId1, time, pid, hash, connectionId};
-								if (cids.indexOf(connectionId) == -1)
+								if (!cids.includes(connectionId))
 								{	cids[cids.length] = connectionId;
 								}
 							}
@@ -574,9 +574,9 @@ L:		for (const info of takeCareOfDisconneced)
 					// 2. Filter `xas` array to preserve only dead connections
 					if (cids.length != 0)
 					{	let last = xas.length - 1;
-						for await (const {connectionId} of await conn.query<number>(`SELECT id FROM information_schema.processlist WHERE id IN (${cids.join(',')})`))
+						for await (const {id: connectionId} of await conn.query(`SELECT id FROM information_schema.processlist WHERE id IN (${cids.join(',')})`))
 						{	for (let i=last; i>=0; i--)
-							{	if (xas[i].connectionId == connectionId)
+							{	if (xas[i].connectionId === connectionId)
 								{	// this connection is alive
 									xas[i] = xas[last--];
 								}

@@ -1437,19 +1437,14 @@ async function testTrx(dsnStr: string)
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
-				await conn1.query(`XA END '${conn1.xaId}'`); // break state - after this commit will fail on conn1
-
-				let error: Any;
-				try
-				{	await session.commit();
-				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.errorCode, ErrorCodes.ER_XAER_RMFAIL);
+				await conn1.prepareCommit();
+				conn1.forceImmediateDisconnect(true, true); // leave dangling XA
 				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-				await conn1.query("DELETE FROM t_log");
+				await conn1.query("DELETE FROM t_log"); // this blocks till XA manager rolls back the dangling XA
+				assertEquals(await conn1.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+
+				await session.commit();
+				assertEquals(await conn2.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				await conn2.query("DELETE FROM t_log");
 			}
 		);
@@ -1993,7 +1988,7 @@ async function testForceImmediateDisconnect(dsnStr: string)
 
 	// CREATE TEMPORARY TABLE
 	const [res1] = await Promise.allSettled
-	(	[	conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)"),
+	(	[	conn.queries("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob); DO SLEEP(1)"),
 			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
 		]
 	);
@@ -2003,7 +1998,7 @@ async function testForceImmediateDisconnect(dsnStr: string)
 
 	// CREATE TABLE
 	const [res2] = await Promise.allSettled
-	(	[	conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)"),
+	(	[	conn.queries("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob); DO SLEEP(1)"),
 			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
 		]
 	);
