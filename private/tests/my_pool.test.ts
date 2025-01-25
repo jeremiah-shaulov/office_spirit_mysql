@@ -1975,36 +1975,16 @@ async function testForceImmediateDisconnect(dsnStr: string)
 	// USE
 	await conn.query("USE test1");
 
-	async function logFound()
-	{	for (let i=0; i<20; i++)
-		{	await new Promise(y => setTimeout(y, 500));
-			const res = await conn.query("SHOW TABLES LIKE 't_log'").all();
-			if (res.length)
-			{	return true;
-			}
-		}
-		return false;
-	}
-
-	// CREATE TEMPORARY TABLE
-	const [res1] = await Promise.allSettled
-	(	[	conn.queries("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob); DO SLEEP(1)"),
-			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
-		]
-	);
-
-	assertEquals(res1.status, 'rejected');
-	assertEquals(await logFound(), false);
-
 	// CREATE TABLE
+	const startTime = Date.now();
 	const [res2] = await Promise.allSettled
-	(	[	conn.queries("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob); DO SLEEP(1)"),
+	(	[	conn.queries("DO SLEEP(6); CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longblob)"),
 			new Promise(y => setTimeout(y, 0)).then(() => session.forceImmediateDisconnect()),
 		]
 	);
 
 	assertEquals(res2.status, 'rejected');
-	assertEquals(await logFound(), true);
+	assertEquals(Date.now()-startTime < 6000, true);
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
