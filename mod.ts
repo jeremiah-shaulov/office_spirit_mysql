@@ -60,7 +60,6 @@
 	- `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
 	- `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
 	- `xaCheckEach` - (number, default `6000`) Check for dangling transactions each this number of milliseconds.
-	- `xaInfoTables` - You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 	- `logger` - a `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
 
 	Data Source Name is specified in URL format with "mysql://" protocol.
@@ -1455,20 +1454,22 @@
 
 	Some kind of transactions manager is needed when working with distributed transactions.
 
-	This library provides transactions manager that you can use, or you can use your own one.
+	This library provides transactions manager that you can use.
+	It's principle is to include MySQL thread ID in transaction IDs started from this thread.
+	The manager will periodically execute "XA RECOVER" query, and see IDs of prepared transactions.
+	Then it will execute "SHOW PROCESSLIST" (or similar) query to see running threads.
+	If there's a transaction whose thread is already terminated, the manager will rollback this dangling transaction.
 
-	When calling `MyConn.startTrx()` on a connection, this creates non-managed transaction. To use the distributed transactions manager, you need to:
+	To use the distributed transactions manager, you need to:
 
-	- create session (`pool.getSession()`), and call `MySession.startTrx({xa: true})` on session object
 	- specify `managedXaDsns` in pool options
-	- optionally specify `xaInfoTables` in pool options, and create in your database tables dedicated to the transactions manager
+	- use `MySession.startTrx({xa: true})` to start the distributed transaction
 
 	Let's consider the following situation.
 	We have 2 databases on 2 servers. But in dev environment and in this example they both will reside on the same server.
 	In both databases we have table called `t_log`, and we want to replicate inserts to this table.
-	We will also have 4 tables dedicated to the transactions manager: `test1.t_xa_info_1`, `test1.t_xa_info_2`, `test2.t_xa_info_1`, `test2.t_xa_info_2`.
 
-	MySQL user for the application will be called `app`, and the manager user will be `manager`, and it will have permission to execute `XA RECOVER` as well as permission to work with info tables.
+	MySQL user for the application will be called `app`, and the manager user will be `manager`, and it will have permission to execute `XA RECOVER`.
 
 	```sql
 	CREATE DATABASE test1;
@@ -1477,12 +1478,6 @@
 	CREATE TABLE test1.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
 	CREATE TABLE test2.t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text);
 
-	-- XA Info tables
-	CREATE TABLE test1.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
-	CREATE TABLE test1.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
-	CREATE TABLE test2.t_xa_info_1 (xa_id char(40) PRIMARY KEY);
-	CREATE TABLE test2.t_xa_info_2 (xa_id char(40) PRIMARY KEY);
-
 	-- CREATE USER app
 	CREATE USER app@localhost IDENTIFIED BY 'app';
 	GRANT ALL ON test1.* TO app@localhost;
@@ -1490,19 +1485,8 @@
 
 	-- CREATE USER manager
 	CREATE USER manager@localhost IDENTIFIED BY 'manager';
-	GRANT ALL ON test1.* TO manager@localhost;
-	GRANT ALL ON test2.* TO manager@localhost;
 	GRANT XA_RECOVER_ADMIN ON *.* TO manager@localhost;
 	```
-
-	Transactions manager tables are not required, but they will improve the management quality.
-	There can be any number of such tables, and they can reside on one of the hosts where you issue queries (`test1`), or on several or all of them (`test1`, `test2`), or even on different host(s).
-	For each transaction the manager will pick one random info table.
-	Having multiple info tables distributes (balances) load between them.
-	Single table under heavy load can be bottleneck.
-
-	Transactions manager tables must have one column called `xa_id`, as defined above.
-	If you wish you can add a timestamp column for your own use (transactions manager will ignore it).
 
 	```ts
 	import {MyPool, Dsn} from './mod.ts';
@@ -1514,12 +1498,6 @@
 	(	{	managedXaDsns:
 			[	'mysql://manager:manager@localhost/test1',
 				'mysql://manager:manager@localhost/test2',
-			],
-			xaInfoTables:
-			[	{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_1'},
-				{dsn: 'mysql://manager:manager@localhost/test1', table: 't_xa_info_2'},
-				{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_1'},
-				{dsn: 'mysql://manager:manager@localhost/test2', table: 't_xa_info_2'},
 			]
 		}
 	);
@@ -1533,30 +1511,22 @@
 	// Start distributed transaction
 	await session.startTrx({xa: true});
 
-	// Get connection objects (actual connection will be established on first query)
-	const conn1 = session.conn(dsn1);
-	const conn2 = session.conn(dsn2);
-
 	// Query
-	await conn1.query("INSERT INTO t_log SET message = 'Msg 1'");
-	await conn2.query("INSERT INTO t_log SET message = 'Msg 1'");
+	await session.conn(dsn1).query("INSERT INTO t_log SET message = 'Msg 1'");
+	await session.conn(dsn2).query("INSERT INTO t_log SET message = 'Msg 1'");
 
 	// 2-phase commit
 	await session.commit();
 	```
 
 	When you start a managed transaction (`MySession.startTrx({xa: true})`), the manager generates XA ID for it.
-	This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, ID of chosen info table, and MySQL connection ID.
+	This ID encodes in itself several pieces of data: timestamp of when the transaction started, `Deno.pid` of the application that started the transaction, and MySQL connection ID.
 
-	When you call [session.commit()]{@link MySession.commit}, the 2-phase commit takes place on all the connections in this session.
-	After the 1st phase succeeded, current XA ID is inserted to the chosen info table (in parallel connection in autocommit mode).
-	And after successful 2nd phase, this record is deleted from the info table.
+	When the manager rolls back a transaction, it prints message like this:
 
-	Transactions manager periodically monitors `managedXaDsns` for dangling transactions - those whose MySQL connection is dead.
-	If a dangling transaction found, it's either committed or rolled back.
-	If a corresponding record is found in the corresponding info table, the transaction will be committed.
-	If no record found, or there were no info tables, the transaction will be rolled back.
-	If you want the transactions manager to always roll back transactions in such situation, don't provide info tables to the pool options.
+	```
+	Rolled back dangling transaction sqnum0.2@7vo9-1082 because it's MySQL thread ID 1082 was dead. Transaction started 2 sec ago by OS process 367641.
+	```
 
 	## Interrupting long queries
 

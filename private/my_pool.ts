@@ -1,14 +1,12 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
-import {ServerDisconnectedError, SqlError} from "./errors.ts";
+import {ServerDisconnectedError} from "./errors.ts";
 import {DEFAULT_MAX_CONNS, MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
 import {MyProtocol, OnLoadFile, Logger, TakeCareOfDisconneced} from './my_protocol.ts';
 import {MySession} from "./my_session.ts";
 import {XaIdGen} from "./xa_id_gen.ts";
 import {SafeSqlLogger} from "./sql_logger.ts";
-import {crc32} from "./deps.ts";
 import {Interval} from './interval.ts';
-import {ErrorCodes} from './constants.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS_WAIT_QUEUE = 50;
@@ -19,8 +17,6 @@ const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_AND_CLEAR_DISCONNECTED_EACH_MSEC = 1000;
 const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
 const TRACK_HEALH_STATUS_FOR_PERIOD_SEC = 60;
-
-export type XaInfoTable = {dsn: Dsn, table: string, hash: number};
 
 export interface MyPoolOptions
 {	/**	Default Data Source Name for the pool.
@@ -49,10 +45,6 @@ export interface MyPoolOptions
 	 **/
 	xaCheckEach?: number;
 
-	/**	You can provide tables (that you need to create), that will improve distributed transactions management (optional).
-	 **/
-	xaInfoTables?: {dsn: Dsn|string, table: string}[];
-
 	/**	A `console`-compatible logger, or `globalThis.console`. It will be used to report errors and print log messages.
 	 **/
 	logger?: Logger;
@@ -65,7 +57,6 @@ class OptionsManager
 	onBeforeCommit: OnBeforeCommit|undefined;
 	managedXaDsns = new Array<Dsn>;
 	xaCheckEach = DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
-	xaInfoTables = new Array<XaInfoTable>;
 	logger: Logger = console;
 
 	/**	Set and/or get configuration.
@@ -75,7 +66,7 @@ class OptionsManager
 		{	if (typeof(options)=='string' || (options instanceof Dsn))
 			{	options = {dsn: options};
 			}
-			const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = options;
+			const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, logger} = options;
 			// dsn
 			if (typeof(dsn) == 'string')
 			{	this.dsn = dsn ? new Dsn(dsn) : undefined;
@@ -116,24 +107,11 @@ class OptionsManager
 			if (typeof(xaCheckEach) == 'number')
 			{	this.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 			}
-			// xaInfoTables
-			if (xaInfoTables)
-			{	this.xaInfoTables.length = 0;
-				for (const {dsn, table} of xaInfoTables)
-				{	if (dsn && table)
-					{	const dsnObj = typeof(dsn)=='string' ? new Dsn(dsn) : dsn;
-						const hash = (dsnObj.hash ^ crc32(table)) >>> 0;
-						if (this.xaInfoTables.findIndex(v => v.hash == hash) == -1)
-						{	this.xaInfoTables.push({dsn: dsnObj, table, hash});
-						}
-					}
-				}
-			}
 			// logger
 			this.logger = logger ?? console;
 		}
-		const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger} = this;
-		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, xaInfoTables, logger};
+		const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, logger} = this;
+		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, logger};
 	}
 }
 
@@ -546,37 +524,34 @@ L:		for (const info of takeCareOfDisconneced)
 		await Promise.all(promises);
 	}
 
+	/**	Find dangling XAs (where owner connection id is dead), and rollback them.
+	 **/
 	async #xaTask()
 	{	using session = new MySession(this);
-		// 1. Find dangling XAs (where owner connection id is dead) and corresponding xaInfoTables
-		type Item = {conn: MyConn, table: string, xaId: string, xaId1: string, time: number, pid: number, connectionId: number, commit: boolean};
-		const byInfoDsn = new Map<Dsn, Item[]>;
-		const byConn = new Map<MyConn, Item[]>;
 		const results = await Promise.allSettled
 		(	this.options.managedXaDsns.map
 			(	async dsn =>
-				{	const conn = session.conn(dsn);
+				{	using conn = session.conn(dsn);
 					// 1. Read XA RECOVER
-					const xas = new Array<{xaId: string, xaId1: string, time: number, pid: number, hash: number, connectionId: number}>;
+					const xas = new Array<{xaId: string, time: number, pid: number, connectionId: number}>;
 					const cids = new Array<number>;
-					for await (const {data: xaId} of await conn.query<string>("XA RECOVER"))
-					{	const m = XaIdGen.decode(xaId);
+					for await (const {data} of await conn.query("XA RECOVER"))
+					{	const xaId = data+'';
+						const m = XaIdGen.decode(xaId);
 						if (m)
-						{	const {time, pid, hash, connectionId, xaId1} = m;
-							if (!isNaN(hash))
-							{	xas[xas.length] = {xaId, xaId1, time, pid, hash, connectionId};
-								if (!cids.includes(connectionId))
-								{	cids[cids.length] = connectionId;
-								}
+						{	const {time, pid, connectionId} = m;
+							xas[xas.length] = {xaId, time, pid, connectionId};
+							if (!cids.includes(connectionId))
+							{	cids[cids.length] = connectionId;
 							}
 						}
 					}
 					// 2. Filter `xas` array to preserve only dead connections
 					if (cids.length != 0)
 					{	let last = xas.length - 1;
-						for await (const {id: connectionId} of await conn.query(`SELECT id FROM information_schema.processlist WHERE id IN (${cids.join(',')})`))
+						for await (const {id} of await conn.query(`SELECT id FROM information_schema.processlist WHERE id IN (${cids.join(',')})`))
 						{	for (let i=last; i>=0; i--)
-							{	if (xas[i].connectionId === connectionId)
+							{	if (xas[i].connectionId === id)
 								{	// this connection is alive
 									xas[i] = xas[last--];
 								}
@@ -584,26 +559,14 @@ L:		for (const info of takeCareOfDisconneced)
 						}
 						xas.length = last + 1;
 					}
-					// 3. Find xaInfoTables
-					for (const {xaId, xaId1, time, pid, hash, connectionId} of xas)
-					{	const xaInfoTable = this.options.xaInfoTables.find(v => v.hash == hash);
-						if (xaInfoTable)
-						{	const {dsn, table} = xaInfoTable;
-							const item = {conn, table, xaId, xaId1, time, pid, connectionId, commit: false};
-							// add to byInfoDsn
-							let items = byInfoDsn.get(dsn);
-							if (!items)
-							{	items = [];
-								byInfoDsn.set(dsn, items);
-							}
-							items.push(item);
-							// add to byConn
-							items = byConn.get(conn);
-							if (!items)
-							{	items = [];
-								byConn.set(conn, items);
-							}
-							items.push(item);
+					// 3. Rollback what needed
+					for (const {xaId, time, pid, connectionId} of xas)
+					{	try
+						{	await conn.queryVoid(`XA ROLLBACK '${xaId}'`);
+							this.options.logger.warn(`Rolled back dangling transaction ${xaId} because it's MySQL thread ID ${connectionId} was dead. Transaction started ${Math.floor(Date.now()/1000) - time} sec ago by OS process ${pid}.`);
+						}
+						catch (e)
+						{	this.options.logger.error(e);
 						}
 					}
 				}
@@ -612,64 +575,6 @@ L:		for (const info of takeCareOfDisconneced)
 		for (const res of results)
 		{	if (res.status == 'rejected')
 			{	this.options.logger.error(res.reason);
-			}
-		}
-		// 2. Find out should i rollback or commit, according to xaInfoTables
-		const promises2 = new Array<Promise<void>>;
-		for (const [dsn, items] of byInfoDsn)
-		{	promises2[promises2.length] = Promise.resolve(session.conn(dsn)).then
-			(	async conn =>
-				{	const byTable = new Map<string, typeof items>;
-					for (const item of items)
-					{	const {table} = item;
-						if (table && table.indexOf('`')==-1)
-						{	let items2 = byTable.get(table);
-							if (!items2)
-							{	items2 = [];
-								byTable.set(table, items2);
-							}
-							items2.push(item);
-						}
-					}
-					for (const [table, items2] of byTable)
-					{	for await (const xaId1 of await conn.queryCol("SELECT `xa_id` FROM `"+table+"` WHERE `xa_id` IN ('"+items2.map(v => v.xaId1).join("','")+"')"))
-						{	const item = items2.find(v => v.xaId1 === xaId1)
-							if (item)
-							{	item.commit = true;
-							}
-						}
-					}
-				}
-			);
-		}
-		const results2 = await Promise.allSettled(promises2);
-		for (const res of results2)
-		{	if (res.status == 'rejected')
-			{	this.options.logger.error(res.reason);
-			}
-		}
-		// 3. Rollback or commit
-		const promises3 = new Array<Promise<void>>;
-		for (const items of byConn.values())
-		{	let promise = Promise.resolve();
-			for (const {conn, xaId, time, pid, connectionId, commit} of items)
-			{	promise = promise.then
-				(	() => conn.queryVoid((commit ? "XA COMMIT '" : " XA ROLLBACK '")+xaId+"'")
-				).then
-				(	() =>
-					{	this.options.logger.warn(`${commit ? 'Committed' : 'Rolled back'} dangling transaction ${xaId} because it's MySQL thread ID ${connectionId} was dead. Transaction started ${Math.floor(Date.now()/1000) - time} sec ago by OS process ${pid}.`);
-					}
-				);
-			}
-			promises3[promises3.length] = promise;
-		}
-		const results3 = await Promise.allSettled(promises3);
-		for (const res of results3)
-		{	if (res.status == 'rejected')
-			{	const {reason} = res;
-				if (!(reason instanceof SqlError && reason.errorCode==ErrorCodes.ER_XAER_NOTA))
-				{	this.options.logger.error(reason);
-				}
 			}
 		}
 	}

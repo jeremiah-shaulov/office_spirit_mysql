@@ -1161,7 +1161,7 @@ async function testTrx(dsnStr: string)
 							console.log('Rolled back dangling XA');
 						}
 						else
-						{	console.log("%cWarning: there's active XA:%c %s", 'background-color:black; color:yellow', 'font-weight:bold', row.data);
+						{	console.log("%cWarning: there's active XA:%c %s %c(expecting auto rollback)", 'background-color:black; color:yellow', 'font-weight:bold', row.data, '');
 						}
 					}
 				}
@@ -1175,6 +1175,8 @@ async function testTrx(dsnStr: string)
 				// CREATE DATABASE
 				await conn.query("DROP DATABASE IF EXISTS test58168");
 				await conn.query("CREATE DATABASE `test58168`");
+				await conn.query("DROP DATABASE IF EXISTS test38743");
+				await conn.query("CREATE DATABASE `test38743`");
 
 				// USE
 				await conn.query("USE test58168");
@@ -1292,53 +1294,6 @@ async function testTrx(dsnStr: string)
 				await conn.commit();
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
 				res = await conn.query("DELETE FROM t_log");
-				assertEquals(res.affectedRows, 1);
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-			}
-		);
-
-		// XA Info: create db
-		await pool.forConn
-		(	async conn =>
-			{	await conn.query("DROP DATABASE IF EXISTS test38743");
-				await conn.query("CREATE DATABASE `test38743`");
-				await conn.query("DROP DATABASE IF EXISTS test2");
-				await conn.query("CREATE DATABASE `test2`");
-				await conn.query("USE test2");
-				await conn.query("CREATE TABLE t_xa_info (xa_id char(40) PRIMARY KEY)");
-				await conn.query("CREATE TABLE t_xa_info_sub (id integer PRIMARY KEY AUTO_INCREMENT, xa_id char(40), op enum('insert', 'delete'))");
-				await conn.query("CREATE TRIGGER t1 AFTER INSERT ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (NEW.xa_id, 'insert')");
-				await conn.query("CREATE TRIGGER t2 AFTER DELETE ON t_xa_info FOR EACH ROW INSERT INTO t_xa_info_sub (xa_id, op) VALUES (OLD.xa_id, 'delete')");
-			}
-		);
-		const xaInfoDsn = new Dsn(dsnStr);
-		xaInfoDsn.schema = 'test2';
-		pool.options({xaInfoTables: [{dsn: xaInfoDsn, table: 't_xa_info'}]});
-
-		// XA Info: test
-		await pool.forSession
-		(	async session =>
-			{	await session.startTrx({xa: true});
-				const conn = session.conn();
-				await conn.query("USE test58168");
-				await conn.query("INSERT INTO t_log SET a = 123");
-				await pool.forConn
-				(	async conn2 =>
-					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-						assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info_sub").first(), 0);
-					},
-					xaInfoDsn
-				);
-				await session.commit();
-				await pool.forConn
-				(	async conn2 =>
-					{	assertEquals(await conn2.queryCol("SELECT Count(*) FROM test2.t_xa_info").first(), 0);
-						assertEquals(await conn2.queryArr("SELECT Count(*), Count(DISTINCT op) FROM test2.t_xa_info_sub").first(), [2, 2]);
-					},
-					xaInfoDsn
-				);
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
-				const res = await conn.query("DELETE FROM t_log");
 				assertEquals(res.affectedRows, 1);
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 			}
@@ -1533,7 +1488,6 @@ async function testTrx(dsnStr: string)
 		(	async conn =>
 			{	await conn.query("DROP DATABASE test58168");
 				await conn.query("DROP DATABASE test38743");
-				await conn.query("DROP DATABASE test2");
 			}
 		);
 	}
