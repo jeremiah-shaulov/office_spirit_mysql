@@ -2,4 +2,4 @@
 
 [Documentation Index](../README.md)
 
-`type` OnLoadFile = ((filename: `string`) => Promise\<([Reader](../interface.Reader/README.md) \& [Closer](../interface.Closer/README.md)) | `undefined`>) | ((filename: `string`) => Promise\<(\{`readonly` readable: ReadableStream\<Uint8Array>} \& Disposable) | `undefined`>)
+`type` OnLoadFile = (filename: `string`, dsn: [Dsn](../class.Dsn/README.md)) => [OnLoadFileResult](../private.type.OnLoadFileResult/README.md) | Promise\<[OnLoadFileResult](../private.type.OnLoadFileResult/README.md)>

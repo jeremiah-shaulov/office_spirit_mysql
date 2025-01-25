@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ServerDisconnectedError} from "https://deno.land/x/office_spirit_mysql@v0.19.17/mod.ts"
+import {ServerDisconnectedError} from "https://deno.land/x/office_spirit_mysql@v0.19.18/mod.ts"
 ```
 
 Server didn't respond properly.
