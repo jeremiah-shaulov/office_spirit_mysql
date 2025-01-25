@@ -962,19 +962,16 @@
 	// deno run --allow-env --allow-net example.ts
 
 	import {MyPool} from './mod.ts';
-	import {dirname} from "https://deno.land/std@0.224.0/path/mod.ts";
+	import {dirname} from 'jsr:@std/path@1.0.8';
 
 	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
 
 	// Set handler for LOAD DATA LOCAL INFILE queries
 	const ALLOWED_DIRS = ['/tmp'];
 	pool.options
-	(	{	onLoadFile(filename: string)
+	(	{	onLoadFile(filename, dsn)
 			{	if (ALLOWED_DIRS.includes(dirname(filename)))
 				{	return Deno.open(filename, {read: true});
-				}
-				else
-				{	return Promise.resolve(undefined);
 				}
 			}
 		}

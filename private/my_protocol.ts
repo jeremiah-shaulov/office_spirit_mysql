@@ -21,7 +21,8 @@ const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 const PACKET_NOT_READ_BIT = 256;
 
-export type OnLoadFile = ((filename: string) => Promise<(Reader & Closer) | undefined>) | ((filename: string) => Promise<({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined>);
+type OnLoadFileResult = (Reader & Closer) | ({readonly readable: ReadableStream<Uint8Array>}&Disposable) | undefined;
+export type OnLoadFile = (filename: string, dsn: Dsn) => OnLoadFileResult | Promise<OnLoadFileResult>;
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -620,7 +621,8 @@ L:		while (true)
 					if (!this.#onLoadFile)
 					{	throw new Error(`LOCAL INFILE handler is not set. Requested file: ${filename}`);
 					}
-					const reader = await this.#onLoadFile(filename);
+					const readerPromise = this.#onLoadFile(filename, this.dsn);
+					const reader = readerPromise instanceof Promise ? await readerPromise : readerPromise;
 					if (!reader)
 					{	throw new Error(`File is not accepted for LOCAL INFILE: ${filename}`);
 					}
