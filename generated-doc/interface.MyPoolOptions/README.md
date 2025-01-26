@@ -3,19 +3,18 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPoolOptions} from "https://deno.land/x/office_spirit_mysql@v0.19.18/mod.ts"
+import {MyPoolOptions} from "https://deno.land/x/office_spirit_mysql@v0.20.0/mod.ts"
 ```
 
 ## This interface has
 
-- 8 properties:
+- 7 properties:
 [dsn](#-dsn-dsn--string),
 [maxConnsWaitQueue](#-maxconnswaitqueue-number),
 [onLoadFile](#-onloadfile-onloadfile),
 [onBeforeCommit](#-onbeforecommit-onbeforecommit),
 [managedXaDsns](#-managedxadsns-dsn--string--dsn--string),
 [xaCheckEach](#-xacheckeach-number),
-[xaInfoTables](#-xainfotables-dsn-dsn--string-table-string),
 [logger](#-logger-logger)
 
 
@@ -56,12 +55,6 @@ import {MyPoolOptions} from "https://deno.land/x/office_spirit_mysql@v0.19.18/mo
 > Default value: `6000`
 > 
 > Check for dangling transactions each this number of milliseconds.
-
-
-
-#### 📄 xaInfoTables?: \{dsn: [Dsn](../class.Dsn/README.md) | `string`, table: `string`}\[]
-
-> You can provide tables (that you need to create), that will improve distributed transactions management (optional).
 
 
 

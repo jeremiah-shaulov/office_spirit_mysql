@@ -4,14 +4,13 @@
 
 ## This class has
 
-- 8 properties:
+- 7 properties:
 [dsn](#-dsn-dsn--undefined),
 [maxConnsWaitQueue](#-maxconnswaitqueue-number),
 [onLoadFile](#-onloadfile-onloadfile--undefined),
 [onBeforeCommit](#-onbeforecommit-onbeforecommit--undefined),
 [managedXaDsns](#-managedxadsns-dsn),
 [xaCheckEach](#-xacheckeach-number),
-[xaInfoTables](#-xainfotables-xainfotable),
 [logger](#-logger-logger)
 - method [update](#-updateoptions-dsn--string--mypooloptions-mypooloptions)
 
@@ -37,10 +36,6 @@
 
 
 #### 📄 xaCheckEach: `number`
-
-
-
-#### 📄 xaInfoTables: XaInfoTable\[]
 
 
 

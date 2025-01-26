@@ -39,6 +39,32 @@
 	}
 	```
 
+	Table of contents:
+
+	- [Connections pool](#connections-pool)
+	- [Connections](#connections)
+	- [Cross-server sessions](#cross-server-sessions)
+	- [Executing queries](#executing-queries)
+	- [Executing multiple statements in a single query](#executing-multiple-statements-in-a-single-query)
+	- [Type conversions](#type-conversions)
+	- [Timezone](#timezone)
+	- [Query parameters](#query-parameters)
+	- [Performance of parameters substitution](#performance-of-parameters-substitution)
+	- [MySQL binary protocol](#mysql-binary-protocol)
+	- [Prepared statements](#prepared-statements)
+	- [Reading long BLOBs](#reading-long-blobs)
+	- [Writing long BLOBS](#writing-long-blobs)
+	- [Importing big dumps](#importing-big-dumps)
+	- [LOAD DATA LOCAL INFILE](#load-data-local-infile)
+	- [Connection status](#connection-status)
+	- [Resultsets](#resultsets)
+	- [Changing default schema (database)](#changing-default-schema-database)
+	- [SQL logging](#sql-logging)
+	- [Transactions](#transactions)
+	- [Distributed (aka global) transactions](#distributed-aka-global-transactions)
+	- [Interrupting long queries](#interrupting-long-queries)
+	- [Pool health status](#pool-health-status)
+
 	## Connections pool
 
 	Connections to database servers are managed by {@link MyPool} object.
@@ -1299,7 +1325,7 @@
 	less -r /tmp/sql.log
 	```
 
-	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.19.18/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
+	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.20.0/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
 	and you can override it's public and protected methods to customize it's behavior.
 
 	## Transactions
@@ -1582,6 +1608,44 @@
 	}
 
 	console.log(`Completed in ${Date.now()-startTime} ms`);
+	```
+
+	## Pool health status
+
+	This library tracks health status for the last 1 minute.
+	The status is measured in number of successful connecting attempts per total number of attempts.
+	Also the status shows how many connections are currently in use, and how many are idle in the pool.
+
+	To get the status, use {@link MyPool.getStatus()}.
+
+	```ts
+	// To run this example:
+	// export DSN='mysql://root:hello@localhost/tests'
+	// deno run --allow-env --allow-net example.ts
+
+	import {MyPool} from './mod.ts';
+
+	await using pool = new MyPool(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+
+	{	using conn = pool.getConn();
+		await conn.connect();
+	}
+
+	console.log(pool.getStatus());
+
+	await new Promise(y => setTimeout(y, 1000));
+
+	console.log(pool.getStatus());
+	```
+
+	The returned health status is a number from 0 to 1. 0 means all connecting attempts failed.
+	1 means all succeeded.
+	If during the last minute there were no new connections (all the connections were recycled, or no new connections were asked), the `health` is `NaN`.
+
+	You can ask the status for the last minute (default), or for last N seconds, where N is between 1 and 60.
+
+	```ts
+	console.log(pool.getStatus(10)); // for the last 10 seconds
 	```
 
 	@module
