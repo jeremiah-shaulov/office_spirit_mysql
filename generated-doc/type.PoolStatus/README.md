@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {PoolStatus} from "https://deno.land/x/office_spirit_mysql@v0.20.0/mod.ts"
+import {PoolStatus} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts"
 ```
 
 ## This type has
