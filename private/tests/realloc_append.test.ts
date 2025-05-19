@@ -5,7 +5,7 @@ import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 Deno.test
 (	'reallocAppend',
 	() =>
-	{	const data = new Uint8Array([0, 1, 2, 0, 0, 0]);
+	{	const data: Uint8Array<ArrayBufferLike> = new Uint8Array([0, 1, 2, 0, 0, 0]);
 		let arr = data.subarray(0, 3);
 
 		arr = reallocAppend(arr, new Uint8Array([3, 4]));
@@ -26,7 +26,7 @@ Deno.test
 (	'reallocAppend with offset',
 	() =>
 	{	const data = new Uint8Array([0, 0, 1, 2, 0, 0]);
-		let arr = data.subarray(1, 4);
+		let arr: Uint8Array<ArrayBufferLike> = data.subarray(1, 4);
 
 		arr = reallocAppend(arr, new Uint8Array([3, 4]));
 		assert(arr.buffer === data.buffer);

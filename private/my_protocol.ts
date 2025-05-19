@@ -185,7 +185,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 		}
 		const serverVersion = this.readShortNulString() ?? await this.readShortNulStringAsync();
 		const connectionId = this.readUint32() ?? await this.readUint32Async();
-		let authPluginData = new Uint8Array(24).subarray(0, 0);
+		let authPluginData: Uint8Array<ArrayBufferLike> = new Uint8Array(24).subarray(0, 0);
 		let capabilityFlags = 0;
 		let statusFlags = 0;
 		let authPluginName = '';
