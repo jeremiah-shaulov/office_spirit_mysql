@@ -1892,7 +1892,7 @@ L:		while (true)
 									}
 								}
 								else
-								{	value = this.dsn.datesAsString ? '0000-00-00 0:00:00' : new Date(0);
+								{	value = this.dsn.datesAsString ? '0000-00-00 00:00:00' : new Date(0);
 								}
 								break;
 							}
