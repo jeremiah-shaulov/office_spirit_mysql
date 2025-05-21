@@ -5,17 +5,18 @@
 ## This class has
 
 - [constructor](#-constructorreader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
-- property [totalBytesInPacket](#-totalbytesinpacket-number)
+- 2 properties:
+[totalBytesInPacket](#-totalbytesinpacket-number),
+[decoder](#-decoder-textdecoder)
 - method [recycleBuffer](#-recyclebuffer-uint8array)
-- 8 protected properties:
+- 7 protected properties:
 [buffer](#-protected-buffer-uint8array),
 [bufferStart](#-protected-bufferstart-number),
 [bufferEnd](#-protected-bufferend-number),
 [sequenceId](#-protected-sequenceid-number),
 [payloadLength](#-protected-payloadlength-number),
 [packetOffset](#-protected-packetoffset-number),
-[reader](#-protected-reader-readablestreambyobreader),
-[decoder](#-protected-decoder-textdecoder)
+[reader](#-protected-reader-readablestreambyobreader)
 - 49 protected methods:
 [isAtEndOfPacket](#-protected-isatendofpacket-boolean),
 [gotoEndOfPacket](#-protected-gotoendofpacket-boolean),
@@ -76,6 +77,10 @@
 
 
 
+#### 📄 decoder: TextDecoder
+
+
+
 #### ⚙ recycleBuffer(): Uint8Array
 
 
@@ -105,10 +110,6 @@
 
 
 #### 📄 `protected` reader: ReadableStreamBYOBReader
-
-
-
-#### 📄 `protected` decoder: TextDecoder
 
 
 

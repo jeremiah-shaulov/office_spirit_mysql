@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.21.0/mod.ts"
+import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.21.1/mod.ts"
 ```
 
 ## This class has
@@ -41,7 +41,7 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.21.0
 
 > Reads all rows in the first resultset, and stores them either in memory or on disk.
 > Other resultsets will be skipped (discarded).
-> The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+> The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
 > Use this function if you want to read a large resultset, and iterate over it later,
 > and being able to perform other queries in the meantime.
 

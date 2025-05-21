@@ -92,7 +92,7 @@ Methods that don't exist on Resultsets are for internal use.
 #### ⚙ `override` allStored(): AsyncIterable\<Row, `any`, `any`>
 
 > Reads all rows in current resultset, and stores them either in memory or on disk.
-> The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+> The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
 > Use this function if you want to read a large resultset, and iterate over it later,
 > and being able to perform other queries in the meantime.
 

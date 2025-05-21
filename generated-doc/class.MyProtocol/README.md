@@ -28,7 +28,7 @@
 [sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
 [disposePreparedStmt](#-disposepreparedstmtstmtid-number-void),
 [execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
-[fetch](#-fetchrowrowtype-rowtype-nojsonparse-booleanfalse-promiserow),
+[fetch](#-fetchrowrowtype-rowtype-isforserialize-booleanfalse-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
 [end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol),
 [forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
@@ -142,7 +142,7 @@
 
 
 
-#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md), noJsonParse: `boolean`=false): Promise\<Row>
+#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md), isForSerialize: `boolean`=false): Promise\<Row>
 
 
 
