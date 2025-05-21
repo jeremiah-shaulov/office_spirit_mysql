@@ -12,6 +12,9 @@ export type ColumnValue = bigint | Date | Uint8Array | JsonNode;
 export type Param = any;
 export type Params = Param[] | Record<string, Param> | null | undefined;
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 {	/**	Reads all rows in the first resultset to an array.
 		And if there're more resultsets, they will be skipped (discarded).
@@ -28,7 +31,7 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 
 	/**	Reads all rows in the first resultset, and stores them either in memory or on disk.
 		Other resultsets will be skipped (discarded).
-		The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
 		Use this function if you want to read a large resultset, and iterate over it later,
 		and being able to perform other queries in the meantime.
 	 **/
@@ -153,7 +156,7 @@ export class Resultsets<Row>
 	}
 
 	/**	Reads all rows in current resultset, and stores them either in memory or on disk.
-		The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
 		Use this function if you want to read a large resultset, and iterate over it later,
 		and being able to perform other queries in the meantime.
 	 **/
@@ -314,42 +317,44 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
 		{	throw new Error('Invalid use of allStored() method. This row type must be an object, an array or a map.');
 		}
-		const rows = new Array<Row>;
+		const rows = new Array<ColumnValue[]>;
 		const {protocol, columns} = this;
 		if (!protocol)
 		{	throw new CanceledError(`Connection terminated`);
 		}
 		const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
-		let size = 0;
+		const {decoder} = protocol;
+		protocol.totalBytesInPacket = 0;
+		let nRows = 0;
+		let fileName = '';
 		let file: Deno.FsFile | undefined;
 		let writer: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>> | undefined;
 		let reader: ReadableStreamBYOBReader | undefined;
 		let serializer: MyProtocolReaderWriterSerializer | undefined;
-		let nRows = 0;
 		try
-		{	for await (const row of this)
-			{	nRows++;
-				size += this.lastRowByteLength;
-				if (size <= storeResultsetIfBigger)
-				{	rows[rows.length] = row;
+		{	while (true)
+			{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, true);
+				if (row === undefined)
+				{	break;
 				}
-				else if (!serializer)
-				{	rows[rows.length] = row;
-					const fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
-					file = await Deno.open(fileName, {create: true, truncate: true, write: true, read: true});
-					writer = file.writable.getWriter();
-					reader = file.readable.getReader({mode: 'byob'});
-					serializer = new MyProtocolReaderWriterSerializer(writer, reader, new TextDecoder, undefined);
-					serializer.serializeBegin();
-					for (const row of rows)
-					{	const rowArr = Array.isArray(row) ? row : row instanceof Map ? [...row.values()] : typeof(row)=='object' && row ? Object.values(row) : [];
-						await serializer.serializeRowBinary(rowArr, columns, protocol.dsn.datesAsString, protocol);
-					}
-					rows.length = 0;
+				nRows++;
+				if (serializer)
+				{	await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
 				}
 				else
-				{	const rowArr = Array.isArray(row) ? row : row instanceof Map ? [...row.values()] : typeof(row)=='object' && row ? Object.values(row) : [];
-					await serializer.serializeRowBinary(rowArr, columns, protocol.dsn.datesAsString, protocol);
+				{	rows[rows.length] = row;
+					if (protocol.totalBytesInPacket > storeResultsetIfBigger)
+					{	fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
+						file = await Deno.open(fileName, {create: true, truncate: true, write: true, read: true});
+						writer = file.writable.getWriter();
+						reader = file.readable.getReader({mode: 'byob'});
+						serializer = new MyProtocolReaderWriterSerializer(writer, reader, decoder, undefined);
+						serializer.serializeBegin();
+						for (const row of rows)
+						{	await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+						}
+						rows.length = 0;
+					}
 				}
 			}
 			if (file && serializer)
@@ -374,10 +379,61 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 			catch
 			{	// ignore
 			}
-			file?.close();
+			try
+			{	file?.close();
+			}
+			catch
+			{	// ignore
+			}
+			if (fileName)
+			{	await Deno.remove(fileName);
+			}
 		}
-		for (const row of rows)
-		{	yield row;
+		for (const rowArr of rows)
+		{	const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
+			for (let i=0; i<columns.length; i++)
+			{	const {typeId, flags, name} = columns[i];
+				let value = rowArr[i];
+				switch (typeId)
+				{	case MysqlType.MYSQL_TYPE_VARCHAR:
+					case MysqlType.MYSQL_TYPE_ENUM:
+					case MysqlType.MYSQL_TYPE_SET:
+					case MysqlType.MYSQL_TYPE_VAR_STRING:
+					case MysqlType.MYSQL_TYPE_STRING:
+					case MysqlType.MYSQL_TYPE_TINY_BLOB:
+					case MysqlType.MYSQL_TYPE_MEDIUM_BLOB:
+					case MysqlType.MYSQL_TYPE_LONG_BLOB:
+					case MysqlType.MYSQL_TYPE_BLOB:
+					case MysqlType.MYSQL_TYPE_GEOMETRY:
+						if (!(flags & ColumnFlags.BINARY))
+						{	if (value instanceof Uint8Array)
+							{	value = decoder.decode(value);
+							}
+						}
+						break;
+					case MysqlType.MYSQL_TYPE_DECIMAL:
+					case MysqlType.MYSQL_TYPE_NEWDECIMAL:
+						if (value instanceof Uint8Array)
+						{	value = decoder.decode(value);
+						}
+						break;
+					case MysqlType.MYSQL_TYPE_JSON:
+						if (value instanceof Uint8Array)
+						{	value = JSON.parse(decoder.decode(value));
+						}
+				}
+				switch (rowType)
+				{	case RowType.OBJECT:
+						row[name] = value;
+						break;
+					case RowType.MAP:
+						row.set(name, value);
+						break;
+					case RowType.ARRAY:
+						rowArr[i] = value;
+				}
+			}
+			yield row;
 		}
 	}
 }

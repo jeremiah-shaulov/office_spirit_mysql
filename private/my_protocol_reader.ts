@@ -15,7 +15,7 @@ export class MyProtocolReader
 
 	totalBytesInPacket = 0;
 
-	constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+	constructor(protected reader: ReadableStreamBYOBReader, public decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(BUFFER_LEN);
 		debugAssert(this.buffer.length == BUFFER_LEN);
 	}

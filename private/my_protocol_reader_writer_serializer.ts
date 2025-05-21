@@ -224,7 +224,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 	/**	Reads a row from the MySQL server, or from another readable stream (like file), and deserializes it into a Javascript object.
 		It deals with the MySQL binary protocol.
 	 **/
-	async deserializeRowBinary(rowType: RowType, columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, noJsonParse=false)
+	async deserializeRowBinary(rowType: RowType, columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, isForSerialize=false)
 	{	let row: Any;
 		switch (rowType)
 		{	case RowType.OBJECT:
@@ -385,7 +385,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						else if (len>maxColumnLen || rowType==RowType.VOID)
 						{	this.readVoid(len) || await this.readVoidAsync(len);
 						}
-						else if ((flags & ColumnFlags.BINARY) && (typeId!=MysqlType.MYSQL_TYPE_JSON || noJsonParse))
+						else if ((flags & ColumnFlags.BINARY) && typeId!=MysqlType.MYSQL_TYPE_JSON || isForSerialize)
 						{	value = await this.readBytesToBuffer(new Uint8Array(len));
 						}
 						else
@@ -433,7 +433,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 
 	/**	Reads a row from the MySQL server when using text protocol, and deserializes it into a Javascript object.
 	 **/
-	async deserializeRowText(rowType: RowType, columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, noJsonParse=false)
+	async deserializeRowText(rowType: RowType, columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, isForSerialize=false)
 	{	let row: Any;
 		switch (rowType)
 		{	case RowType.OBJECT:
@@ -480,7 +480,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						v = await this.readBytesToBuffer(buffer.subarray(0, len));
 						buffer = new Uint8Array(v.buffer);
 					}
-					value = convColumnValue(v, typeId, flags, this.decoder, datesAsString, noJsonParse, tz);
+					value = convColumnValue(v, typeId, flags, this.decoder, datesAsString, isForSerialize, tz);
 				}
 			}
 			switch (rowType)

@@ -20,7 +20,7 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder, datesAsString: boolean, noJsonParse: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
+export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder, datesAsString: boolean, isForSerialize: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
 {	switch (type)
 	{	case MysqlType.MYSQL_TYPE_NULL:
 			return null;
@@ -63,7 +63,7 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 			return dataToInt(value);
 
 		case MysqlType.MYSQL_TYPE_JSON:
-			return noJsonParse ? value.slice() : JSON.parse(decoder.decode(value));
+			return isForSerialize ? value.slice() : JSON.parse(decoder.decode(value));
 
 		case MysqlType.MYSQL_TYPE_DATE:
 		case MysqlType.MYSQL_TYPE_DATETIME:
@@ -77,7 +77,7 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 			return dataToTime(value);
 
 		default:
-			if ((flags & ColumnFlags.BINARY) && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL && type!=MysqlType.MYSQL_TYPE_DECIMAL)
+			if ((flags & ColumnFlags.BINARY) && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL && type!=MysqlType.MYSQL_TYPE_DECIMAL || isForSerialize)
 			{	return value.slice();
 			}
 			else

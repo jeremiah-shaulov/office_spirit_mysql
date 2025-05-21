@@ -8,6 +8,7 @@ import {RdStream} from '../deps.ts';
 import {Reader, Seeker} from '../deno_ifaces.ts';
 import {assert} from 'jsr:@std/assert@1.0.7/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {ColumnValue} from '../../mod.ts';
 
 const encoder = new TextEncoder;
 
@@ -17,6 +18,7 @@ type Any = any;
 testWithDocker
 (	[	testBasic,
 		testNoDsn,
+		testSerializeRows,
 		testPrepared,
 		testVariousColumnTypes,
 		testSqlError,
@@ -36,7 +38,6 @@ testWithDocker
 		testMultiStatements,
 		testBindBigParam,
 		testForceImmediateDisconnect,
-		testSerializeRows,
 	]
 );
 
@@ -452,6 +453,52 @@ async function testNoDsn(_dsnStr: string)
 		{	error = e;
 		}
 		assertEquals(error?.message, 'DSN not provided, and also default DSN was not specified');
+	}
+}
+
+async function testSerializeRows(dsnStr: string)
+{	for (const storeResultsetIfBigger of [0, 12, 30, 100, 10000])
+	{	const dsn = new Dsn(dsnStr);
+		dsn.storeResultsetIfBigger = storeResultsetIfBigger;
+		await using pool = new MyPool(dsn);
+		using session = pool.getSession();
+		using conn = session.conn();
+
+		// CREATE TABLE
+		await conn.query
+		(	`	CREATE TEMPORARY TABLE t_log
+				(	id integer PRIMARY KEY AUTO_INCREMENT,
+					message text,
+					data json,
+					deci decimal(10,2),
+					en enum('one', 'two', 'three')
+				)
+			`
+		);
+
+		// INSERT
+		await conn.query
+		(	`	INSERT INTO t_log (message, data, deci, en) VALUES
+					(NULL, NULL, NULL, NULL),
+					('Message 2', '123', 1.23, 'two'),
+					('Message 3', '[1,2,3]', 4.56, 'three')
+			`
+		);
+
+		// SELECT
+		for (let bin=0; bin<2; bin++)
+		{	const rows = new Array<Record<string, ColumnValue>>;
+			for await (const row of conn.query("SELECT * FROM t_log", bin ? [] : undefined).allStored())
+			{	rows.push(row);
+			}
+			assertEquals
+			(	rows,
+				[	{id: 1, message: null, data: null, deci: null, en: null},
+					{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
+					{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+				]
+			);
+		}
 	}
 }
 
@@ -1943,24 +1990,4 @@ async function testForceImmediateDisconnect(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
-}
-
-async function testSerializeRows(dsnStr: string)
-{	for (const storeResultsetIfBigger of [0, 12, 100, 10000])
-	{	const dsn = new Dsn(dsnStr);
-		dsn.storeResultsetIfBigger = storeResultsetIfBigger;
-		await using pool = new MyPool(dsn);
-		using session = pool.getSession();
-		using conn = session.conn();
-
-		// Execute queries that don't return rows
-		await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
-		await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
-
-		// Execute query that returns rows
-		let id = 1;
-		for await (const row of conn.query("SELECT * FROM t_log").allStored())
-		{	assertEquals(row, {id, message: `Message ${id++}`});
-		}
-	}
 }

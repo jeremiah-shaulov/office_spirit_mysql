@@ -1687,7 +1687,7 @@ L:		while (true)
 		}
 	}
 
-	async fetch<Row>(rowType: RowType, noJsonParse=false): Promise<Row | undefined>
+	async fetch<Row>(rowType: RowType, isForSerialize=false): Promise<Row | undefined>
 	{	switch (this.#state)
 		{	case ProtocolState.IDLE:
 			case ProtocolState.IDLE_IN_POOL:
@@ -1723,12 +1723,12 @@ L:		while (true)
 			{	// Text protocol row
 				this.unput(type & 0xFF); // clear PACKET_NOT_READ_BIT
 				// deno-lint-ignore no-var no-inner-declarations
-				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, noJsonParse);
+				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, isForSerialize);
 			}
 			else
 			{	// Binary protocol row
 				// deno-lint-ignore no-var no-inner-declarations no-redeclare
-				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, noJsonParse);
+				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, isForSerialize);
 			}
 			if (rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE)
 			{	// deno-lint-ignore no-this-alias
