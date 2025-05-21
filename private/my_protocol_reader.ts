@@ -13,6 +13,8 @@ export class MyProtocolReader
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
 
+	totalBytesInPacket = 0;
+
 	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(BUFFER_LEN);
 		debugAssert(this.buffer.length == BUFFER_LEN);
@@ -119,6 +121,7 @@ export class MyProtocolReader
 		{	const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 			this.bufferStart += 4;
 			this.payloadLength = header & 0xFFFFFF;
+			this.totalBytesInPacket += this.payloadLength;
 			this.sequenceId = (header >> 24) + 1; // inc sequenceId
 			this.packetOffset = 0; // start counting offset
 			return true;
@@ -135,6 +138,7 @@ export class MyProtocolReader
 		const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart, true);
 		this.bufferStart += 4;
 		this.payloadLength = header & 0xFFFFFF;
+			this.totalBytesInPacket += this.payloadLength;
 		this.sequenceId = (header >> 24) + 1; // inc sequenceId
 		this.packetOffset = 0; // start counting offset
 	}
@@ -159,6 +163,7 @@ export class MyProtocolReader
 			// Next packet header
 			const header = new DataView(this.buffer.buffer).getUint32(this.bufferStart+tail, true);
 			this.payloadLength = header & 0xFFFFFF;
+			this.totalBytesInPacket += this.payloadLength;
 			this.sequenceId = (header >> 24) + 1; // inc sequenceId
 			this.packetOffset = -tail;
 			// Cut header to join 2 payload parts

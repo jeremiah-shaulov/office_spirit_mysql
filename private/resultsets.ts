@@ -93,6 +93,12 @@ export class Resultsets<Row>
 	{
 	}
 
+	/**	This variable is updated after reading each row from the server.
+		It is set to the number of raw (not interpreted) bytes sent from the server for this row.
+		The value depends on the MySQL protocol used for the query: either text or binary.
+	 **/
+	lastRowByteLength = 0;
+
 	/**	Calls `this.discard()` and if this is a prepared statement, deallocates it.
 	 **/
 	[Symbol.asyncDispose]()
@@ -212,7 +218,9 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				{	if (!this.protocol)
 					{	throw new CanceledError(`Connection terminated`);
 					}
+					this.protocol.totalBytesInPacket = 0;
 					const row: Row|undefined = await this.protocol.fetch(this.rowType);
+					this.lastRowByteLength = this.protocol?.totalBytesInPacket ?? 0;
 					if (row === undefined)
 					{	break;
 					}
