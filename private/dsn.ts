@@ -386,7 +386,7 @@ export class Dsn
 			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
-			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : 0;
+			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
