@@ -3,6 +3,8 @@ import {CanceledError} from './errors.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
 
+const DEFAULT_STORE_RESULTSET_IF_BIGGER = 64*1024; // 64KiB
+
 export type JsonNode = null | boolean | number | string | JsonNode[] | {[member: string]: JsonNode};
 export type ColumnValue = bigint | Date | Uint8Array | JsonNode;
 
@@ -317,7 +319,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		if (!protocol)
 		{	throw new CanceledError(`Connection terminated`);
 		}
-		const {storeResultsetIfBigger} = protocol.dsn;
+		const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
 		let size = 0;
 		let file: Deno.FsFile | undefined;
 		let writer: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>> | undefined;

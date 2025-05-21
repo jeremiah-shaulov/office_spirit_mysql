@@ -260,11 +260,14 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	When using {@link Resultsets.allStored()} and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
+		@default 64KiB
+	 **/
 	get storeResultsetIfBigger()
 	{	return this.#storeResultsetIfBigger;
 	}
 	set storeResultsetIfBigger(value: number)
-	{	this.#storeResultsetIfBigger = Math.max(0, value || 0);
+	{	this.#storeResultsetIfBigger = value>=0 ? value : NaN;
 		this.#updateNameAndHash();
 	}
 
@@ -410,7 +413,7 @@ export class Dsn
 			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '') +
 			(this.#datesAsString ? '&datesAsString' : '') +
 			(this.#correctDates ? '&correctDates' : '') +
-			(this.#storeResultsetIfBigger ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '')
+			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '')
 		);
 		const name0 =
 		(	'mysql://' +
