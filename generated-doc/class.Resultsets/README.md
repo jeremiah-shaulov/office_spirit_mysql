@@ -3,14 +3,14 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts"
+import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.21.0/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorcolumns-column-lastinsertid-number--bigint0-affectedrows-number--bigint0-foundrows-number--bigint0-warnings-number0-statusinfo-string-nogoodindexused-booleanfalse-noindexused-booleanfalse-isslowquery-booleanfalse-nplaceholders-number0)
 - [destructor](#-symbolasyncdispose-promisevoid)
-- 11 properties:
+- 12 properties:
 [columns](#-columns-column),
 [lastInsertId](#-lastinsertid-number--bigint),
 [affectedRows](#-affectedrows-number--bigint),
@@ -21,10 +21,12 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts
 [noIndexUsed](#-noindexused-boolean),
 [isSlowQuery](#-isslowquery-boolean),
 [nPlaceholders](#-nplaceholders-number),
+[lastRowByteLength](#-lastrowbytelength-number),
 [hasMore](#-get-hasmore-boolean)
-- 7 methods:
+- 8 methods:
 [exec](#-exec_params-param-resultsetspromiserow),
 [all](#-all-promiserow),
+[allStored](#-allstored-asynciterablerow-any-any),
 [first](#-first-promiserow),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [nextResultset](#-nextresultset-promiseboolean),
@@ -98,6 +100,14 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts
 
 
 
+#### 📄 lastRowByteLength: `number`
+
+> This variable is updated after reading each row from the server.
+> It is set to the number of raw (not interpreted) bytes sent from the server for this row.
+> The value depends on the MySQL protocol used for the query: either text or binary.
+
+
+
 #### 📄 `get` hasMore(): `boolean`
 
 > True if there are more rows or resultsets to read.
@@ -113,6 +123,15 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts
 #### ⚙ all(): Promise\<Row\[]>
 
 > Reads all rows in current resultset to an array.
+
+
+
+#### ⚙ allStored(): AsyncIterable\<Row, `any`, `any`>
+
+> Reads all rows in current resultset, and stores them either in memory or on disk.
+> The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+> Use this function if you want to read a large resultset, and iterate over it later,
+> and being able to perform other queries in the meantime.
 
 
 

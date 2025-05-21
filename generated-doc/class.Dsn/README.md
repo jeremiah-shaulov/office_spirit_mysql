@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts"
+import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.21.0/mod.ts"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.
@@ -25,11 +25,12 @@ Possible parameters:
 - [retryQueryTimes](../class.Dsn/README.md#-accessor-retryquerytimes-number)
 - [datesAsString](../class.Dsn/README.md#-accessor-datesasstring-boolean)
 - [correctDates](../class.Dsn/README.md#-accessor-correctdates-boolean)
+- [storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number)
 
 ## This class has
 
 - [constructor](#-constructordsn-string--dsn)
-- 23 properties:
+- 24 properties:
 [hostname](#-accessor-hostname-string),
 [port](#-accessor-port-number),
 [username](#-accessor-username-string),
@@ -48,6 +49,7 @@ Possible parameters:
 [retryQueryTimes](#-accessor-retryquerytimes-number),
 [datesAsString](#-accessor-datesasstring-boolean),
 [correctDates](#-accessor-correctdates-boolean),
+[storeResultsetIfBigger](#-accessor-storeresultsetifbigger-number),
 [initSql](#-accessor-initsql-string),
 [name](#-get-name-string),
 [hash](#-get-hash-number),
@@ -182,6 +184,14 @@ Possible parameters:
 > 
 > Enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types.
 > This is only supported on MySQL 5.7+, and this is not supported on MariaDB at least up to v10.7.
+
+
+
+#### 📄 `accessor` storeResultsetIfBigger: `number`
+
+> Default value: `64KiB`
+> 
+> When using [Resultsets.allStored()](../class.Resultsets/README.md#-allstored-asynciterablerow-any-any) and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
 
 
 

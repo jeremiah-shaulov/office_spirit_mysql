@@ -27,40 +27,50 @@ To send a long packet, use `sendWithData()`.
 
 ## This class has
 
-- [protected constructor](#-protected-constructorwriter-writablestreamdefaultwriteruint8array-reader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
+- [constructor](#-constructorwriter-writablestreamdefaultwriteruint8array-reader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
 - method [setHeader](#-setheaderpayloadlength-number-void)
 - protected property [writer](#-protected-writer-writablestreamdefaultwriteruint8array)
-- 18 protected methods:
+- 24 protected methods:
+[ensureRoom](#-protected-ensureroomroom-number-void),
 [startWritingNewPacket](#-protected-startwritingnewpacketresetsequenceid-booleanfalse-void),
 [discardPacket](#-protected-discardpacket-void),
 [writeUint8](#-protected-writeuint8value-number-void),
+[writeInt8](#-protected-writeint8value-number-void),
 [writeUint16](#-protected-writeuint16value-number-void),
+[writeInt16](#-protected-writeint16value-number-void),
 [writeUint32](#-protected-writeuint32value-number-void),
+[writeInt32](#-protected-writeint32value-number-void),
 [writeUint64](#-protected-writeuint64value-bigint-void),
+[writeInt64](#-protected-writeint64value-bigint-void),
+[writeFloat](#-protected-writefloatvalue-number-void),
 [writeLenencInt](#-protected-writelenencintvalue-number--bigint-void),
 [writeDouble](#-protected-writedoublevalue-number-void),
 [writeZero](#-protected-writezeronbytes-number-void),
-[writeBytes](#-protected-writebytesbytes-uint8array-void),
-[writeLenencBytes](#-protected-writelenencbytesbytes-uint8array-void),
-[writeNulBytes](#-protected-writenulbytesbytes-uint8array-void),
-[writeString](#-protected-writestringvalue-string-void),
-[writeLenencString](#-protected-writelenencstringvalue-string-void),
-[writeNulString](#-protected-writenulstringvalue-string-void),
+[writeShortBytes](#-protected-writeshortbytesbytes-uint8array-void),
+[writeShortLenencBytes](#-protected-writeshortlenencbytesbytes-uint8array-void),
+[writeShortNulBytes](#-protected-writeshortnulbytesbytes-uint8array-void),
+[writeShortString](#-protected-writeshortstringvalue-string-void),
+[writeShortLenencString](#-protected-writeshortlenencstringvalue-string-void),
+[writeShortNulString](#-protected-writeshortnulstringvalue-string-void),
 [writeReadChunk](#-protected-writereadchunkvalue-reader-promisenumber),
 [send](#-protected-send-promisevoid),
 [sendWithData](#-protected-sendwithdatadata-sqlsource-nobackslashescapes-boolean-logdata-data-uint8array--promiseunknown-canwait-booleanfalse-putparamsto-unknown-promiseboolean)
-- 58 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
+- 59 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
+
+
+#### 🔧 `constructor`(writer: WritableStreamDefaultWriter\<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)
+
 
 
 #### ⚙ setHeader(payloadLength: `number`): `void`
 
 
 
-#### 🔧 `protected` `constructor`(writer: WritableStreamDefaultWriter\<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)
-
-
-
 #### 📄 `protected` writer: WritableStreamDefaultWriter\<Uint8Array>
+
+
+
+#### ⚙ `protected` ensureRoom(room: `number`): `void`
 
 
 
@@ -76,7 +86,15 @@ To send a long packet, use `sendWithData()`.
 
 
 
+#### ⚙ `protected` writeInt8(value: `number`): `void`
+
+
+
 #### ⚙ `protected` writeUint16(value: `number`): `void`
+
+
+
+#### ⚙ `protected` writeInt16(value: `number`): `void`
 
 
 
@@ -84,7 +102,19 @@ To send a long packet, use `sendWithData()`.
 
 
 
+#### ⚙ `protected` writeInt32(value: `number`): `void`
+
+
+
 #### ⚙ `protected` writeUint64(value: `bigint`): `void`
+
+
+
+#### ⚙ `protected` writeInt64(value: `bigint`): `void`
+
+
+
+#### ⚙ `protected` writeFloat(value: `number`): `void`
 
 
 
@@ -100,27 +130,27 @@ To send a long packet, use `sendWithData()`.
 
 
 
-#### ⚙ `protected` writeBytes(bytes: Uint8Array): `void`
+#### ⚙ `protected` writeShortBytes(bytes: Uint8Array): `void`
 
 
 
-#### ⚙ `protected` writeLenencBytes(bytes: Uint8Array): `void`
+#### ⚙ `protected` writeShortLenencBytes(bytes: Uint8Array): `void`
 
 
 
-#### ⚙ `protected` writeNulBytes(bytes: Uint8Array): `void`
+#### ⚙ `protected` writeShortNulBytes(bytes: Uint8Array): `void`
 
 
 
-#### ⚙ `protected` writeString(value: `string`): `void`
+#### ⚙ `protected` writeShortString(value: `string`): `void`
 
 
 
-#### ⚙ `protected` writeLenencString(value: `string`): `void`
+#### ⚙ `protected` writeShortLenencString(value: `string`): `void`
 
 
 
-#### ⚙ `protected` writeNulString(value: `string`): `void`
+#### ⚙ `protected` writeShortNulString(value: `string`): `void`
 
 
 

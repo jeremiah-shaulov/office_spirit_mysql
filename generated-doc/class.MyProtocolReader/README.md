@@ -4,7 +4,8 @@
 
 ## This class has
 
-- [protected constructor](#-protected-constructorreader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
+- [constructor](#-constructorreader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
+- property [totalBytesInPacket](#-totalbytesinpacket-number)
 - method [recycleBuffer](#-recyclebuffer-uint8array)
 - 8 protected properties:
 [buffer](#-protected-buffer-uint8array),
@@ -67,11 +68,15 @@
 [readShortEofStringAsync](#-protected-readshorteofstringasync-promisestring)
 
 
+#### 🔧 `constructor`(reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)
+
+
+
+#### 📄 totalBytesInPacket: `number`
+
+
+
 #### ⚙ recycleBuffer(): Uint8Array
-
-
-
-#### 🔧 `protected` `constructor`(reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)
 
 
 

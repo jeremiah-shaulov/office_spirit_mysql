@@ -1,4 +1,4 @@
-# `class` MyProtocol `extends` [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md)
+# `class` MyProtocol `extends` [MyProtocolReaderWriterSerializer](../class.MyProtocolReaderWriterSerializer/README.md)
 
 [Documentation Index](../README.md)
 
@@ -28,11 +28,11 @@
 [sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
 [disposePreparedStmt](#-disposepreparedstmtstmtid-number-void),
 [execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
-[fetch](#-fetchrowrowtype-rowtype-promiserow),
+[fetch](#-fetchrowrowtype-rowtype-nojsonparse-booleanfalse-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
 [end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol),
 [forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
-- 20 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 58 from [MyProtocolReader](../class.MyProtocolReader/README.md)
+- 5 inherited members from [MyProtocolReaderWriterSerializer](../class.MyProtocolReaderWriterSerializer/README.md), 26 from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 59 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 ## Static members
@@ -142,7 +142,7 @@
 
 
 
-#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md)): Promise\<Row>
+#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md), noJsonParse: `boolean`=false): Promise\<Row>
 
 
 

@@ -110,6 +110,7 @@
 	- `retryQueryTimes` - (number, default `0`) Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes. Please note, that this will also rerun queries like `CALL`.
 	- `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
 	- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
+	- `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.allStored()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
 
 	The DSN can contain `#` sign followed by SQL statement or several statements separated with semicolons.
 	This SQL will be executed before first query in each connection.
@@ -263,7 +264,7 @@
 
 	If there're rows, you need to iterate them to the end, before you can execute another query.
 	Executing another query while there're unread resultsets throws {@link BusyError}.
-	You can read all the rows with {@link Resultsets.all()} or {@link ResultsetsPromise.all()}.
+	You can read all the rows with {@link Resultsets.all()}, {@link ResultsetsPromise.all()}, {@link Resultsets.allStored()} or {@link ResultsetsPromise.allStored()}.
 
 	```ts
 	// To run this example:
@@ -1325,7 +1326,7 @@
 	less -r /tmp/sql.log
 	```
 
-	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.20.1/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
+	You can see [here]{@link https://github.com/jeremiah-shaulov/office_spirit_mysql/blob/v0.21.0/private/sql_log_to_writable.ts} how {@link SqlLogToWritable} class is implemented,
 	and you can override it's public and protected methods to customize it's behavior.
 
 	## Transactions

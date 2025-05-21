@@ -16,14 +16,15 @@ Methods that don't exist on Resultsets are for internal use.
 [hasMoreInternal](#-hasmoreinternal-boolean),
 [rowType](#-rowtype-rowtype),
 [hasMore](#-override-get-hasmore-boolean)
-- 6 methods:
+- 7 methods:
 [exec](#-override-execparams-param-resultsetspromiserow),
 [nextResultset](#-override-nextresultset-promiseboolean),
 [discard](#-override-discard-promisevoid),
 [disposePreparedStmt](#-disposepreparedstmt-void),
 [resetFields](#-resetfields-void),
+[allStored](#-override-allstored-asynciterablerow-any-any),
 [\[Symbol.asyncIterator\]](#-override-symbolasynciterator-asyncgeneratorrow-any-any)
-- 13 inherited members from [Resultsets](../class.Resultsets/README.md)
+- 14 inherited members from [Resultsets](../class.Resultsets/README.md)
 
 
 #### 🔧 `constructor`(rowType: [RowType](../enum.RowType/README.md))
@@ -85,6 +86,15 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 #### ⚙ resetFields(): `void`
+
+
+
+#### ⚙ `override` allStored(): AsyncIterable\<Row, `any`, `any`>
+
+> Reads all rows in current resultset, and stores them either in memory or on disk.
+> The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+> Use this function if you want to read a large resultset, and iterate over it later,
+> and being able to perform other queries in the meantime.
 
 
 

@@ -3,14 +3,15 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.20.1/mod.ts"
+import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.21.0/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorexecutor-resolve-value-t--promiseliket--void-reject-reason-any--void--void)
-- 4 methods:
+- 5 methods:
 [all](#-all-promiserow),
+[allStored](#-allstored-asynciterablerow-any-any),
 [first](#-first-promiseany),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
@@ -33,6 +34,16 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.20.1
 
 > Reads all rows in the first resultset to an array.
 > And if there're more resultsets, they will be skipped (discarded).
+
+
+
+#### ⚙ allStored(): AsyncIterable\<Row, `any`, `any`>
+
+> Reads all rows in the first resultset, and stores them either in memory or on disk.
+> Other resultsets will be skipped (discarded).
+> The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+> Use this function if you want to read a large resultset, and iterate over it later,
+> and being able to perform other queries in the meantime.
 
 
 
