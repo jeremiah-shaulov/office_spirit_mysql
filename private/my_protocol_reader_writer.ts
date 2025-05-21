@@ -42,8 +42,22 @@ const encoder = new TextEncoder;
 	To send a long packet, use `sendWithData()`.
  **/
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	protected constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+{	constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	super(reader, decoder, useBuffer);
+	}
+
+	protected ensureRoom(room: number)
+	{	const wantLen = this.bufferEnd + room;
+		if (wantLen > this.buffer.length)
+		{	debugAssert(Number.isFinite(wantLen));
+			let len = this.buffer.length * 2;
+			while (len < wantLen)
+			{	len *= 2;
+			}
+			const newBuffer = new Uint8Array(len);
+			newBuffer.set(this.buffer);
+			this.buffer = newBuffer;
+		}
 	}
 
 	protected startWritingNewPacket(resetSequenceId=false)
@@ -72,9 +86,21 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.buffer[this.bufferEnd++] = value;
 	}
 
+	protected writeInt8(value: number)
+	{	debugAssert(this.bufferEnd < this.buffer.length); // please, call ensureRoom() if writing long packet
+		new DataView(this.buffer.buffer).setInt8(this.bufferEnd, value);
+		this.bufferEnd++;
+	}
+
 	protected writeUint16(value: number)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 2); // please, call ensureRoom() if writing long packet
 		new DataView(this.buffer.buffer).setUint16(this.bufferEnd, value, true);
+		this.bufferEnd += 2;
+	}
+
+	protected writeInt16(value: number)
+	{	debugAssert(this.buffer.length-this.bufferEnd >= 2); // please, call ensureRoom() if writing long packet
+		new DataView(this.buffer.buffer).setInt16(this.bufferEnd, value, true);
 		this.bufferEnd += 2;
 	}
 
@@ -91,10 +117,28 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.bufferEnd += 4;
 	}
 
+	protected writeInt32(value: number)
+	{	debugAssert(this.buffer.length-this.bufferEnd >= 4); // please, call ensureRoom() if writing long packet
+		new DataView(this.buffer.buffer).setInt32(this.bufferEnd, value, true);
+		this.bufferEnd += 4;
+	}
+
 	protected writeUint64(value: bigint)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= 8); // please, call ensureRoom() if writing long packet
 		new DataView(this.buffer.buffer).setBigUint64(this.bufferEnd, value, true);
 		this.bufferEnd += 8;
+	}
+
+	protected writeInt64(value: bigint)
+	{	debugAssert(this.buffer.length-this.bufferEnd >= 8); // please, call ensureRoom() if writing long packet
+		new DataView(this.buffer.buffer).setBigInt64(this.bufferEnd, value, true);
+		this.bufferEnd += 8;
+	}
+
+	protected writeFloat(value: number)
+	{	debugAssert(this.buffer.length-this.bufferEnd >= 4); // please, call ensureRoom() if writing long packet
+		new DataView(this.buffer.buffer).setFloat32(this.bufferEnd, value, true);
+		this.bufferEnd += 4;
 	}
 
 	protected writeLenencInt(value: number|bigint)
@@ -139,36 +183,36 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.bufferEnd += nBytes;
 	}
 
-	protected writeBytes(bytes: Uint8Array)
+	protected writeShortBytes(bytes: Uint8Array)
 	{	debugAssert(this.buffer.length-this.bufferEnd >= bytes.byteLength); // please, call ensureRoom() if writing long packet
 		this.buffer.set(bytes, this.bufferEnd);
 		this.bufferEnd += bytes.byteLength;
 	}
 
-	protected writeLenencBytes(bytes: Uint8Array)
+	protected writeShortLenencBytes(bytes: Uint8Array)
 	{	this.writeLenencInt(bytes.length);
-		this.writeBytes(bytes);
+		this.writeShortBytes(bytes);
 	}
 
-	protected writeNulBytes(bytes: Uint8Array)
+	protected writeShortNulBytes(bytes: Uint8Array)
 	{	const z = bytes.indexOf(0);
 		if (z == -1)
-		{	this.writeBytes(bytes);
+		{	this.writeShortBytes(bytes);
 			this.writeUint8(0);
 		}
 		else
-		{	this.writeBytes(bytes.subarray(0, z+1));
+		{	this.writeShortBytes(bytes.subarray(0, z+1));
 		}
 	}
 
-	protected writeString(value: string)
+	protected writeShortString(value: string)
 	{	const {read, written} = encoder.encodeInto(value, this.buffer.subarray(this.bufferEnd));
 		debugAssert(read == value.length);
 		this.bufferEnd += written;
 		debugAssert(this.bufferEnd <= this.buffer.length);
 	}
 
-	protected writeLenencString(value: string)
+	protected writeShortLenencString(value: string)
 	{	if (value.length < 0x80)
 		{	// guess 1-byte length
 			const {read, written} = encoder.encodeInto(value, this.buffer.subarray(this.bufferEnd + 1));
@@ -208,12 +252,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		else
 		{	const data = encoder.encode(value);
 			this.writeLenencInt(data.length);
-			this.writeBytes(data);
+			this.writeShortBytes(data);
 		}
 	}
 
-	protected writeNulString(value: string)
-	{	this.writeNulBytes(encoder.encode(value));
+	protected writeShortNulString(value: string)
+	{	this.writeShortNulBytes(encoder.encode(value));
 	}
 
 	protected async writeReadChunk(value: Reader)
@@ -314,7 +358,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			if (this.bufferEnd+dataLength <= this.buffer.length)
 			{	// short string
 				const from = this.bufferEnd;
-				this.writeString(data);
+				this.writeShortString(data);
 				if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 				{	if (logData)
 					{	await logData(this.buffer.subarray(from, this.bufferEnd));

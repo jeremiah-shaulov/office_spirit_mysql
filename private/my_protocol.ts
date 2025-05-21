@@ -1,17 +1,18 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ColumnFlags, ErrorCodes, SetOption} from './constants.ts';
+import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ErrorCodes, SetOption} from './constants.ts';
 import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
-import {MyProtocolReaderWriter, SqlSource} from './my_protocol_reader_writer.ts';
-import {Column, ResultsetsInternal, type Param, type ColumnValue} from './resultsets.ts';
-import {convColumnValue, dateToData} from './conv_column_value.ts';
+import {SqlSource} from './my_protocol_reader_writer.ts';
+import {Column, ResultsetsInternal, type Param} from './resultsets.ts';
+import {dateToData} from './conv_column_value.ts';
 import {SafeSqlLogger, SafeSqlLoggerQuery} from "./sql_logger.ts";
 import {getTimezoneMsecOffsetFromSystem} from "./get_timezone_msec_offset_from_system.ts";
 import {RdStream} from './deps.ts';
 import {Closer, Reader} from './deno_ifaces.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
+import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
@@ -74,7 +75,7 @@ export type TakeCareOfDisconneced =
 	killConnectionId: number;
 };
 
-export class MyProtocol extends MyProtocolReaderWriter
+export class MyProtocol extends MyProtocolReaderWriterSerializer
 {	serverVersion = '';
 	connectionId = 0;
 	capabilityFlags = 0;
@@ -263,7 +264,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 			this.writeUint32(0xFFFFFF); // max packet size
 			this.writeUint8(DEFAULT_CHARACTER_SET_CLIENT);
 			this.writeZero(23);
-			this.writeNulString(username);
+			this.writeShortNulString(username);
 			// auth
 			if (!password)
 			{	this.writeUint8(0);
@@ -272,36 +273,36 @@ export class MyProtocol extends MyProtocolReaderWriter
 			{	const auth = await authPlugin.quickAuth(password);
 				if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
 				{	this.writeLenencInt(auth.length);
-					this.writeBytes(auth);
+					this.writeShortBytes(auth);
 				}
 				else if (this.capabilityFlags & CapabilityFlags.CLIENT_SECURE_CONNECTION)
 				{	this.writeUint8(auth.length);
-					this.writeBytes(auth);
+					this.writeShortBytes(auth);
 				}
 				else
-				{	this.writeNulBytes(auth);
+				{	this.writeShortNulBytes(auth);
 				}
 			}
 			// schema
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
-			{	this.writeNulString(schema);
+			{	this.writeShortNulString(schema);
 			}
 			// auth_plugin_name
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH)
-			{	this.writeNulString(authPlugin.name);
+			{	this.writeShortNulString(authPlugin.name);
 			}
 		}
 		else
 		{	this.writeUint16(this.capabilityFlags);
 			this.writeUint32(0xFFFFFF); // max packet size
-			this.writeNulString(username);
+			this.writeShortNulString(username);
 			const auth = !password ? new Uint8Array : await authPlugin.quickAuth(password);
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
-			{	this.writeNulBytes(auth);
-				this.writeNulString(schema);
+			{	this.writeShortNulBytes(auth);
+				this.writeShortNulString(schema);
 			}
 			else
-			{	this.writeBytes(auth);
+			{	this.writeShortBytes(auth);
 			}
 		}
 		return await this.send();
@@ -352,7 +353,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	{	this.startWritingNewPacket();
 		if (password)
 		{	const auth = await authPlugin.quickAuth(password);
-			this.writeBytes(auth);
+			this.writeShortBytes(auth);
 		}
 		return await this.send();
 	}
@@ -531,7 +532,7 @@ export class MyProtocol extends MyProtocolReaderWriter
 	authSendBytesPacket(value: Uint8Array)
 	{	debugAssert(this.#state == ProtocolState.IDLE); // this function is used during connecting phase, when the MyProtocol object is not returned from MyProtocol.inst().
 		this.startWritingNewPacket();
-		this.writeBytes(value);
+		this.writeShortBytes(value);
 		return this.send();
 	}
 
@@ -659,7 +660,7 @@ L:		while (true)
 									break;
 								}
 								buffer = new Uint8Array(value.buffer);
-								this.writeBytes(value);
+								this.writeShortBytes(value);
 								await this.send();
 							}
 						}
@@ -937,7 +938,7 @@ L:		while (true)
 	writeComInitDb(schema: string)
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(Command.COM_INIT_DB);
-		this.writeString(schema);
+		this.writeShortString(schema);
 	}
 
 	/**	I assume that i'm in ProtocolState.IDLE.
@@ -1363,7 +1364,7 @@ L:		while (true)
 								break;
 							}
 							buffer = new Uint8Array(value.buffer);
-							this.writeBytes(value);
+							this.writeShortBytes(value);
 							if (sqlLoggerQuery)
 							{	await sqlLoggerQuery.appendToParam(this.buffer.subarray(from, this.bufferEnd));
 							}
@@ -1552,7 +1553,7 @@ L:		while (true)
 				else if (typeof(param) == 'string')
 				{	if (param.length < (0xFB >> 2)) // assume: max utf8 length is param.length*4, so max param.length must be < 0xFB/4
 					{	let from = this.bufferEnd;
-						this.writeLenencString(param);
+						this.writeShortLenencString(param);
 						if (sqlLoggerQuery)
 						{	from += this.buffer[from]==0xFC ? 3 : 1;
 							sqlLoggerQuery.paramStart(i);
@@ -1592,7 +1593,7 @@ L:		while (true)
 							await sqlLoggerQuery.appendToParam(data);
 							await sqlLoggerQuery.paramEnd();
 						}
-						this.writeLenencBytes(data);
+						this.writeShortLenencBytes(data);
 					}
 				}
 				else if (param instanceof ReadableStream || typeof(param.read)=='function')
@@ -1686,7 +1687,7 @@ L:		while (true)
 		}
 	}
 
-	async fetch<Row>(rowType: RowType): Promise<Row | undefined>
+	async fetch<Row>(rowType: RowType, noJsonParse=false): Promise<Row | undefined>
 	{	switch (this.#state)
 		{	case ProtocolState.IDLE:
 			case ProtocolState.IDLE_IN_POOL:
@@ -1703,7 +1704,6 @@ L:		while (true)
 		try
 		{	const curResultsets = this.#curResultsets;
 			const {isPreparedStmt, stmtId, columns} = curResultsets;
-			const nColumns = columns.length;
 			const type = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
 			if (type == PacketType.EOF)
 			{	if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
@@ -1719,265 +1719,16 @@ L:		while (true)
 				}
 				return undefined;
 			}
-			let buffer: Uint8Array|undefined;
-			let row: Any;
-			switch (rowType)
-			{	case RowType.OBJECT:
-				case RowType.LAST_COLUMN_READER:
-				case RowType.LAST_COLUMN_READABLE:
-					row = {};
-					break;
-				case RowType.MAP:
-					row = new Map;
-					break;
-				case RowType.ARRAY:
-					row = [];
-					break;
-				default:
-					debugAssert(rowType==RowType.FIRST_COLUMN || rowType==RowType.VOID);
-			}
-			let lastColumnReaderLen = 0;
 			if (!isPreparedStmt)
 			{	// Text protocol row
 				this.unput(type & 0xFF); // clear PACKET_NOT_READ_BIT
-				for (let i=0; i<nColumns; i++)
-				{	const {typeId, flags, name} = columns[i];
-					let len = this.readLenencInt() ?? await this.readLenencIntAsync();
-					if (len > Number.MAX_SAFE_INTEGER)
-					{	throw new Error(`Field is too long: ${len} bytes`);
-					}
-					len = Number(len);
-					let value: ColumnValue = null;
-					if (len != -1) // if not a null value
-					{	if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
-						{	lastColumnReaderLen = len;
-						}
-						else if (len>this.#maxColumnLen || rowType==RowType.VOID)
-						{	this.readVoid(len) || await this.readVoidAsync(len);
-						}
-						else
-						{	let v;
-							if (len <= this.buffer.length)
-							{	v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
-							}
-							else
-							{	if (!buffer || buffer.length<len)
-								{	buffer = new Uint8Array(len);
-								}
-								v = await this.readBytesToBuffer(buffer.subarray(0, len));
-								buffer = new Uint8Array(v.buffer);
-							}
-							value = convColumnValue(v, typeId, flags, this.decoder, this.dsn.datesAsString, this);
-						}
-					}
-					switch (rowType)
-					{	case RowType.OBJECT:
-						case RowType.LAST_COLUMN_READER:
-						case RowType.LAST_COLUMN_READABLE:
-							row[name] = value;
-							break;
-						case RowType.MAP:
-							row.set(name, value);
-							break;
-						case RowType.ARRAY:
-							row[i] = value;
-							break;
-						case RowType.FIRST_COLUMN:
-							if (i == 0)
-							{	row = value;
-							}
-							break;
-						default:
-							debugAssert(rowType == RowType.VOID);
-					}
-				}
+				// deno-lint-ignore no-var no-inner-declarations
+				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, noJsonParse);
 			}
 			else
 			{	// Binary protocol row
-				const nullBitsLen = (nColumns + 2 + 7) >> 3;
-				const nullBits = (this.readShortBytes(nullBitsLen) ?? await this.readShortBytesAsync(nullBitsLen)).slice();
-				let nullBitsI = 0;
-				let nullBitMask = 4; // starts from bit offset 1 << 2, according to protocol definition
-				for (let i=0; i<nColumns; i++)
-				{	let value: ColumnValue = null;
-					const isNull = nullBits[nullBitsI] & nullBitMask;
-					if (nullBitMask != 0x80)
-					{	nullBitMask <<= 1;
-					}
-					else
-					{	nullBitsI++;
-						nullBitMask = 1;
-					}
-					const {typeId, flags, name} = columns[i];
-					if (!isNull)
-					{	switch (typeId)
-						{	case MysqlType.MYSQL_TYPE_TINY:
-								if (flags & ColumnFlags.UNSIGNED)
-								{	value = this.readUint8() ?? await this.readUint8Async();
-								}
-								else
-								{	value = this.readInt8() ?? await this.readInt8Async();
-								}
-								break;
-							case MysqlType.MYSQL_TYPE_SHORT:
-							case MysqlType.MYSQL_TYPE_YEAR:
-								if (flags & ColumnFlags.UNSIGNED)
-								{	value = this.readUint16() ?? await this.readUint16Async();
-								}
-								else
-								{	value = this.readInt16() ?? await this.readInt16Async();
-								}
-								break;
-							case MysqlType.MYSQL_TYPE_INT24:
-							case MysqlType.MYSQL_TYPE_LONG:
-								if (flags & ColumnFlags.UNSIGNED)
-								{	value = this.readUint32() ?? await this.readUint32Async();
-								}
-								else
-								{	value = this.readInt32() ?? await this.readInt32Async();
-								}
-								break;
-							case MysqlType.MYSQL_TYPE_LONGLONG:
-								if (flags & ColumnFlags.UNSIGNED)
-								{	value = this.readUint64() ?? await this.readUint64Async();
-									if (value <= Number.MAX_SAFE_INTEGER)
-									{	value = Number(value); // as happen in text protocol
-									}
-								}
-								else
-								{	value = this.readInt64() ?? await this.readInt64Async();
-									if (value>=Number.MIN_SAFE_INTEGER && value<=Number.MAX_SAFE_INTEGER)
-									{	value = Number(value); // as happen in text protocol
-									}
-								}
-								break;
-							case MysqlType.MYSQL_TYPE_FLOAT:
-								value = this.readFloat() ?? await this.readFloatAsync();
-								break;
-							case MysqlType.MYSQL_TYPE_DOUBLE:
-								value = this.readDouble() ?? await this.readDoubleAsync();
-								break;
-							case MysqlType.MYSQL_TYPE_DATE:
-							case MysqlType.MYSQL_TYPE_DATETIME:
-							case MysqlType.MYSQL_TYPE_TIMESTAMP:
-							{	const len = this.readUint8() ?? await this.readUint8Async();
-								if (len >= 4)
-								{	const year = this.readUint16() ?? await this.readUint16Async();
-									const month = this.readUint8() ?? await this.readUint8Async();
-									const day = this.readUint8() ?? await this.readUint8Async();
-									let hour=0, minute=0, second=0, micro=0;
-									if (len >= 7)
-									{	hour = this.readUint8() ?? await this.readUint8Async();
-										minute = this.readUint8() ?? await this.readUint8Async();
-										second = this.readUint8() ?? await this.readUint8Async();
-										if (len >= 11)
-										{	micro = this.readUint32() ?? await this.readUint32Async();
-										}
-									}
-									if (!this.dsn.datesAsString)
-									{	value = new Date(year, month-1, day, hour, minute, second, micro/1000);
-										const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
-										if (timezoneMsecOffsetFromSystem != 0)
-										{	value = new Date(value.getTime() - timezoneMsecOffsetFromSystem);
-										}
-									}
-									else
-									{	value = `${year<10 ? '000'+year : year<100 ? '00'+year : year<1000 ? '0'+year : year}-${month<10 ? '0'+month : month}-${day<10 ? '0'+day : day}`;
-										if (len >= 7)
-										{	value += ` ${hour<10 ? '0'+hour : hour}:${minute<10 ? '0'+minute : minute}:${second<10 ? '0'+second : second}`;
-											if (len >= 11)
-											{	value += `.${micro<10 ? '00000'+micro : micro<100 ? '0000'+micro : micro<1000 ? '000'+micro : micro<10000 ? '00'+micro : micro<100000 ? '0'+micro : micro}`;
-											}
-										}
-									}
-								}
-								else
-								{	value = this.dsn.datesAsString ? '0000-00-00 00:00:00' : new Date(0);
-								}
-								break;
-							}
-							case MysqlType.MYSQL_TYPE_TIME:
-							{	const len = this.readUint8() ?? await this.readUint8Async();
-								if (len >= 8)
-								{	const isNegative = this.readUint8() ?? await this.readUint8Async();
-									const days = this.readUint32() ?? await this.readUint32Async();
-									let hours = this.readUint8() ?? await this.readUint8Async();
-									let minutes = this.readUint8() ?? await this.readUint8Async();
-									let seconds = this.readUint8() ?? await this.readUint8Async();
-									hours += days * 24;
-									minutes += hours * 60;
-									seconds += minutes * 60;
-									if (len >= 12)
-									{	const micro = this.readUint32() ?? await this.readUint32Async();
-										seconds += micro / 1_000_000;
-									}
-									value = isNegative ? -seconds : seconds;
-								}
-								else
-								{	value = 0;
-								}
-								break;
-							}
-							case MysqlType.MYSQL_TYPE_BIT:
-							{	// MySQL sends bit value as blob with length=1
-								value = (this.readUint16() ?? await this.readUint16Async()) == 257;
-								break;
-							}
-							default:
-							{	let len = this.readLenencInt() ?? await this.readLenencIntAsync();
-								if (len > Number.MAX_SAFE_INTEGER)
-								{	throw new Error(`Field is too long: ${len} bytes`);
-								}
-								len = Number(len);
-								if ((rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE) && i+1==nColumns)
-								{	lastColumnReaderLen = len;
-								}
-								else if (len>this.#maxColumnLen || rowType==RowType.VOID)
-								{	this.readVoid(len) || await this.readVoidAsync(len);
-								}
-								else if ((flags & ColumnFlags.BINARY) && typeId != MysqlType.MYSQL_TYPE_JSON)
-								{	value = await this.readBytesToBuffer(new Uint8Array(len));
-								}
-								else
-								{	if (len <= this.buffer.length)
-									{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
-									}
-									else
-									{	if (!buffer || buffer.length<len)
-										{	buffer = new Uint8Array(len);
-										}
-										const v = await this.readBytesToBuffer(buffer.subarray(0, len));
-										buffer = new Uint8Array(v.buffer);
-										value = this.decoder.decode(v);
-									}
-									if (typeId == MysqlType.MYSQL_TYPE_JSON)
-									{	value = JSON.parse(value);
-									}
-								}
-							}
-						}
-					}
-					switch (rowType)
-					{	case RowType.OBJECT:
-						case RowType.LAST_COLUMN_READER:
-						case RowType.LAST_COLUMN_READABLE:
-							row[name] = value;
-							break;
-						case RowType.MAP:
-							row.set(name, value);
-							break;
-						case RowType.ARRAY:
-							row[i] = value;
-							break;
-						case RowType.FIRST_COLUMN:
-							if (i == 0)
-							{	row = value;
-							}
-							break;
-						default:
-							debugAssert(rowType == RowType.VOID);
-					}
-				}
+				// deno-lint-ignore no-var no-inner-declarations no-redeclare
+				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, noJsonParse);
 			}
 			if (rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE)
 			{	// deno-lint-ignore no-this-alias

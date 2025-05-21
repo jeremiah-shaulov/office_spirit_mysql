@@ -26,6 +26,7 @@ type Any = any;
 	- {@link retryQueryTimes}
 	- {@link datesAsString}
 	- {@link correctDates}
+	- {@link storeResultsetIfBigger}
  **/
 export class Dsn
 {	#hostname: string;
@@ -52,6 +53,7 @@ export class Dsn
 	#retryQueryTimes: number;
 	#datesAsString: boolean;
 	#correctDates: boolean;
+	#storeResultsetIfBigger: number;
 	#initSql: string;
 	#name: string;
 	#hash: number;
@@ -258,6 +260,14 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	get storeResultsetIfBigger()
+	{	return this.#storeResultsetIfBigger;
+	}
+	set storeResultsetIfBigger(value: number)
+	{	this.#storeResultsetIfBigger = Math.max(0, value || 0);
+		this.#updateNameAndHash();
+	}
+
 	/**	SQL statement, or several statements separated with `;`, that will be executed to initialize each connection right after connecting.
 	 **/
 	get initSql()
@@ -318,6 +328,7 @@ export class Dsn
 			this.#retryQueryTimes = dsn.#retryQueryTimes;
 			this.#datesAsString = dsn.#datesAsString;
 			this.#correctDates = dsn.#correctDates;
+			this.#storeResultsetIfBigger = dsn.#storeResultsetIfBigger;
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
@@ -358,6 +369,7 @@ export class Dsn
 			const retryQueryTimes = url.searchParams.get('retryQueryTimes');
 			const datesAsString = url.searchParams.get('datesAsString');
 			const correctDates = url.searchParams.get('correctDates');
+			const storeResultsetIfBigger = url.searchParams.get('storeResultsetIfBigger');
 			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -371,6 +383,7 @@ export class Dsn
 			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
+			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : 0;
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
@@ -396,7 +409,8 @@ export class Dsn
 			(this.#retryLockWaitTimeout ? '&retryLockWaitTimeout' : '') +
 			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '') +
 			(this.#datesAsString ? '&datesAsString' : '') +
-			(this.#correctDates ? '&correctDates' : '')
+			(this.#correctDates ? '&correctDates' : '') +
+			(this.#storeResultsetIfBigger ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '')
 		);
 		const name0 =
 		(	'mysql://' +

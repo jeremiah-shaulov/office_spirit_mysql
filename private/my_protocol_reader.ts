@@ -15,7 +15,7 @@ export class MyProtocolReader
 
 	totalBytesInPacket = 0;
 
-	protected constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+	constructor(protected reader: ReadableStreamBYOBReader, protected decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	this.buffer = useBuffer ?? new Uint8Array(BUFFER_LEN);
 		debugAssert(this.buffer.length == BUFFER_LEN);
 	}
@@ -588,6 +588,7 @@ export class MyProtocolReader
 				this.readPacketHeader();
 				value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+len), lenInCurPacket);
 				this.bufferStart += len;
+				this.packetOffset += len;
 				debugAssert(this.bufferStart <= this.bufferEnd);
 				return value;
 			}
@@ -617,6 +618,7 @@ export class MyProtocolReader
 			await this.#recvAtLeast(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+len), lenInCurPacket);
 			this.bufferStart += len;
+			this.packetOffset += len;
 			debugAssert(this.bufferStart <= this.bufferEnd);
 			return value;
 		}
@@ -718,6 +720,7 @@ export class MyProtocolReader
 						this.readPacketHeader();
 						value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+strLen), lenInCurPacket-numLen);
 						this.bufferStart += strLen;
+						this.packetOffset += strLen;
 						debugAssert(this.bufferStart <= this.bufferEnd);
 						return value;
 					}
@@ -887,6 +890,7 @@ export class MyProtocolReader
 			await this.#recvAtLeast(len);
 			value.set(this.buffer.subarray(this.bufferStart, this.bufferStart+len), lenInCurPacket);
 			this.bufferStart += len;
+			this.packetOffset += len;
 			debugAssert(this.bufferStart <= this.bufferEnd);
 			return this.decoder.decode(value);
 		}

@@ -36,6 +36,7 @@ testWithDocker
 		testMultiStatements,
 		testBindBigParam,
 		testForceImmediateDisconnect,
+		testSerializeRows,
 	]
 );
 
@@ -1942,4 +1943,24 @@ async function testForceImmediateDisconnect(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testSerializeRows(dsnStr: string)
+{	for (const storeResultsetIfBigger of [0, 12, 100, 10000])
+	{	const dsn = new Dsn(dsnStr);
+		dsn.storeResultsetIfBigger = storeResultsetIfBigger;
+		await using pool = new MyPool(dsn);
+		using session = pool.getSession();
+		using conn = session.conn();
+
+		// Execute queries that don't return rows
+		await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message text)");
+		await conn.query("INSERT INTO t_log (message) VALUES ('Message 1'), ('Message 2'), ('Message 3')");
+
+		// Execute query that returns rows
+		let id = 1;
+		for await (const row of conn.query("SELECT * FROM t_log").allStored())
+		{	assertEquals(row, {id, message: `Message ${id++}`});
+		}
+	}
 }

@@ -1,6 +1,7 @@
 import {MysqlType, Charset, ColumnFlags, CHARSET_NAMES} from './constants.ts';
-import {CanceledError} from "./errors.ts";
-import {MyProtocol, RowType} from "./my_protocol.ts";
+import {CanceledError} from './errors.ts';
+import {MyProtocol, RowType} from './my_protocol.ts';
+import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
 
 export type JsonNode = null | boolean | number | string | JsonNode[] | {[member: string]: JsonNode};
 export type ColumnValue = bigint | Date | Uint8Array | JsonNode;
@@ -21,6 +22,22 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		}
 		await resultsets.discard();
 		return rows;
+	}
+
+	/**	Reads all rows in the first resultset, and stores them either in memory or on disk.
+		Other resultsets will be skipped (discarded).
+		The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+		Use this function if you want to read a large resultset, and iterate over it later,
+		and being able to perform other queries in the meantime.
+	 **/
+	async *allStored(): AsyncIterable<Row>
+	{	const resultsets: Resultsets<Row> = await this;
+		try
+		{	yield *resultsets.allStored();
+		}
+		finally
+		{	await resultsets.discard();
+		}
 	}
 
 	/**	Returns the first row of the first resultset.
@@ -131,6 +148,18 @@ export class Resultsets<Row>
 		{	rows[rows.length] = row;
 		}
 		return rows;
+	}
+
+	/**	Reads all rows in current resultset, and stores them either in memory or on disk.
+		The threshold for storing on disk is set in DSN parameter `storeResultsetIfBigger`.
+		Use this function if you want to read a large resultset, and iterate over it later,
+		and being able to perform other queries in the meantime.
+	 **/
+	allStored(): AsyncIterable<Row>
+	{	if (!(this instanceof ResultsetsInternal))
+		{	throw new Error('Not implemented');
+		}
+		return this.allStored();
 	}
 
 	/**	Reads all rows in current resultset, and returns the first row.
@@ -276,6 +305,78 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		this.noGoodIndexUsed = false;
 		this.noIndexUsed = false;
 		this.isSlowQuery = false;
+	}
+
+	override async *allStored(): AsyncIterable<Row>
+	{	const {rowType} = this;
+		if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
+		{	throw new Error('Invalid use of allStored() method. This row type must be an object, an array or a map.');
+		}
+		const rows = new Array<Row>;
+		const {protocol, columns} = this;
+		if (!protocol)
+		{	throw new CanceledError(`Connection terminated`);
+		}
+		const {storeResultsetIfBigger} = protocol.dsn;
+		let size = 0;
+		let file: Deno.FsFile | undefined;
+		let writer: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>> | undefined;
+		let reader: ReadableStreamBYOBReader | undefined;
+		let serializer: MyProtocolReaderWriterSerializer | undefined;
+		let nRows = 0;
+		try
+		{	for await (const row of this)
+			{	nRows++;
+				size += this.lastRowByteLength;
+				if (size <= storeResultsetIfBigger)
+				{	rows[rows.length] = row;
+				}
+				else if (!serializer)
+				{	rows[rows.length] = row;
+					const fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
+					file = await Deno.open(fileName, {create: true, truncate: true, write: true, read: true});
+					writer = file.writable.getWriter();
+					reader = file.readable.getReader({mode: 'byob'});
+					serializer = new MyProtocolReaderWriterSerializer(writer, reader, new TextDecoder, undefined);
+					serializer.serializeBegin();
+					for (const row of rows)
+					{	const rowArr = Array.isArray(row) ? row : row instanceof Map ? [...row.values()] : typeof(row)=='object' && row ? Object.values(row) : [];
+						await serializer.serializeRowBinary(rowArr, columns, protocol.dsn.datesAsString, protocol);
+					}
+					rows.length = 0;
+				}
+				else
+				{	const rowArr = Array.isArray(row) ? row : row instanceof Map ? [...row.values()] : typeof(row)=='object' && row ? Object.values(row) : [];
+					await serializer.serializeRowBinary(rowArr, columns, protocol.dsn.datesAsString, protocol);
+				}
+			}
+			if (file && serializer)
+			{	await serializer.serializeEnd();
+				await file.seek(0, Deno.SeekMode.Start);
+				for (let i=0; i<nRows; i++)
+				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, protocol.dsn.datesAsString, protocol, Number.MAX_SAFE_INTEGER);
+					yield row;
+				}
+			}
+		}
+		finally
+		{	try
+			{	writer?.releaseLock();
+			}
+			catch
+			{	// ignore
+			}
+			try
+			{	reader?.releaseLock();
+			}
+			catch
+			{	// ignore
+			}
+			file?.close();
+		}
+		for (const row of rows)
+		{	yield row;
+		}
 	}
 }
 
