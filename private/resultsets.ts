@@ -161,10 +161,7 @@ export class Resultsets<Row>
 		and being able to perform other queries in the meantime.
 	 **/
 	allStored(): AsyncIterable<Row>
-	{	if (!(this instanceof ResultsetsInternal))
-		{	throw new Error('Not implemented');
-		}
-		return this.allStored();
+	{	throw new Error('Not implemented');
 	}
 
 	/**	Reads all rows in current resultset, and returns the first row.
