@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.21.1/mod.ts"
+import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.22.0/mod.ts"
 ```
 
 ## This class has
@@ -18,9 +18,9 @@ import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.21.1/
 [connect](#-connectdsn-dsn-connectionid-number-promisevoid),
 [resetConnection](#-resetconnectiondsn-dsn-connectionid-number-promisevoid),
 [disconnect](#-disconnectdsn-dsn-connectionid-number-promisevoid),
-[query](#-querydsn-dsn-connectionid-number-isprepare-boolean-nobackslashescapes-boolean-promisestart---promise-appendtoquerydata-uint8array-promisevoid-setstmtidstmtid-number-promisevoid-appendtoparamnparam-number-data-number--bigint--uint8array-promise-paramend_nparam-number-promise-nextquery-promise-endresult-error--resultsets-stmtid-number-promise),
+[query](#-querydsn-dsn-connectionid-number-isprepare-boolean-nobackslashescapes-boolean-promisestart---promise-appendtoquerydata-uint8arrayarraybufferlike-promisevoid-setstmtidstmtid-number-promisevoid-appendtoparamnparam-number-data-number---1-more---uint8array-promise-paramend_nparam-number-promise-nextquery-promise-endresult-error--resultsets-stmtid-number-promise),
 [deallocatePrepare](#-deallocatepreparedsn-dsn-connectionid-number-stmtids-number-promisevoid)
-- protected method [nextConnBanner](#-protected-override-nextconnbannerdsn-dsn-connectionid-number-string--uint8array)
+- protected method [nextConnBanner](#-protected-override-nextconnbannerdsn-dsn-connectionid-number-string--uint8arrayarraybufferlike)
 - 4 inherited members from [SqlLogToWritableBase](../class.SqlLogToWritableBase/README.md)
 
 
@@ -62,7 +62,7 @@ import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.21.1/
 
 
 
-#### ⚙ query(dsn: [Dsn](../class.Dsn/README.md), connectionId: `number`, isPrepare: `boolean`, noBackslashEscapes: `boolean`): Promise\<\{start: () => Promise\<...>, appendToQuery(data: Uint8Array): Promise\<`void`>, setStmtId(stmtId: `number`): Promise\<`void`>, appendToParam(nParam: `number`, data: `number` | `bigint` | Uint8Array): Promise\<...>, paramEnd(\_nParam: `number`): Promise\<...>, nextQuery(): Promise\<...>, end(result: Error | Resultsets\<...>, stmtId: `number`): Promise\<...>}>
+#### ⚙ query(dsn: [Dsn](../class.Dsn/README.md), connectionId: `number`, isPrepare: `boolean`, noBackslashEscapes: `boolean`): Promise\<\{start: () => Promise\<...>, appendToQuery(data: Uint8Array\<ArrayBufferLike>): Promise\<`void`>, setStmtId(stmtId: `number`): Promise\<`void`>, appendToParam(nParam: `number`, data: `number` | ... 1 more ... | Uint8Array\<...>): Promise\<...>, paramEnd(\_nParam: `number`): Promise\<...>, nextQuery(): Promise\<...>, end(result: Error | Resultsets\<...>, stmtId: `number`): Promise\<...>}>
 
 > Started to send a new query to the server.
 > `isPrepare` means that this is query preparation operation (the query is not executed, but stored on the server).
@@ -77,7 +77,7 @@ import {SqlLogToWritable} from "https://deno.land/x/office_spirit_mysql@v0.21.1/
 
 
 
-#### ⚙ `protected` `override` nextConnBanner(dsn: [Dsn](../class.Dsn/README.md), connectionId: `number`): `string` | Uint8Array
+#### ⚙ `protected` `override` nextConnBanner(dsn: [Dsn](../class.Dsn/README.md), connectionId: `number`): `string` | Uint8Array\<ArrayBufferLike>
 
 
 

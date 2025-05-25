@@ -30,7 +30,7 @@
 [execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
 [fetch](#-fetchrowrowtype-rowtype-isforserialize-booleanfalse-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
-[end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8array--myprotocol),
+[end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8arrayarraybufferlike--myprotocol),
 [forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
 - 5 inherited members from [MyProtocolReaderWriterSerializer](../class.MyProtocolReaderWriterSerializer/README.md), 26 from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 59 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
@@ -150,7 +150,7 @@
 
 
 
-#### ⚙ end(rollbackPreparedXaId: `string`="", recycleConnection: `boolean`=false, withDisposeSqlLogger: `boolean`=false): Promise\<Uint8Array | MyProtocol>
+#### ⚙ end(rollbackPreparedXaId: `string`="", recycleConnection: `boolean`=false, withDisposeSqlLogger: `boolean`=false): Promise\<Uint8Array\<ArrayBufferLike> | MyProtocol>
 
 > Finalize session (skip unread resultsets, and execute COM_RESET_CONNECTION), then if the connection is alive, reinitialize it (set dsn.schema and execute dsn.initSql).
 > If the connection was alive, and `recycleConnection` was true, returns new `MyProtocol` object with the same `Deno.Conn` to the database, and current object marks as terminated (method calls will throw `CanceledError`).

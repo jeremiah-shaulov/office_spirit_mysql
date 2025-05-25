@@ -8,7 +8,7 @@
 - 2 properties:
 [totalBytesInPacket](#-totalbytesinpacket-number),
 [decoder](#-decoder-textdecoder)
-- method [recycleBuffer](#-recyclebuffer-uint8array)
+- method [recycleBuffer](#-recyclebuffer-uint8arrayarraybufferlike)
 - 7 protected properties:
 [buffer](#-protected-buffer-uint8array),
 [bufferStart](#-protected-bufferstart-number),
@@ -48,15 +48,15 @@
 [readDoubleAsync](#-protected-readdoubleasync-promisenumber),
 [readLenencInt](#-protected-readlenencint-number--bigint),
 [readLenencIntAsync](#-protected-readlenencintasync-promisenumber--bigint),
-[readShortBytes](#-protected-readshortbyteslen-number-uint8array),
-[readShortBytesAsync](#-protected-readshortbytesasynclen-number-promiseuint8array),
-[readShortNulBytes](#-protected-readshortnulbytes-uint8array),
-[readShortNulBytesAsync](#-protected-readshortnulbytesasync-promiseuint8array),
-[readShortLenencBytes](#-protected-readshortlenencbytes-uint8array),
-[readShortLenencBytesAsync](#-protected-readshortlenencbytesasync-promiseuint8array),
-[readShortEofBytes](#-protected-readshorteofbytes-uint8array),
-[readShortEofBytesAsync](#-protected-readshorteofbytesasync-promiseuint8array),
-[readBytesToBuffer](#-protected-readbytestobufferdest-uint8array-promiseuint8array),
+[readShortBytes](#-protected-readshortbyteslen-number-uint8arrayarraybufferlike),
+[readShortBytesAsync](#-protected-readshortbytesasynclen-number-promiseuint8arrayarraybufferlike),
+[readShortNulBytes](#-protected-readshortnulbytes-uint8arrayarraybufferlike),
+[readShortNulBytesAsync](#-protected-readshortnulbytesasync-promiseuint8arrayarraybufferlike),
+[readShortLenencBytes](#-protected-readshortlenencbytes-uint8arrayarraybufferlike),
+[readShortLenencBytesAsync](#-protected-readshortlenencbytesasync-promiseuint8arrayarraybufferlike),
+[readShortEofBytes](#-protected-readshorteofbytes-uint8arrayarraybufferlike),
+[readShortEofBytesAsync](#-protected-readshorteofbytesasync-promiseuint8arrayarraybufferlike),
+[readBytesToBuffer](#-protected-readbytestobufferdest-uint8array-promiseuint8arrayarraybufferlike),
 [readVoid](#-protected-readvoidlen-number-boolean),
 [readVoidAsync](#-protected-readvoidasynclen-number-promisevoid),
 [readShortString](#-protected-readshortstringlen-number-string),
@@ -81,7 +81,7 @@
 
 
 
-#### ⚙ recycleBuffer(): Uint8Array
+#### ⚙ recycleBuffer(): Uint8Array\<ArrayBufferLike>
 
 
 
@@ -302,14 +302,14 @@
 
 
 
-#### ⚙ `protected` readShortBytes(len: `number`): Uint8Array
+#### ⚙ `protected` readShortBytes(len: `number`): Uint8Array\<ArrayBufferLike>
 
 > If buffer contains len bytes, consume them. Else return undefined.
 > Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 
 
 
-#### ⚙ `protected` readShortBytesAsync(len: `number`): Promise\<Uint8Array>
+#### ⚙ `protected` readShortBytesAsync(len: `number`): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > To read len bytes, where len<=buffer.length-4, do: readShortBytes() ?? await readShortBytesAsync().
 > This allows to avoid unnecessary promise awaiting.
@@ -317,14 +317,14 @@
 
 
 
-#### ⚙ `protected` readShortNulBytes(): Uint8Array
+#### ⚙ `protected` readShortNulBytes(): Uint8Array\<ArrayBufferLike>
 
 > If buffer contains full null-terminated blob, consume it. Else return undefined.
 > Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 
 
 
-#### ⚙ `protected` readShortNulBytesAsync(): Promise\<Uint8Array>
+#### ⚙ `protected` readShortNulBytesAsync(): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > To read a null-terminated blob that can fit buffer.length (not across packet boundary), do: readShortNulBytes() ?? await readShortNulBytesAsync().
 > This allows to avoid unnecessary promise awaiting.
@@ -333,14 +333,14 @@
 
 
 
-#### ⚙ `protected` readShortLenencBytes(): Uint8Array
+#### ⚙ `protected` readShortLenencBytes(): Uint8Array\<ArrayBufferLike>
 
 > If buffer contains full blob with length-encoded length, consume it. Else return undefined.
 > Null value (0xFB) will be returned as empty buffer.
 
 
 
-#### ⚙ `protected` readShortLenencBytesAsync(): Promise\<Uint8Array>
+#### ⚙ `protected` readShortLenencBytesAsync(): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > Reads blob with length-encoded length. The blob must be not longer than buffer.length-4 bytes, or error will be thrown.
 > Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
@@ -348,14 +348,14 @@
 
 
 
-#### ⚙ `protected` readShortEofBytes(): Uint8Array
+#### ⚙ `protected` readShortEofBytes(): Uint8Array\<ArrayBufferLike>
 
 > If buffer contains full packet, consume it. Else return undefined.
 > Returns pointer to buffer. If you want to use these data after next read operation, you need to copy them.
 
 
 
-#### ⚙ `protected` readShortEofBytesAsync(): Promise\<Uint8Array>
+#### ⚙ `protected` readShortEofBytesAsync(): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > To read a blob that can fit buffer.length to end of packet, do: readShortEofBytes() ?? await readShortEofBytesAsync().
 > This allows to avoid unnecessary promise awaiting.
@@ -363,7 +363,7 @@
 
 
 
-#### ⚙ `protected` readBytesToBuffer(dest: Uint8Array): Promise\<Uint8Array>
+#### ⚙ `protected` readBytesToBuffer(dest: Uint8Array): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > Copies bytes to provided buffer.
 
