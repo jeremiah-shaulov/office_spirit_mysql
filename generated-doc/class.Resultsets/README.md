@@ -3,12 +3,12 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.22.0/mod.ts"
+import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.23.0/mod.ts"
 ```
 
 ## This class has
 
-- [constructor](#-constructorcolumns-column-lastinsertid-number--bigint0-affectedrows-number--bigint0-foundrows-number--bigint0-warnings-number0-statusinfo-string-nogoodindexused-booleanfalse-noindexused-booleanfalse-isslowquery-booleanfalse-nplaceholders-number0)
+- [constructor](#-constructorcolumns-columnnew-arraycolumn-lastinsertid-number--bigint0-affectedrows-number--bigint0-foundrows-number--bigint0-warnings-number0-statusinfo-string-nogoodindexused-booleanfalse-noindexused-booleanfalse-isslowquery-booleanfalse-nplaceholders-number0)
 - [destructor](#-symbolasyncdispose-promisevoid)
 - 12 properties:
 [columns](#-columns-column),
@@ -26,7 +26,7 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.22.0/mod.ts
 - 8 methods:
 [exec](#-exec_params-param-resultsetspromiserow),
 [all](#-all-promiserow),
-[allStored](#-allstored-asynciterablerow-any-any),
+[store](#-store_allresultsets-booleanfalse-promisethis),
 [first](#-first-promiserow),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [nextResultset](#-nextresultset-promiseboolean),
@@ -34,7 +34,7 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.22.0/mod.ts
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
 
 
-#### 🔧 `constructor`(columns: [Column](../class.Column/README.md)\[]=\[], lastInsertId: `number` | `bigint`=0, affectedRows: `number` | `bigint`=0, foundRows: `number` | `bigint`=0, warnings: `number`=0, statusInfo: `string`="", noGoodIndexUsed: `boolean`=false, noIndexUsed: `boolean`=false, isSlowQuery: `boolean`=false, nPlaceholders: `number`=0)
+#### 🔧 `constructor`(columns: [Column](../class.Column/README.md)\[]=new Array\<Column>, lastInsertId: `number` | `bigint`=0, affectedRows: `number` | `bigint`=0, foundRows: `number` | `bigint`=0, warnings: `number`=0, statusInfo: `string`="", noGoodIndexUsed: `boolean`=false, noIndexUsed: `boolean`=false, isSlowQuery: `boolean`=false, nPlaceholders: `number`=0)
 
 
 
@@ -126,12 +126,23 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.22.0/mod.ts
 
 
 
-#### ⚙ allStored(): AsyncIterable\<Row, `any`, `any`>
+#### ⚙ store(\_allResultsets: `boolean`=false): Promise\<`this`>
 
-> Reads all rows in current resultset, and stores them either in memory or on disk.
+> Reads all rows of the first resultset in this object (if `allResultsets` is false)
+> or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
+> Other resultsets will be discarded (if `allResultsets` is false).
+> 
+> After the call this `Resultsets` object is detached from the connection,
+> so you can perform other queries while you iterate over this object.
+> 
 > The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
-> Use this function if you want to read a large resultset, and iterate over it later,
-> and being able to perform other queries in the meantime.
+> 
+> You need to read this object to the end to release the file resource.
+> Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+> 
+> ✔️ Return value:
+> 
+> `this` object, which is now detached from the connection.
 
 
 

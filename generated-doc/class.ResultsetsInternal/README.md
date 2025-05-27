@@ -9,11 +9,12 @@ Methods that don't exist on Resultsets are for internal use.
 
 - [constructor](#-constructorrowtype-rowtype)
 - [destructor](#-override-symbolasyncdispose-promisevoid)
-- 6 properties:
+- 7 properties:
 [protocol](#-protocol-myprotocol--undefined),
 [isPreparedStmt](#-ispreparedstmt-boolean),
 [stmtId](#-stmtid-number),
 [hasMoreInternal](#-hasmoreinternal-boolean),
+[storedResultsets](#-storedresultsets-storedresultsetsrow--undefined),
 [rowType](#-rowtype-rowtype),
 [hasMore](#-override-get-hasmore-boolean)
 - 7 methods:
@@ -22,7 +23,7 @@ Methods that don't exist on Resultsets are for internal use.
 [discard](#-override-discard-promisevoid),
 [disposePreparedStmt](#-disposepreparedstmt-void),
 [resetFields](#-resetfields-void),
-[allStored](#-override-allstored-asynciterablerow-any-any),
+[store](#-override-storeallresultsets-booleanfalse-promisethis),
 [\[Symbol.asyncIterator\]](#-override-symbolasynciterator-asyncgeneratorrow-any-any)
 - 14 inherited members from [Resultsets](../class.Resultsets/README.md)
 
@@ -50,6 +51,10 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 #### 📄 hasMoreInternal: `boolean`
+
+
+
+#### 📄 storedResultsets: [StoredResultsets](../private.class.StoredResultsets/README.md)\<Row> | `undefined`
 
 
 
@@ -89,12 +94,19 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 
-#### ⚙ `override` allStored(): AsyncIterable\<Row, `any`, `any`>
+#### ⚙ `override` store(allResultsets: `boolean`=false): Promise\<`this`>
 
-> Reads all rows in current resultset, and stores them either in memory or on disk.
+> Reads all rows of the first resultset in this object (if `allResultsets` is false)
+> or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
+> Other resultsets will be discarded (if `allResultsets` is false).
+> 
+> After the call this `Resultsets` object is detached from the connection,
+> so you can perform other queries while you iterate over this object.
+> 
 > The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
-> Use this function if you want to read a large resultset, and iterate over it later,
-> and being able to perform other queries in the meantime.
+> 
+> You need to read this object to the end to release the file resource.
+> Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
 
 
 
