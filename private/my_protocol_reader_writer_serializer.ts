@@ -27,8 +27,8 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 	{	// 1. Write the null mask
 		let nullMask = 0;
 		let nullBit = 4; // starts from bit offset 1 << 2, according to protocol definition
-		const nRows = row.length;
-		for (let i=0; i<nRows; i++)
+		const nColumns = row.length;
+		for (let i=0; i<nColumns; i++)
 		{	const value = row[i];
 			if (value == null)
 			{	nullMask |= nullBit;
@@ -46,7 +46,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 		{	this.buffer[this.bufferEnd++] = nullMask;
 		}
 		// 2. Write the row data
-		for (let i=0; i<nRows; i++)
+		for (let i=0; i<nColumns; i++)
 		{	const value = row[i];
 			if (value != null)
 			{	const {typeId, flags} = columns[i];
@@ -189,7 +189,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						{	this.buffer.set(v, this.bufferEnd);
 							this.bufferEnd += v.length;
 						}
-						else if (i < nRows-1)
+						else if (i < nColumns-1)
 						{	this.ensureRoom(v.length);
 							this.buffer.set(v, this.bufferEnd);
 							this.bufferEnd += v.length;
