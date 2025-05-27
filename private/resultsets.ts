@@ -329,78 +329,77 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override async store(allResultsets=false): Promise<this>
-	{	const {rowType} = this;
-		if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
-		{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
-		}
-		const {protocol} = this;
-		if (!protocol)
-		{	throw new CanceledError(`Connection terminated`);
-		}
-		const storedRows = new Array<ColumnValue[]>; // read rows to here
-		const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
-		const {decoder} = protocol;
-		protocol.totalBytesInPacket = 0;
-		let curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
-		const resultsetsInfo = [curResultsetsInfo];
-		let fileName = '';
-		let file: Deno.FsFile | undefined;
-		let writer: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>> | undefined;
-		let reader: ReadableStreamBYOBReader | undefined;
-		let serializer: MyProtocolReaderWriterSerializer | undefined;
-		let error: Error | undefined;
-		try
-		{	while (true)
-			{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, true);
-				if (row === undefined)
-				{	if (!allResultsets || !this.hasMoreInternal)
-					{	break;
-					}
-					await protocol.nextResultset();
-					curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
-					resultsetsInfo.push(curResultsetsInfo);
-					continue;
-				}
-				curResultsetsInfo.nRows++;
-				if (serializer)
-				{	await serializer.serializeRowBinary(row, curResultsetsInfo.columns, protocol.dsn.datesAsString, protocol);
-				}
-				else
-				{	storedRows[storedRows.length] = row;
-					if (protocol.totalBytesInPacket > storeResultsetIfBigger)
-					{	fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
-						file = await Deno.open(fileName, {create: true, truncate: true, write: true, read: true});
-						writer = file.writable.getWriter();
-						reader = file.readable.getReader({mode: 'byob'});
-						serializer = new MyProtocolReaderWriterSerializer(writer, reader, decoder, undefined);
-						serializer.serializeBegin();
-						let i = 0;
-						for (const {nRows, columns} of resultsetsInfo)
-						{	for (const end=i+nRows; i<end; i++)
-							{	const row = storedRows[i];
-								await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
-							}
+	{	if (!this.storedResultsets)
+		{	const {rowType} = this;
+			if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
+			{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
+			}
+			const {protocol} = this;
+			if (!protocol)
+			{	throw new CanceledError(`Connection terminated`);
+			}
+			const storedRows = new Array<ColumnValue[]>; // read rows to here
+			const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
+			const {decoder} = protocol;
+			protocol.totalBytesInPacket = 0;
+			let curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
+			const resultsetsInfo = [curResultsetsInfo];
+			let serializer: MyProtocolReaderWriterSerializer | undefined;
+			let error: Error | undefined;
+			const storedResultsets = new StoredResultsets(this, rowType, protocol.dsn.datesAsString, protocol, decoder, resultsetsInfo, storedRows);
+			this.storedResultsets = storedResultsets;
+			try
+			{	while (true)
+				{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, true);
+					if (row === undefined)
+					{	if (!allResultsets || !this.hasMoreInternal)
+						{	break;
 						}
-						storedRows.length = 0;
+						await protocol.nextResultset();
+						curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
+						resultsetsInfo.push(curResultsetsInfo);
+						continue;
+					}
+					curResultsetsInfo.nRows++;
+					if (serializer)
+					{	await serializer.serializeRowBinary(row, curResultsetsInfo.columns, protocol.dsn.datesAsString, protocol);
+					}
+					else
+					{	storedRows[storedRows.length] = row;
+						if (protocol.totalBytesInPacket > storeResultsetIfBigger)
+						{	storedResultsets.fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
+							storedResultsets.file = await Deno.open(storedResultsets.fileName, {create: true, truncate: true, write: true, read: true});
+							storedResultsets.writer = storedResultsets.file.writable.getWriter();
+							storedResultsets.reader = storedResultsets.file.readable.getReader({mode: 'byob'});
+							serializer = new MyProtocolReaderWriterSerializer(storedResultsets.writer, storedResultsets.reader, decoder, undefined);
+							storedResultsets.serializer = serializer;
+							serializer.serializeBegin();
+							let i = 0;
+							for (const {nRows, columns} of resultsetsInfo)
+							{	for (const end=i+nRows; i<end; i++)
+								{	const row = storedRows[i];
+									await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+								}
+							}
+							storedRows.length = 0;
+						}
 					}
 				}
 			}
+			catch (e)
+			{	error = e instanceof Error ? e : new Error(e+'');
+			}
+			try
+			{	await this.discard();
+			}
+			catch (e)
+			{	error ??= e instanceof Error ? e : new Error(e+'');
+			}
+			if (error)
+			{	await this.storedResultsets[Symbol.asyncDispose]();
+				throw error;
+			}
 		}
-		catch (e)
-		{	error = e instanceof Error ? e : new Error(e+'');
-		}
-		const storedResultsets = new StoredResultsets(this, rowType, protocol.dsn.datesAsString, protocol, decoder, resultsetsInfo, storedRows, fileName, file, writer, reader, serializer);
-		try
-		{	await this.discard();
-		}
-		catch (e)
-		{	error ??= e instanceof Error ? e : new Error(e+'');
-		}
-		if (error)
-		{	await storedResultsets[Symbol.asyncDispose]();
-			throw error;
-		}
-		this.storedResultsets = storedResultsets;
 		return this;
 	}
 }
