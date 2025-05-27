@@ -260,7 +260,7 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
-	/**	When using {@link Resultsets.allStored()} and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
+	/**	When using {@link Resultsets.store()} and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
 		@default 64KiB
 	 **/
 	get storeResultsetIfBigger()

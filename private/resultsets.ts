@@ -29,20 +29,21 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		return rows;
 	}
 
-	/**	Reads all rows in the first resultset, and stores them either in memory or on disk.
-		Other resultsets will be skipped (discarded).
+	/**	Reads all rows of the first resultset (if `allResultsets` is false)
+		or of all resultsets (if `allResultsets` is true), and stores them either in memory or on disk.
+		Other resultsets will be discarded (if `allResultsets` is false).
+
+		This method returns `Resultsets` object, which is detached from the connection,
+		so you can perform other queries while you iterate over this object.
+
 		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
-		Use this function if you want to read a large resultset, and iterate over it later,
-		and being able to perform other queries in the meantime.
+
+		You need to read this object to the end to release the file resource.
+		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
 	 **/
-	async *allStored(): AsyncIterable<Row>
+	async store(allResultsets=false): Promise<Resultsets<Row>>
 	{	const resultsets: Resultsets<Row> = await this;
-		try
-		{	yield *resultsets.allStored();
-		}
-		finally
-		{	await resultsets.discard();
-		}
+		return await resultsets.store(allResultsets);
 	}
 
 	/**	Returns the first row of the first resultset.
@@ -79,7 +80,7 @@ export class Resultsets<Row>
 {	constructor
 	(	/**	Information about columns in resultset.
 		 **/
-		public columns: Column[] = [],
+		public columns = new Array<Column>,
 
 		/**	In INSERT queries this is last generated AUTO_INCREMENT ID
 		 **/
@@ -95,7 +96,7 @@ export class Resultsets<Row>
 
 		/**	Number of warnings produced by the last query. To see the warning messages you can use `SHOW WARNINGS` query.
 		 **/
-		public warnings: number = 0,
+		public warnings = 0,
 
 		/**	Human-readable information about last query result, if sent by server.
 		 **/
@@ -155,12 +156,21 @@ export class Resultsets<Row>
 		return rows;
 	}
 
-	/**	Reads all rows in current resultset, and stores them either in memory or on disk.
+	/**	Reads all rows of the first resultset in this object (if `allResultsets` is false)
+		or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
+		Other resultsets will be discarded (if `allResultsets` is false).
+
+		After the call this `Resultsets` object is detached from the connection,
+		so you can perform other queries while you iterate over this object.
+
 		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
-		Use this function if you want to read a large resultset, and iterate over it later,
-		and being able to perform other queries in the meantime.
+
+		You need to read this object to the end to release the file resource.
+		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+
+		@returns `this` object, which is now detached from the connection.
 	 **/
-	allStored(): AsyncIterable<Row>
+	store(_allResultsets=false): Promise<this>
 	{	throw new Error('Not implemented');
 	}
 
@@ -206,6 +216,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	isPreparedStmt = false; // `stmtId` can be reset to -1 when the stmt is disposed, but `isPreparedStmt` must remain true, because the stmt can be disposed before resultsets are read, and prepared stmts have different packet format
 	stmtId = -1;
 	hasMoreInternal = false;
+	storedResultsets: StoredResultsets<Row> | undefined;
 
 	constructor(public rowType: RowType)
 	{	super();
@@ -217,7 +228,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	{	if (this.stmtId != -1)
 		{	this.disposePreparedStmt();
 		}
-		return this.discard();
+		return this.storedResultsets ? this.storedResultsets[Symbol.asyncDispose]() : this.discard();
 	}
 
 	override get hasMore()
@@ -243,27 +254,35 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	if (this.hasMoreInternal)
-		{	try
-			{	while (true)
-				{	if (!this.protocol)
-					{	throw new CanceledError(`Connection terminated`);
-					}
-					this.protocol.totalBytesInPacket = 0;
-					const row: Row|undefined = await this.protocol.fetch(this.rowType);
-					this.lastRowByteLength = this.protocol?.totalBytesInPacket ?? 0;
-					if (row === undefined)
-					{	break;
-					}
-					yield row;
-				}
+	{	const {storedResultsets} = this;
+		if (storedResultsets)
+		{	if (storedResultsets.hasMore)
+			{	yield *storedResultsets[Symbol.asyncIterator]();
 			}
-			finally
-			{	if (this.hasMoreInternal)
-				{	while (this.protocol)
-					{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+		}
+		else
+		{	if (this.hasMoreInternal)
+			{	try
+				{	while (true)
+					{	if (!this.protocol)
+						{	throw new CanceledError(`Connection terminated`);
+						}
+						this.protocol.totalBytesInPacket = 0;
+						const row: Row|undefined = await this.protocol.fetch(this.rowType);
+						this.lastRowByteLength = this.protocol?.totalBytesInPacket ?? 0;
 						if (row === undefined)
 						{	break;
+						}
+						yield row;
+					}
+				}
+				finally
+				{	if (this.hasMoreInternal)
+					{	while (this.protocol)
+						{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+							if (row === undefined)
+							{	break;
+							}
 						}
 					}
 				}
@@ -309,37 +328,45 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		this.isSlowQuery = false;
 	}
 
-	override async *allStored(): AsyncIterable<Row>
+	override async store(allResultsets=false): Promise<this>
 	{	const {rowType} = this;
 		if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
-		{	throw new Error('Invalid use of allStored() method. This row type must be an object, an array or a map.');
+		{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
 		}
-		const rows = new Array<ColumnValue[]>;
-		const {protocol, columns} = this;
+		const {protocol} = this;
 		if (!protocol)
 		{	throw new CanceledError(`Connection terminated`);
 		}
+		const storedRows = new Array<ColumnValue[]>; // read rows to here
 		const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
 		const {decoder} = protocol;
 		protocol.totalBytesInPacket = 0;
-		let nRows = 0;
+		let curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
+		const resultsetsInfo = [curResultsetsInfo];
 		let fileName = '';
 		let file: Deno.FsFile | undefined;
 		let writer: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>> | undefined;
 		let reader: ReadableStreamBYOBReader | undefined;
 		let serializer: MyProtocolReaderWriterSerializer | undefined;
+		let error: Error | undefined;
 		try
 		{	while (true)
 			{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, true);
 				if (row === undefined)
-				{	break;
+				{	if (!allResultsets || !this.hasMoreInternal)
+					{	break;
+					}
+					await protocol.nextResultset();
+					curResultsetsInfo = {nRows: 0, columns: this.columns, lastInsertId: this.lastInsertId, affectedRows: this.affectedRows, foundRows: this.foundRows, warnings: this.warnings, statusInfo: this.statusInfo, noGoodIndexUsed: this.noGoodIndexUsed, noIndexUsed: this.noIndexUsed, isSlowQuery: this.isSlowQuery, nPlaceholders: this.nPlaceholders};
+					resultsetsInfo.push(curResultsetsInfo);
+					continue;
 				}
-				nRows++;
+				curResultsetsInfo.nRows++;
 				if (serializer)
-				{	await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+				{	await serializer.serializeRowBinary(row, curResultsetsInfo.columns, protocol.dsn.datesAsString, protocol);
 				}
 				else
-				{	rows[rows.length] = row;
+				{	storedRows[storedRows.length] = row;
 					if (protocol.totalBytesInPacket > storeResultsetIfBigger)
 					{	fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
 						file = await Deno.open(fileName, {create: true, truncate: true, write: true, read: true});
@@ -347,90 +374,185 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 						reader = file.readable.getReader({mode: 'byob'});
 						serializer = new MyProtocolReaderWriterSerializer(writer, reader, decoder, undefined);
 						serializer.serializeBegin();
-						for (const row of rows)
-						{	await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+						let i = 0;
+						for (const {nRows, columns} of resultsetsInfo)
+						{	for (const end=i+nRows; i<end; i++)
+							{	const row = storedRows[i];
+								await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+							}
 						}
-						rows.length = 0;
+						storedRows.length = 0;
 					}
 				}
 			}
-			if (file && serializer)
+		}
+		catch (e)
+		{	error = e instanceof Error ? e : new Error(e+'');
+		}
+		const storedResultsets = new StoredResultsets(this, rowType, protocol.dsn.datesAsString, protocol, decoder, resultsetsInfo, storedRows, fileName, file, writer, reader, serializer);
+		try
+		{	await this.discard();
+		}
+		catch (e)
+		{	error ??= e instanceof Error ? e : new Error(e+'');
+		}
+		if (error)
+		{	await storedResultsets[Symbol.asyncDispose]();
+			throw error;
+		}
+		this.storedResultsets = storedResultsets;
+		return this;
+	}
+}
+
+class StoredResultsets<Row>
+{	nResultset = 0;
+	nRow = 0;
+
+	get hasMore()
+	{	return this.nResultset < this.resultsetsInfo.length;
+	}
+
+	constructor
+	(	public resultsets: ResultsetsInternal<Row>,
+		public rowType: RowType,
+		public datesAsString: boolean,
+		public tz: {getTimezoneMsecOffsetFromSystem: () => number},
+		public decoder: TextDecoder,
+		public resultsetsInfo: Array<{nRows: number, columns: Column[], lastInsertId: number|bigint, affectedRows: number|bigint, foundRows: number|bigint, warnings: number, statusInfo: string, noGoodIndexUsed: boolean, noIndexUsed: boolean, isSlowQuery: boolean, nPlaceholders: number}>,
+		public storedRows: ColumnValue[][],
+		public fileName = '',
+		public file?: Deno.FsFile,
+		public writer?: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>,
+		public reader?: ReadableStreamBYOBReader,
+		public serializer?: MyProtocolReaderWriterSerializer,
+	){}
+
+	async [Symbol.asyncDispose]()
+	{	let error: Error | undefined;
+		try
+		{	this.writer?.releaseLock();
+			this.writer = undefined;
+		}
+		catch (e)
+		{	error = e instanceof Error ? e : new Error(e+'');
+		}
+		try
+		{	this.reader?.releaseLock();
+			this.reader = undefined;
+		}
+		catch (e)
+		{	error ??= e instanceof Error ? e : new Error(e+'');
+		}
+		try
+		{	this.file?.close();
+			this.file = undefined;
+		}
+		catch (e)
+		{	error ??= e instanceof Error ? e : new Error(e+'');
+		}
+		if (this.fileName)
+		{	try
+			{	await Deno.remove(this.fileName);
+				this.fileName = '';
+			}
+			catch (e)
+			{	error ??= e instanceof Error ? e : new Error(e+'');
+			}
+		}
+		if (error)
+		{	throw error;
+		}
+	}
+
+	nextResultset()
+	{	const {resultsets, resultsetsInfo} = this;
+		const r = resultsetsInfo[this.nResultset++];
+		resultsets.columns = r.columns;
+		resultsets.lastInsertId = r.lastInsertId;
+		resultsets.affectedRows = r.affectedRows;
+		resultsets.foundRows = r.foundRows;
+		resultsets.warnings = r.warnings;
+		resultsets.statusInfo = r.statusInfo;
+		resultsets.noGoodIndexUsed = r.noGoodIndexUsed;
+		resultsets.noIndexUsed = r.noIndexUsed;
+		resultsets.isSlowQuery = r.isSlowQuery;
+		resultsets.nPlaceholders = r.nPlaceholders;
+		return r;
+	}
+
+	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
+	{	const {rowType, datesAsString, tz, decoder, storedRows, file, serializer} = this;
+		if (file && serializer)
+		{	if (this.nResultset == 0)
 			{	await serializer.serializeEnd();
 				await file.seek(0, Deno.SeekMode.Start);
+			}
+			try
+			{	const {nRows, columns} = this.nextResultset();
 				for (let i=0; i<nRows; i++)
-				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, protocol.dsn.datesAsString, protocol, Number.MAX_SAFE_INTEGER);
+				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, datesAsString, tz, Number.MAX_SAFE_INTEGER);
 					yield row;
 				}
 			}
-		}
-		finally
-		{	try
-			{	writer?.releaseLock();
-			}
-			catch
-			{	// ignore
-			}
-			try
-			{	reader?.releaseLock();
-			}
-			catch
-			{	// ignore
-			}
-			try
-			{	file?.close();
-			}
-			catch
-			{	// ignore
-			}
-			if (fileName)
-			{	await Deno.remove(fileName);
+			finally
+			{	if (this.nResultset == this.resultsetsInfo.length)
+				{	await this[Symbol.asyncDispose]();
+				}
 			}
 		}
-		for (const rowArr of rows)
-		{	const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
-			for (let i=0; i<columns.length; i++)
-			{	const {typeId, flags, name} = columns[i];
-				let value = rowArr[i];
-				switch (typeId)
-				{	case MysqlType.MYSQL_TYPE_VARCHAR:
-					case MysqlType.MYSQL_TYPE_ENUM:
-					case MysqlType.MYSQL_TYPE_SET:
-					case MysqlType.MYSQL_TYPE_VAR_STRING:
-					case MysqlType.MYSQL_TYPE_STRING:
-					case MysqlType.MYSQL_TYPE_TINY_BLOB:
-					case MysqlType.MYSQL_TYPE_MEDIUM_BLOB:
-					case MysqlType.MYSQL_TYPE_LONG_BLOB:
-					case MysqlType.MYSQL_TYPE_BLOB:
-					case MysqlType.MYSQL_TYPE_GEOMETRY:
-						if (!(flags & ColumnFlags.BINARY))
-						{	if (value instanceof Uint8Array)
+		else
+		{	const {nRows, columns} = this.nextResultset();
+			const begin = this.nRow;
+			const end = begin + nRows;
+			this.nRow = end;
+			for (let r=begin; r<end; r++)
+			{	const rowArr = storedRows[r];
+				const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
+				for (let i=0; i<columns.length; i++)
+				{	const {typeId, flags, name} = columns[i];
+					let value = rowArr[i];
+					switch (typeId)
+					{	case MysqlType.MYSQL_TYPE_VARCHAR:
+						case MysqlType.MYSQL_TYPE_ENUM:
+						case MysqlType.MYSQL_TYPE_SET:
+						case MysqlType.MYSQL_TYPE_VAR_STRING:
+						case MysqlType.MYSQL_TYPE_STRING:
+						case MysqlType.MYSQL_TYPE_TINY_BLOB:
+						case MysqlType.MYSQL_TYPE_MEDIUM_BLOB:
+						case MysqlType.MYSQL_TYPE_LONG_BLOB:
+						case MysqlType.MYSQL_TYPE_BLOB:
+						case MysqlType.MYSQL_TYPE_GEOMETRY:
+							if (!(flags & ColumnFlags.BINARY))
+							{	if (value instanceof Uint8Array)
+								{	value = decoder.decode(value);
+								}
+							}
+							break;
+						case MysqlType.MYSQL_TYPE_DECIMAL:
+						case MysqlType.MYSQL_TYPE_NEWDECIMAL:
+							if (value instanceof Uint8Array)
 							{	value = decoder.decode(value);
 							}
-						}
-						break;
-					case MysqlType.MYSQL_TYPE_DECIMAL:
-					case MysqlType.MYSQL_TYPE_NEWDECIMAL:
-						if (value instanceof Uint8Array)
-						{	value = decoder.decode(value);
-						}
-						break;
-					case MysqlType.MYSQL_TYPE_JSON:
-						if (value instanceof Uint8Array)
-						{	value = JSON.parse(decoder.decode(value));
-						}
+							break;
+						case MysqlType.MYSQL_TYPE_JSON:
+							if (value instanceof Uint8Array)
+							{	value = JSON.parse(decoder.decode(value));
+							}
+					}
+					switch (rowType)
+					{	case RowType.OBJECT:
+							row[name] = value;
+							break;
+						case RowType.MAP:
+							row.set(name, value);
+							break;
+						case RowType.ARRAY:
+							rowArr[i] = value;
+					}
 				}
-				switch (rowType)
-				{	case RowType.OBJECT:
-						row[name] = value;
-						break;
-					case RowType.MAP:
-						row.set(name, value);
-						break;
-					case RowType.ARRAY:
-						rowArr[i] = value;
-				}
+				yield row;
 			}
-			yield row;
 		}
 	}
 }
