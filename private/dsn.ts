@@ -24,6 +24,7 @@ type Any = any;
 	- {@link ignoreSpace}
 	- {@link retryLockWaitTimeout}
 	- {@link retryQueryTimes}
+	- {@link jsonAsString}
 	- {@link datesAsString}
 	- {@link correctDates}
 	- {@link storeResultsetIfBigger}
@@ -51,6 +52,7 @@ export class Dsn
 	#multiStatements: boolean;
 	#retryLockWaitTimeout: boolean;
 	#retryQueryTimes: number;
+	#jsonAsString: boolean;
 	#datesAsString: boolean;
 	#correctDates: boolean;
 	#storeResultsetIfBigger: number;
@@ -237,6 +239,17 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If present, json columns will not be parsed when selected from MySQL, so they'll be returned as strings.
+		@default false
+	 **/
+	get jsonAsString()
+	{	return this.#jsonAsString;
+	}
+	set jsonAsString(value: boolean)
+	{	this.#jsonAsString = value;
+		this.#updateNameAndHash();
+	}
+
 	/**	If present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings.
 		@default false
 	 **/
@@ -329,6 +342,7 @@ export class Dsn
 			this.#multiStatements = dsn.#multiStatements;
 			this.#retryLockWaitTimeout = dsn.#retryLockWaitTimeout;
 			this.#retryQueryTimes = dsn.#retryQueryTimes;
+			this.#jsonAsString = dsn.#jsonAsString;
 			this.#datesAsString = dsn.#datesAsString;
 			this.#correctDates = dsn.#correctDates;
 			this.#storeResultsetIfBigger = dsn.#storeResultsetIfBigger;
@@ -370,6 +384,7 @@ export class Dsn
 			const multiStatements = url.searchParams.get('multiStatements');
 			const retryLockWaitTimeout = url.searchParams.get('retryLockWaitTimeout');
 			const retryQueryTimes = url.searchParams.get('retryQueryTimes');
+			const jsonAsString = url.searchParams.get('jsonAsString');
 			const datesAsString = url.searchParams.get('datesAsString');
 			const correctDates = url.searchParams.get('correctDates');
 			const storeResultsetIfBigger = url.searchParams.get('storeResultsetIfBigger');
@@ -384,6 +399,7 @@ export class Dsn
 			this.#multiStatements = multiStatements != null;
 			this.#retryLockWaitTimeout = retryLockWaitTimeout != null;
 			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
+			this.#jsonAsString = jsonAsString != null;
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
 			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
@@ -411,6 +427,7 @@ export class Dsn
 			(this.#multiStatements ? '&multiStatements' : '') +
 			(this.#retryLockWaitTimeout ? '&retryLockWaitTimeout' : '') +
 			(!isNaN(this.#retryQueryTimes) ? '&retryQueryTimes='+this.#retryQueryTimes : '') +
+			(this.#jsonAsString ? '&jsonAsString' : '') +
 			(this.#datesAsString ? '&datesAsString' : '') +
 			(this.#correctDates ? '&correctDates' : '') +
 			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '')

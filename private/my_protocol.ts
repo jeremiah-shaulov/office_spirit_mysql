@@ -985,6 +985,7 @@ L:		while (true)
 		maxColumnLen = this.#maxColumnLen,
 		retryLockWaitTimeout = this.dsn.retryLockWaitTimeout,
 		retryQueryTimes = this.#retryQueryTimes,
+		jsonAsString = this.dsn.jsonAsString,
 		datesAsString = this.dsn.datesAsString,
 		correctDates = this.dsn.correctDates
 	)
@@ -1035,7 +1036,7 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.start();
 				}
-				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
+				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				let state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 				if (state != ProtocolState.IDLE)
 				{	resultsets.protocol = this;
@@ -1097,6 +1098,7 @@ L:		while (true)
 		maxColumnLen = this.#maxColumnLen,
 		retryLockWaitTimeout = this.dsn.retryLockWaitTimeout,
 		retryQueryTimes = this.#retryQueryTimes,
+		jsonAsString = this.dsn.jsonAsString,
 		datesAsString = this.dsn.datesAsString,
 		correctDates = this.dsn.correctDates
 	)
@@ -1166,7 +1168,7 @@ L:		while (true)
 					}
 				}
 				// Read prequery result
-				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
+				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				let state = ProtocolState.IDLE;
 				if (prequery)
 				{	try
@@ -1251,6 +1253,7 @@ L:		while (true)
 		letReturnUndefined = false,
 		skipColumns = false,
 		maxColumnLen = this.#maxColumnLen,
+		jsonAsString = this.dsn.jsonAsString,
 		datesAsString = this.dsn.datesAsString,
 		correctDates = this.dsn.correctDates
 	)
@@ -1288,7 +1291,7 @@ L:		while (true)
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
-			const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
+			const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, jsonAsString, datesAsString, correctDates);
 			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
 			this.#setState(ProtocolState.IDLE);
@@ -1723,6 +1726,7 @@ L:		while (true)
 	async fetch<Row>
 	(	rowType: RowType,
 		maxColumnLen = this.#maxColumnLen,
+		jsonAsString = this.dsn.jsonAsString,
 		datesAsString = this.dsn.datesAsString,
 		isForSerialize = false
 	): Promise<Row | undefined>
@@ -1761,12 +1765,12 @@ L:		while (true)
 			{	// Text protocol row
 				this.unput(type & 0xFF); // clear PACKET_NOT_READ_BIT
 				// deno-lint-ignore no-var no-inner-declarations
-				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, datesAsString, this, maxColumnLen, isForSerialize);
+				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, jsonAsString, datesAsString, this, maxColumnLen, isForSerialize);
 			}
 			else
 			{	// Binary protocol row
 				// deno-lint-ignore no-var no-inner-declarations no-redeclare
-				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, datesAsString, this, maxColumnLen, isForSerialize);
+				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, jsonAsString, datesAsString, this, maxColumnLen, isForSerialize);
 			}
 			if (rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE)
 			{	// deno-lint-ignore no-this-alias

@@ -218,7 +218,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	hasMoreInternal = false;
 	storedResultsets: StoredResultsets<Row> | undefined;
 
-	constructor(readonly rowType: RowType, readonly maxColumnLen: number, readonly datesAsString: boolean, readonly correctDates: boolean)
+	constructor(readonly rowType: RowType, readonly maxColumnLen: number, readonly jsonAsString: boolean, readonly datesAsString: boolean, readonly correctDates: boolean)
 	{	super();
 	}
 
@@ -254,7 +254,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	const {storedResultsets, maxColumnLen, datesAsString} = this;
+	{	const {storedResultsets, maxColumnLen, jsonAsString, datesAsString} = this;
 		if (storedResultsets)
 		{	if (storedResultsets.hasMore)
 			{	yield *storedResultsets[Symbol.asyncIterator]();
@@ -268,7 +268,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 						{	throw new CanceledError(`Connection terminated`);
 						}
 						this.protocol.totalBytesInPacket = 0;
-						const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, datesAsString);
+						const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, jsonAsString, datesAsString);
 						this.lastRowByteLength = this.protocol?.totalBytesInPacket ?? 0;
 						if (row === undefined)
 						{	break;
@@ -279,7 +279,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				finally
 				{	if (this.hasMoreInternal)
 					{	while (this.protocol)
-						{	const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, datesAsString);
+						{	const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, jsonAsString, datesAsString);
 							if (row === undefined)
 							{	break;
 							}
@@ -330,7 +330,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	override async store(allResultsets=false): Promise<this>
 	{	if (!this.storedResultsets)
-		{	const {rowType, protocol, maxColumnLen, datesAsString} = this;
+		{	const {rowType, protocol, maxColumnLen, jsonAsString, datesAsString} = this;
 			if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
 			{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
 			}
@@ -343,11 +343,11 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				const resultsetsInfo = [curResultsetsInfo];
 				let serializer: MyProtocolReaderWriterSerializer | undefined;
 				let error: Error | undefined;
-				const storedResultsets = new StoredResultsets(this, rowType, datesAsString, protocol, decoder, resultsetsInfo, storedRows);
+				const storedResultsets = new StoredResultsets(this, rowType, jsonAsString, datesAsString, protocol, decoder, resultsetsInfo, storedRows);
 				this.storedResultsets = storedResultsets;
 				try
 				{	while (true)
-					{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, maxColumnLen, datesAsString, true);
+					{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, maxColumnLen, jsonAsString, datesAsString, true);
 						if (row === undefined)
 						{	if (!allResultsets || !this.hasMoreInternal)
 							{	break;
@@ -413,6 +413,7 @@ class StoredResultsets<Row>
 	constructor
 	(	public resultsets: ResultsetsInternal<Row>,
 		public rowType: RowType,
+		public jsonAsString: boolean,
 		public datesAsString: boolean,
 		public tz: {getTimezoneMsecOffsetFromSystem: () => number},
 		public decoder: TextDecoder,
@@ -479,7 +480,7 @@ class StoredResultsets<Row>
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	const {rowType, datesAsString, tz, decoder, storedRows, file, serializer} = this;
+	{	const {rowType, jsonAsString, datesAsString, tz, decoder, storedRows, file, serializer} = this;
 		if (file && serializer)
 		{	if (this.nResultset == 0)
 			{	await serializer.serializeEnd();
@@ -488,7 +489,7 @@ class StoredResultsets<Row>
 			try
 			{	const {nRows, columns} = this.nextResultset();
 				for (let i=0; i<nRows; i++)
-				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, datesAsString, tz, Number.MAX_SAFE_INTEGER);
+				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, jsonAsString, datesAsString, tz, Number.MAX_SAFE_INTEGER);
 					yield row;
 				}
 			}
@@ -534,7 +535,7 @@ class StoredResultsets<Row>
 							break;
 						case MysqlType.MYSQL_TYPE_JSON:
 							if (value instanceof Uint8Array)
-							{	value = JSON.parse(decoder.decode(value));
+							{	value = jsonAsString ? decoder.decode(value) : JSON.parse(decoder.decode(value));
 							}
 					}
 					switch (rowType)

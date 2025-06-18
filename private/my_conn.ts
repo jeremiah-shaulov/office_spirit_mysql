@@ -23,6 +23,7 @@ type QueryOptionsVoid =
 };
 type QueryOptions = QueryOptionsVoid &
 {	maxColumnLen?: number;
+	jsonAsString?: boolean;
 	datesAsString?: boolean;
 	correctDates?: boolean;
 };
@@ -657,6 +658,7 @@ export class MyConn
 	{	const maxColumnLen = queryOptions?.maxColumnLen ?? (isNaN(this.dsn.maxColumnLen) ? undefined : this.dsn.maxColumnLen);
 		const retryLockWaitTimeout = queryOptions?.retryLockWaitTimeout ?? this.dsn.retryLockWaitTimeout;
 		const retryQueryTimes = queryOptions?.retryQueryTimes ?? (isNaN(this.dsn.retryQueryTimes) ? undefined : this.dsn.retryQueryTimes);
+		const jsonAsString = queryOptions?.jsonAsString ?? this.dsn.jsonAsString;
 		const datesAsString = queryOptions?.datesAsString ?? this.dsn.datesAsString;
 		const correctDates = queryOptions?.correctDates ?? this.dsn.correctDates;
 		let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
@@ -691,7 +693,7 @@ L:		while (true)
 
 			if (!params)
 			{	// Text protocol query
-				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates);
+				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -701,7 +703,7 @@ L:		while (true)
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, false, maxColumnLen, datesAsString, correctDates);
+				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, false, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -711,7 +713,7 @@ L:		while (true)
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements (however you can use named parameters)`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true, maxColumnLen, datesAsString, correctDates);
+				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
 				{	try
 					{	await resultsets.exec(params);
@@ -729,8 +731,8 @@ L:		while (true)
 				if (values)
 				{	const resultsets =
 					(	!query1 ?
-						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates) :
-						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates)
+						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, jsonAsString, datesAsString, correctDates) :
+						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, jsonAsString, datesAsString, correctDates)
 					);
 					if (resultsets)
 					{	return resultsets;

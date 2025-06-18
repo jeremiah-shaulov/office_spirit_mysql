@@ -108,6 +108,7 @@
 	- `ignoreSpace` (boolean, default `false`) - if present, parser on server side can ignore spaces before '(' in built-in function names (see description [here]{@link https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ignore_space})
 	- `retryLockWaitTimeout` (boolean, default `false`) - if set, and `retryQueryTimes` is also set, will retry query that failed with "lock wait timeout" error. The query will be retried `retryQueryTimes` times.
 	- `retryQueryTimes` - (number, default `0`) Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes. Please note, that this will also rerun queries like `CALL`.
+	- `jsonAsString` (boolean, default `false`) - if present, JSON columns will be returned as strings, not parsed into Javascript objects. This is useful if you want to select a row, and then to insert it back, without changing the JSON data.
 	- `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
 	- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
 	- `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.store()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
@@ -394,6 +395,7 @@
 	};
 	type QueryOptions = QueryOptionsVoid &
 	{	maxColumnLen?: number;
+		jsonAsString?: boolean;
 		datesAsString?: boolean;
 		correctDates?: boolean;
 	};
@@ -485,7 +487,7 @@
 	- `time` → `number` of seconds
 	- `char`, `varchar`, `tinytext`, `smalltext`, `text`, `mediumtext`, `longtext` → `string`
 	- `binary`, `varbinary`, `tinyblob`, `smallblob`, `blob`, `mediumblob`, `longblob` → `Uint8Array`
-	- `json` → is deserialized
+	- `json` → is deserialized if `jsonAsString` parameter is not set in the connection string, and `string` containing JSON-serialized value if it's set
 
 	Type conversions from Javascript to MySQL happen when you pass parameters to SQL queries.
 
