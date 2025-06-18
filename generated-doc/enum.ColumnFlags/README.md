@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ColumnFlags} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
+import {ColumnFlags} from "https://deno.land/x/office_spirit_mysql@v0.24.0/mod.ts"
 ```
 
 #### NOT\_NULL = <mark>1</mark>

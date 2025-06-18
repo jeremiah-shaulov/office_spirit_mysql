@@ -373,11 +373,11 @@
 	Here is the complete definition of query functions:
 
 	```ts
-	MyConn.queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>> {...}
-	MyConn.query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Record<string, ColumnType>> {...}
-	MyConn.queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<Map<string, ColumnType>> {...}
-	MyConn.queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType[]> {...}
-	MyConn.queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params): ResultsetsPromise<ColumnType> {...}
+	MyConn.queryVoid(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>> {...}
+	MyConn.query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions): ResultsetsPromise<Record<string, ColumnType>> {...}
+	MyConn.queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions): ResultsetsPromise<Map<string, ColumnType>> {...}
+	MyConn.queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions): ResultsetsPromise<ColumnType[]> {...}
+	MyConn.queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions): ResultsetsPromise<ColumnType> {...}
 
 	type SqlSource =
 		string |
@@ -388,6 +388,15 @@
 	class ResultsetsPromise<Row> extends Promise<Resultsets<Row>> {...}
 	type ColumnValue = bigint | Date | Uint8Array | JsonNode;
 	type JsonNode = null | boolean | number | string | JsonNode[] | {[member: string]: JsonNode};
+	type QueryOptionsVoid =
+	{	retryLockWaitTimeout?: boolean;
+		retryQueryTimes?: number;
+	};
+	type QueryOptions = QueryOptionsVoid &
+	{	maxColumnLen?: number;
+		datesAsString?: boolean;
+		correctDates?: boolean;
+	};
 	```
 
 	By default `query*()` functions produce rows where each column is of `ColumnValue` type.

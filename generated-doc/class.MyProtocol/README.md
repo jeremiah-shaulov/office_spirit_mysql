@@ -23,12 +23,12 @@
 [use](#-useschema-string-void),
 [setSqlLogger](#-setsqlloggersqllogger-safesqllogger-void),
 [writeComInitDb](#-writecominitdbschema-string-void),
-[sendComQuery](#-sendcomqueryrowsql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-noconverterror-booleanfalse-promiseresultsetsinternalrow),
-[sendThreeQueries](#-sendthreequeriesrowprestmtid-number-prestmtparams-unknown--undefined-prequery-uint8array--string--undefined-ignoreprequeryerror-boolean-sql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-promiseresultsetsinternalrow),
-[sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-promiseresultsetsinternalrow),
+[sendComQuery](#-sendcomqueryrowsql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-noconverterror-booleanfalse-maxcolumnlen-numberthismaxcolumnlen-retrylockwaittimeout-booleanthisdsnretrylockwaittimeout-retryquerytimes-numberthisretryquerytimes-datesasstring-booleanthisdsndatesasstring-correctdates-booleanthisdsncorrectdates-promiseresultsetsinternalrow),
+[sendThreeQueries](#-sendthreequeriesrowprestmtid-number-prestmtparams-unknown--undefined-prequery-uint8array--string--undefined-ignoreprequeryerror-boolean-sql-sqlsource-rowtype-rowtyperowtypevoid-letreturnundefined-booleanfalse-multistatements-setoption--multistatementsmultistatementsno_matter-maxcolumnlen-numberthismaxcolumnlen-retrylockwaittimeout-booleanthisdsnretrylockwaittimeout-retryquerytimes-numberthisretryquerytimes-datesasstring-booleanthisdsndatesasstring-correctdates-booleanthisdsncorrectdates-promiseresultsetsinternalrow),
+[sendComStmtPrepare](#-sendcomstmtpreparerowsql-sqlsource-putparamsto-unknown--undefined-rowtype-rowtype-letreturnundefined-booleanfalse-skipcolumns-booleanfalse-maxcolumnlen-numberthismaxcolumnlen-datesasstring-booleanthisdsndatesasstring-correctdates-booleanthisdsncorrectdates-promiseresultsetsinternalrow),
 [disposePreparedStmt](#-disposepreparedstmtstmtid-number-void),
-[execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-promisevoid),
-[fetch](#-fetchrowrowtype-rowtype-isforserialize-booleanfalse-promiserow),
+[execStmt](#-execstmtresultsets-resultsetsinternalunknown-params-param-correctdates-boolean-promisevoid),
+[fetch](#-fetchrowrowtype-rowtype-maxcolumnlen-numberthismaxcolumnlen-datesasstring-booleanthisdsndatesasstring-isforserialize-booleanfalse-promiserow),
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
 [end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8arrayarraybufferlike--myprotocol),
 [forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
@@ -103,7 +103,7 @@
 
 
 
-#### ⚙ sendComQuery\<Row>(sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER, noConvertError: `boolean`=false): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
+#### ⚙ sendComQuery\<Row>(sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER, noConvertError: `boolean`=false, maxColumnLen: `number`=this.\#maxColumnLen, retryLockWaitTimeout: `boolean`=this.dsn.retryLockWaitTimeout, retryQueryTimes: `number`=this.\#retryQueryTimes, datesAsString: `boolean`=this.dsn.datesAsString, correctDates: `boolean`=this.dsn.correctDates): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
 
 > On success returns ResultsetsProtocol<Row>.
 > On error throws exception.
@@ -111,7 +111,7 @@
 
 
 
-#### ⚙ sendThreeQueries\<Row>(preStmtId: `number`, preStmtParams: `unknown`\[] | `undefined`, prequery: Uint8Array | `string` | `undefined`, ignorePrequeryError: `boolean`, sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
+#### ⚙ sendThreeQueries\<Row>(preStmtId: `number`, preStmtParams: `unknown`\[] | `undefined`, prequery: Uint8Array | `string` | `undefined`, ignorePrequeryError: `boolean`, sql: [SqlSource](../type.SqlSource/README.md), rowType: [RowType](../enum.RowType/README.md)=RowType.VOID, letReturnUndefined: `boolean`=false, multiStatements: [SetOption](../enum.SetOption/README.md) | [MultiStatements](../enum.MultiStatements/README.md)=MultiStatements.NO\_MATTER, maxColumnLen: `number`=this.\#maxColumnLen, retryLockWaitTimeout: `boolean`=this.dsn.retryLockWaitTimeout, retryQueryTimes: `number`=this.\#retryQueryTimes, datesAsString: `boolean`=this.dsn.datesAsString, correctDates: `boolean`=this.dsn.correctDates): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
 
 > Send 2 or 3 queries in 1 round-trip.
 > First sends preStmt (if preStmtId >= 0) defined by `preStmtId` and `preStmtParams`.
@@ -124,7 +124,7 @@
 
 
 
-#### ⚙ sendComStmtPrepare\<Row>(sql: [SqlSource](../type.SqlSource/README.md), putParamsTo: `unknown`\[] | `undefined`, rowType: [RowType](../enum.RowType/README.md), letReturnUndefined: `boolean`=false, skipColumns: `boolean`=false): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
+#### ⚙ sendComStmtPrepare\<Row>(sql: [SqlSource](../type.SqlSource/README.md), putParamsTo: `unknown`\[] | `undefined`, rowType: [RowType](../enum.RowType/README.md), letReturnUndefined: `boolean`=false, skipColumns: `boolean`=false, maxColumnLen: `number`=this.\#maxColumnLen, datesAsString: `boolean`=this.dsn.datesAsString, correctDates: `boolean`=this.dsn.correctDates): Promise\<[ResultsetsInternal](../class.ResultsetsInternal/README.md)\<Row>>
 
 > On success returns ResultsetsProtocol<Row>.
 > On error throws exception.
@@ -138,11 +138,11 @@
 
 
 
-#### ⚙ execStmt(resultsets: [ResultsetsInternal](../class.ResultsetsInternal/README.md)\<`unknown`>, params: [Param](../type.Param/README.md)\[]): Promise\<`void`>
+#### ⚙ execStmt(resultsets: [ResultsetsInternal](../class.ResultsetsInternal/README.md)\<`unknown`>, params: [Param](../type.Param/README.md)\[], correctDates: `boolean`): Promise\<`void`>
 
 
 
-#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md), isForSerialize: `boolean`=false): Promise\<Row>
+#### ⚙ fetch\<Row>(rowType: [RowType](../enum.RowType/README.md), maxColumnLen: `number`=this.\#maxColumnLen, datesAsString: `boolean`=this.dsn.datesAsString, isForSerialize: `boolean`=false): Promise\<Row>
 
 
 

@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.24.0/mod.ts"
 ```
 
 ## This class has
@@ -27,27 +27,27 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
 [forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus),
 [killQuery](#-killquery-promiseboolean),
 [use](#-useschema-string-void),
-[query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord),
-[queryMap](#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype),
-[queryArr](#-queryarrcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype),
-[queryCol](#-querycolcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype),
-[queryVoid](#-queryvoidsql-sqlsource-params-params-promiseresultsetsvoid),
-[queries](#-queriescolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromiserecord),
-[queriesMap](#-queriesmapcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisemapstring-columntype),
-[queriesArr](#-queriesarrcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype),
-[queriesCol](#-queriescolcolumntypecolumnvaluesql-sqlsource-params-params-resultsetspromisecolumntype),
-[queriesVoid](#-queriesvoidsql-sqlsource-params-params-promiseresultsetsvoid),
-[makeLastColumnReadable](#-makelastcolumnreadablecolumntypecolumnvaluesql-sqlsource-params-params-promiseany),
-[prepare](#-preparecolumntypecolumnvaluesql-sqlsource-promiseresultsetsrecord),
-[prepareMap](#-preparemapcolumntypecolumnvaluesql-sqlsource-promiseresultsetsmapstring-columntype),
-[prepareArr](#-preparearrcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype),
-[prepareCol](#-preparecolcolumntypecolumnvaluesql-sqlsource-promiseresultsetscolumntype),
-[prepareVoid](#-preparevoidsql-sqlsource-promiseresultsetsvoid),
-[forPrepared](#-forpreparedcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsrecordstring-columntype--promiset-promiset),
-[forPreparedMap](#-forpreparedmapcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsmapstring-columntype--promiset-promiset),
-[forPreparedArr](#-forpreparedarrcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-promiset),
-[forPreparedCol](#-forpreparedcolcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-promiset),
-[forPreparedVoid](#-forpreparedvoidtsql-sqlsource-callback-prepared-resultsetsvoid--promiset-promiset),
+[query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecord),
+[queryMap](#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisemapstring-columntype),
+[queryArr](#-queryarrcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
+[queryCol](#-querycolcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
+[queryVoid](#-queryvoidsql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid),
+[queries](#-queriescolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecord),
+[queriesMap](#-queriesmapcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisemapstring-columntype),
+[queriesArr](#-queriesarrcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
+[queriesCol](#-queriescolcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
+[queriesVoid](#-queriesvoidsql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid),
+[makeLastColumnReadable](#-makelastcolumnreadablecolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-promiseany),
+[prepare](#-preparecolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetsrecord),
+[prepareMap](#-preparemapcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetsmapstring-columntype),
+[prepareArr](#-preparearrcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetscolumntype),
+[prepareCol](#-preparecolcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetscolumntype),
+[prepareVoid](#-preparevoidsql-sqlsource-queryoptions-queryoptionsvoid-promiseresultsetsvoid),
+[forPrepared](#-forpreparedcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsrecordstring-columntype--promiset-queryoptions-queryoptions-promiset),
+[forPreparedMap](#-forpreparedmapcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetsmapstring-columntype--promiset-queryoptions-queryoptions-promiset),
+[forPreparedArr](#-forpreparedarrcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-queryoptions-queryoptions-promiset),
+[forPreparedCol](#-forpreparedcolcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-queryoptions-queryoptions-promiset),
+[forPreparedVoid](#-forpreparedvoidtsql-sqlsource-callback-prepared-resultsetsvoid--promiset-queryoptions-queryoptionsvoid-promiset),
 [startTrx](#-starttrxoptions-readonly-boolean-xaid-string-xaid1-string-promisevoid),
 [savepoint](#-savepoint-number),
 [prepareCommit](#-preparecommit-promisevoid),
@@ -55,7 +55,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
 [commit](#-commitandchain-booleanfalse-promisevoid),
 [setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void)
 - protected property [pendingTrxSql](#-protected-pendingtrxsql-string)
-- [7 deprecated symbols](#-deprecated-executesql-sqlsource-params-params-promiseresultsetsvoid)
+- [7 deprecated symbols](#-deprecated-executesql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid)
 
 
 #### 🔧 `constructor`(dsn: [Dsn](../class.Dsn/README.md), pool: [Pool](../class.Pool/README.md))
@@ -171,89 +171,89 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
 
 
 
-#### ⚙ query\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
+#### ⚙ query\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
 
 
 
-#### ⚙ queryMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+#### ⚙ queryMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
 
 
 
-#### ⚙ queryArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType\[]>
+#### ⚙ queryArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType\[]>
 
 
 
-#### ⚙ queryCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType>
+#### ⚙ queryCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType>
 
 
 
-#### ⚙ queryVoid(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
+#### ⚙ queryVoid(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
 
 
 
-#### ⚙ queries\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
+#### ⚙ queries\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
 
 
 
-#### ⚙ queriesMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
+#### ⚙ queriesMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Map\<`string`, ColumnType>>
 
 
 
-#### ⚙ queriesArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType\[]>
+#### ⚙ queriesArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType\[]>
 
 
 
-#### ⚙ queriesCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType>
+#### ⚙ queriesCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<ColumnType>
 
 
 
-#### ⚙ queriesVoid(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
+#### ⚙ queriesVoid(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
 
 
 
-#### ⚙ makeLastColumnReadable\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<`any`>
+#### ⚙ makeLastColumnReadable\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<`any`>
 
 > Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 
 
 
-#### ⚙ prepare\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Record>>
+#### ⚙ prepare\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Record>>
 
 
 
-#### ⚙ prepareMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Map\<`string`, ColumnType>>>
+#### ⚙ prepareMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Map\<`string`, ColumnType>>>
 
 
 
-#### ⚙ prepareArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<ColumnType\[]>>
+#### ⚙ prepareArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<ColumnType\[]>>
 
 
 
-#### ⚙ prepareCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<ColumnType>>
+#### ⚙ prepareCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<ColumnType>>
 
 
 
-#### ⚙ prepareVoid(sql: [SqlSource](../type.SqlSource/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
+#### ⚙ prepareVoid(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
 
 
 
-#### ⚙ forPrepared\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<Record\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+#### ⚙ forPrepared\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<Record\<`string`, ColumnType>>) => Promise\<T>, queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<T>
 
 
 
-#### ⚙ forPreparedMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<Map\<`string`, ColumnType>>) => Promise\<T>): Promise\<T>
+#### ⚙ forPreparedMap\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<Map\<`string`, ColumnType>>) => Promise\<T>, queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<T>
 
 
 
-#### ⚙ forPreparedArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<ColumnType\[]>) => Promise\<T>): Promise\<T>
+#### ⚙ forPreparedArr\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<ColumnType\[]>) => Promise\<T>, queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<T>
 
 
 
-#### ⚙ forPreparedCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<ColumnType>) => Promise\<T>): Promise\<T>
+#### ⚙ forPreparedCol\<ColumnType=[ColumnValue](../type.ColumnValue/README.md), T=`unknown`>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<ColumnType>) => Promise\<T>, queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<T>
 
 
 
-#### ⚙ forPreparedVoid\<T>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<`void`>) => Promise\<T>): Promise\<T>
+#### ⚙ forPreparedVoid\<T>(sql: [SqlSource](../type.SqlSource/README.md), callback: (prepared: [Resultsets](../class.Resultsets/README.md)\<`void`>) => Promise\<T>, queryOptions?: [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md)): Promise\<T>
 
 
 
@@ -319,13 +319,13 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
 
 <div style="opacity:0.6">
 
-#### ⚙ `deprecated` execute(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
+#### ⚙ `deprecated` execute(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<`void`>>
 
 > Alias of queryVoid().
 
 
 
-#### ⚙ `deprecated` makeLastColumnReader\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md)): Promise\<`any`>
+#### ⚙ `deprecated` makeLastColumnReader\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<`any`>
 
 > Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 > 

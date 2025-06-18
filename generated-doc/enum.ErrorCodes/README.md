@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ErrorCodes} from "https://deno.land/x/office_spirit_mysql@v0.23.1/mod.ts"
+import {ErrorCodes} from "https://deno.land/x/office_spirit_mysql@v0.24.0/mod.ts"
 ```
 
 #### ER\_ERROR\_FIRST = <mark>1000</mark>
