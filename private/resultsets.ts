@@ -218,7 +218,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	hasMoreInternal = false;
 	storedResultsets: StoredResultsets<Row> | undefined;
 
-	constructor(public rowType: RowType)
+	constructor(readonly rowType: RowType, readonly maxColumnLen: number, readonly datesAsString: boolean, readonly correctDates: boolean)
 	{	super();
 	}
 
@@ -244,7 +244,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				if (!this.protocol)
 				{	throw new CanceledError(`Connection terminated`);
 				}
-				let promise = this.protocol.execStmt(this, params);
+				let promise = this.protocol.execStmt(this, params, this.correctDates);
 				if (this.rowType == RowType.VOID)
 				{	promise = promise.then(() => this.discard());
 				}
@@ -254,7 +254,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	const {storedResultsets} = this;
+	{	const {storedResultsets, maxColumnLen, datesAsString} = this;
 		if (storedResultsets)
 		{	if (storedResultsets.hasMore)
 			{	yield *storedResultsets[Symbol.asyncIterator]();
@@ -268,7 +268,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 						{	throw new CanceledError(`Connection terminated`);
 						}
 						this.protocol.totalBytesInPacket = 0;
-						const row: Row|undefined = await this.protocol.fetch(this.rowType);
+						const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, datesAsString);
 						this.lastRowByteLength = this.protocol?.totalBytesInPacket ?? 0;
 						if (row === undefined)
 						{	break;
@@ -279,7 +279,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				finally
 				{	if (this.hasMoreInternal)
 					{	while (this.protocol)
-						{	const row: Row|undefined = await this.protocol.fetch(this.rowType);
+						{	const row: Row|undefined = await this.protocol.fetch(this.rowType, maxColumnLen, datesAsString);
 							if (row === undefined)
 							{	break;
 							}
@@ -330,11 +330,10 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	override async store(allResultsets=false): Promise<this>
 	{	if (!this.storedResultsets)
-		{	const {rowType} = this;
+		{	const {rowType, protocol, maxColumnLen, datesAsString} = this;
 			if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
 			{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
 			}
-			const {protocol} = this;
 			if (protocol) // if there are resultsets to read
 			{	const storedRows = new Array<ColumnValue[]>; // read rows to here
 				const storeResultsetIfBigger = protocol.dsn.storeResultsetIfBigger>=0 ? protocol.dsn.storeResultsetIfBigger : DEFAULT_STORE_RESULTSET_IF_BIGGER;
@@ -344,11 +343,11 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				const resultsetsInfo = [curResultsetsInfo];
 				let serializer: MyProtocolReaderWriterSerializer | undefined;
 				let error: Error | undefined;
-				const storedResultsets = new StoredResultsets(this, rowType, protocol.dsn.datesAsString, protocol, decoder, resultsetsInfo, storedRows);
+				const storedResultsets = new StoredResultsets(this, rowType, datesAsString, protocol, decoder, resultsetsInfo, storedRows);
 				this.storedResultsets = storedResultsets;
 				try
 				{	while (true)
-					{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, true);
+					{	const row: ColumnValue[]|undefined = await protocol.fetch(RowType.ARRAY, maxColumnLen, datesAsString, true);
 						if (row === undefined)
 						{	if (!allResultsets || !this.hasMoreInternal)
 							{	break;
@@ -360,7 +359,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 						}
 						curResultsetsInfo.nRows++;
 						if (serializer)
-						{	await serializer.serializeRowBinary(row, curResultsetsInfo.columns, protocol.dsn.datesAsString, protocol);
+						{	await serializer.serializeRowBinary(row, curResultsetsInfo.columns, datesAsString, protocol);
 						}
 						else
 						{	storedRows[storedRows.length] = row;
@@ -376,7 +375,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 								for (const {nRows, columns} of resultsetsInfo)
 								{	for (const end=i+nRows; i<end; i++)
 									{	const row = storedRows[i];
-										await serializer.serializeRowBinary(row, columns, protocol.dsn.datesAsString, protocol);
+										await serializer.serializeRowBinary(row, columns, datesAsString, protocol);
 									}
 								}
 								storedRows.length = 0;

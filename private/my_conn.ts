@@ -17,6 +17,16 @@ export type OnBeforeCommit = (conns: readonly MyConn[]) => Promise<void>;
 export const DEFAULT_MAX_CONNS = 250;
 export const SAVEPOINT_ENUM_SESSION_FROM = 0x4000_0000;
 
+type QueryOptionsVoid =
+{	retryLockWaitTimeout?: boolean;
+	retryQueryTimes?: number;
+};
+type QueryOptions = QueryOptionsVoid &
+{	maxColumnLen?: number;
+	datesAsString?: boolean;
+	correctDates?: boolean;
+};
+
 const C_COMMA = ','.charCodeAt(0);
 const C_AT = '@'.charCodeAt(0);
 const C_BACKTICK = '`'.charCodeAt(0);
@@ -256,90 +266,90 @@ export class MyConn
 		}
 	}
 
-	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+			{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
 
-	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+			{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
 
-	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+			{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
 
-	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+			{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
 			}
 		);
 	}
 
-	queryVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
+	queryVoid(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
 	}
 
-	queries<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queries<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<Record<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Record<string, ColumnType>>(sql, params, RowType.OBJECT, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_ON).then(y, n);
 			}
 		);
 	}
 
-	queriesMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queriesMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<Map<string, ColumnType>>
 		(	(y, n) =>
-			{	this.#doQuery<Map<string, ColumnType>>(sql, params, RowType.MAP, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_ON).then(y, n);
 			}
 		);
 	}
 
-	queriesArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queriesArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<ColumnType[]>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType[]>(sql, params, RowType.ARRAY, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_ON).then(y, n);
 			}
 		);
 	}
 
-	queriesCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
+	queriesCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
 	{	return new ResultsetsPromise<ColumnType>
 		(	(y, n) =>
-			{	this.#doQuery<ColumnType>(sql, params, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+			{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_ON).then(y, n);
 			}
 		);
 	}
 
-	queriesVoid(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_ON);
+	queriesVoid(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_ON);
 	}
 
 	/**	Alias of queryVoid().
 		@deprecated
 	 **/
-	execute(sql: SqlSource, params?: Params): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
+	execute(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
 	}
 
 	/**	Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 		@deprecated As `Deno.Reader` is deprecated, this method is deprecated as well.
 	 **/
-	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.#doQuery<Record<string, ColumnType|Reader>>(sql, params, RowType.LAST_COLUMN_READER, SetOption.MULTI_STATEMENTS_OFF);
+	async makeLastColumnReader<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|Reader>>(sql, params, queryOptions, RowType.LAST_COLUMN_READER, SetOption.MULTI_STATEMENTS_OFF);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
@@ -347,55 +357,55 @@ export class MyConn
 
 	/**	Stream column contents as `ReadableStream`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
 	 **/
-	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params)
-	{	const resultsets = await this.#doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, RowType.LAST_COLUMN_READABLE, SetOption.MULTI_STATEMENTS_OFF);
+	async makeLastColumnReadable<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
+	{	const resultsets = await this.#doQuery<Record<string, ColumnType|ReadableStream<Uint8Array>>>(sql, params, queryOptions, RowType.LAST_COLUMN_READABLE, SetOption.MULTI_STATEMENTS_OFF);
 		const it = resultsets[Symbol.asyncIterator]();
 		const {value, done} = await it.next();
 		return done ? undefined : value; // void -> undefined
 	}
 
-	prepare<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Record<string, ColumnType>>>
-	{	return this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
+	prepare<ColumnType=ColumnValue>(sql: SqlSource, queryOptions?: QueryOptions): Promise<Resultsets<Record<string, ColumnType>>>
+	{	return this.#doQuery<Record<string, ColumnType>>(sql, true, queryOptions, RowType.OBJECT, MultiStatements.NO_MATTER);
 	}
 
-	prepareMap<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<Map<string, ColumnType>>>
-	{	return this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
+	prepareMap<ColumnType=ColumnValue>(sql: SqlSource, queryOptions?: QueryOptions): Promise<Resultsets<Map<string, ColumnType>>>
+	{	return this.#doQuery<Map<string, ColumnType>>(sql, true, queryOptions, RowType.MAP, MultiStatements.NO_MATTER);
 	}
 
-	prepareArr<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType[]>>
-	{	return this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
+	prepareArr<ColumnType=ColumnValue>(sql: SqlSource, queryOptions?: QueryOptions): Promise<Resultsets<ColumnType[]>>
+	{	return this.#doQuery<ColumnType[]>(sql, true, queryOptions, RowType.ARRAY, MultiStatements.NO_MATTER);
 	}
 
-	prepareCol<ColumnType=ColumnValue>(sql: SqlSource): Promise<Resultsets<ColumnType>>
-	{	return this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
+	prepareCol<ColumnType=ColumnValue>(sql: SqlSource, queryOptions?: QueryOptions): Promise<Resultsets<ColumnType>>
+	{	return this.#doQuery<ColumnType>(sql, true, queryOptions, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
 	}
 
-	prepareVoid(sql: SqlSource): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
+	prepareVoid(sql: SqlSource, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
+	{	return this.#doQuery<void>(sql, true, queryOptions, RowType.VOID, MultiStatements.NO_MATTER);
 	}
 
-	async forPrepared<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	await using prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, RowType.OBJECT, MultiStatements.NO_MATTER);
+	async forPrepared<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Record<string, ColumnType>>) => Promise<T>, queryOptions?: QueryOptions): Promise<T>
+	{	await using prepared = await this.#doQuery<Record<string, ColumnType>>(sql, true, queryOptions, RowType.OBJECT, MultiStatements.NO_MATTER);
 		return await callback(prepared);
 	}
 
-	async forPreparedMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>): Promise<T>
-	{	await using prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, RowType.MAP, MultiStatements.NO_MATTER);
+	async forPreparedMap<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<Map<string, ColumnType>>) => Promise<T>, queryOptions?: QueryOptions): Promise<T>
+	{	await using prepared = await this.#doQuery<Map<string, ColumnType>>(sql, true, queryOptions, RowType.MAP, MultiStatements.NO_MATTER);
 		return await callback(prepared);
 	}
 
-	async forPreparedArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>): Promise<T>
-	{	await using prepared = await this.#doQuery<ColumnType[]>(sql, true, RowType.ARRAY, MultiStatements.NO_MATTER);
+	async forPreparedArr<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType[]>) => Promise<T>, queryOptions?: QueryOptions): Promise<T>
+	{	await using prepared = await this.#doQuery<ColumnType[]>(sql, true, queryOptions, RowType.ARRAY, MultiStatements.NO_MATTER);
 		return await callback(prepared);
 	}
 
-	async forPreparedCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>): Promise<T>
-	{	await using prepared = await this.#doQuery<ColumnType>(sql, true, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
+	async forPreparedCol<ColumnType=ColumnValue, T=unknown>(sql: SqlSource, callback: (prepared: Resultsets<ColumnType>) => Promise<T>, queryOptions?: QueryOptions): Promise<T>
+	{	await using prepared = await this.#doQuery<ColumnType>(sql, true, queryOptions, RowType.FIRST_COLUMN, MultiStatements.NO_MATTER);
 		return await callback(prepared);
 	}
 
-	async forPreparedVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>): Promise<T>
-	{	await using prepared = await this.#doQuery<void>(sql, true, RowType.VOID, MultiStatements.NO_MATTER);
+	async forPreparedVoid<T>(sql: SqlSource, callback: (prepared: Resultsets<void>) => Promise<T>, queryOptions?: QueryOptionsVoid): Promise<T>
+	{	await using prepared = await this.#doQuery<void>(sql, true, queryOptions, RowType.VOID, MultiStatements.NO_MATTER);
 		return await callback(prepared);
 	}
 
@@ -545,7 +555,7 @@ export class MyConn
 				}
 			}
 			if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS))
-			{	await this.#doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId, undefined, RowType.VOID, MultiStatements.NO_MATTER); // doQuery() will also flush this.pendingTrxSql
+			{	await this.#doQuery((isOfSession ? 'ROLLBACK TO s' : 'ROLLBACK TO p') + toPointId, undefined, undefined, RowType.VOID, MultiStatements.NO_MATTER); // doQuery() will also flush this.pendingTrxSql
 			}
 			else
 			{	throw new Error(`No such SAVEPOINT: ${isOfSession ? SAVEPOINT_ENUM_SESSION_FROM+toPointId : toPointId}`);
@@ -643,8 +653,13 @@ export class MyConn
 		this.#protocol?.setSqlLogger(this.#sqlLogger);
 	}
 
-	async #doQuery<Row>(sql: SqlSource, params: Params|true, rowType: RowType, multiStatements: SetOption|MultiStatements): Promise<ResultsetsInternal<Row>>
-	{	let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
+	async #doQuery<Row>(sql: SqlSource, params: Params|true, queryOptions: QueryOptions|undefined, rowType: RowType, multiStatements: SetOption|MultiStatements): Promise<ResultsetsInternal<Row>>
+	{	const maxColumnLen = queryOptions?.maxColumnLen ?? (isNaN(this.dsn.maxColumnLen) ? undefined : this.dsn.maxColumnLen);
+		const retryLockWaitTimeout = queryOptions?.retryLockWaitTimeout ?? this.dsn.retryLockWaitTimeout;
+		const retryQueryTimes = queryOptions?.retryQueryTimes ?? (isNaN(this.dsn.retryQueryTimes) ? undefined : this.dsn.retryQueryTimes);
+		const datesAsString = queryOptions?.datesAsString ?? this.dsn.datesAsString;
+		const correctDates = queryOptions?.correctDates ?? this.dsn.correctDates;
+		let nRetriesRemaining = this.dsn.maxConns || DEFAULT_MAX_CONNS;
 
 L:		while (true)
 		{	if (!this.#protocol)
@@ -676,7 +691,7 @@ L:		while (true)
 
 			if (!params)
 			{	// Text protocol query
-				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements);
+				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -686,7 +701,7 @@ L:		while (true)
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0);
+				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, false, maxColumnLen, datesAsString, correctDates);
 				if (resultsets)
 				{	return resultsets;
 				}
@@ -696,7 +711,7 @@ L:		while (true)
 				if (multiStatements == SetOption.MULTI_STATEMENTS_ON)
 				{	throw new Error(`Cannot prepare multiple statements (however you can use named parameters)`);
 				}
-				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true);
+				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true, maxColumnLen, datesAsString, correctDates);
 				if (resultsets)
 				{	try
 					{	await resultsets.exec(params);
@@ -714,8 +729,8 @@ L:		while (true)
 				if (values)
 				{	const resultsets =
 					(	!query1 ?
-						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements) :
-						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements)
+						await protocol.sendComQuery<Row>(sql, rowType, letReturnUndefined, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates) :
+						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, datesAsString, correctDates)
 					);
 					if (resultsets)
 					{	return resultsets;

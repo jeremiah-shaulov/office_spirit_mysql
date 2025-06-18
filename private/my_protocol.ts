@@ -513,10 +513,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	}
 
 	getTimezoneMsecOffsetFromSystem()
-	{	if (!this.dsn.correctDates)
-		{	return 0;
-		}
-		if (Number.isNaN(this.#timezoneMsecOffsetFromSystem))
+	{	if (Number.isNaN(this.#timezoneMsecOffsetFromSystem))
 		{	this.logger.warn(`Using system timezone to convert dates, that can lead to distortion if MySQL and Deno use different timezones. To respect MySQL timezone, execute "SET time_zone = '...'" statement as part of connection initialization. However this library can recognize such statement only if you're using MySQL 5.7+, and this doesn't work on MariaDB (at least up to 10.7).`);
 			this.#timezoneMsecOffsetFromSystem = 0;
 		}
@@ -979,11 +976,21 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComQuery<Row>(sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER, noConvertError=false)
+	async sendComQuery<Row>
+	(	sql: SqlSource,
+		rowType = RowType.VOID,
+		letReturnUndefined = false,
+		multiStatements: SetOption|MultiStatements = MultiStatements.NO_MATTER,
+		noConvertError = false,
+		maxColumnLen = this.#maxColumnLen,
+		retryLockWaitTimeout = this.dsn.retryLockWaitTimeout,
+		retryQueryTimes = this.#retryQueryTimes,
+		datesAsString = this.dsn.datesAsString,
+		correctDates = this.dsn.correctDates
+	)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
-		let nRetry = this.#retryQueryTimes;
 		while (true)
 		{	let error;
 			try
@@ -1028,7 +1035,7 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.start();
 				}
-				const resultsets = new ResultsetsInternal<Row>(rowType);
+				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
 				let state = await this.#readQueryResponse(resultsets, ReadPacketMode.REGULAR);
 				if (state != ProtocolState.IDLE)
 				{	resultsets.protocol = this;
@@ -1055,9 +1062,9 @@ L:		while (true)
 				if (sqlLoggerQuery)
 				{	await sqlLoggerQuery.end(error instanceof Error ? error: new Error(error+''), -1);
 				}
-				if (nRetry>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
-				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
-					nRetry--;
+				if (retryQueryTimes>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !retryLockWaitTimeout))
+				{	this.logger.warn(`Query failed and will be retried more ${retryQueryTimes} times: ${error.message}`);
+					retryQueryTimes--;
 					continue;
 				}
 				if (noConvertError)
@@ -1078,11 +1085,24 @@ L:		while (true)
 		Then it reads the results of the sent queries.
 		If one of the queries returned error, exception will be thrown (excepting the case when `ignorePrequeryError` was true, and `prequery` thrown error).
 	 **/
-	async sendThreeQueries<Row>(preStmtId: number, preStmtParams: unknown[]|undefined, prequery: Uint8Array|string|undefined, ignorePrequeryError: boolean, sql: SqlSource, rowType=RowType.VOID, letReturnUndefined=false, multiStatements: SetOption|MultiStatements=MultiStatements.NO_MATTER)
+	async sendThreeQueries<Row>
+	(	preStmtId: number,
+		preStmtParams: unknown[]|undefined,
+		prequery: Uint8Array|string|undefined,
+		ignorePrequeryError: boolean,
+		sql: SqlSource,
+		rowType = RowType.VOID,
+		letReturnUndefined = false,
+		multiStatements: SetOption|MultiStatements = MultiStatements.NO_MATTER,
+		maxColumnLen = this.#maxColumnLen,
+		retryLockWaitTimeout = this.dsn.retryLockWaitTimeout,
+		retryQueryTimes = this.#retryQueryTimes,
+		datesAsString = this.dsn.datesAsString,
+		correctDates = this.dsn.correctDates
+	)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
-		let nRetry = this.#retryQueryTimes;
 		while (true)
 		{	let error;
 			try
@@ -1104,7 +1124,7 @@ L:		while (true)
 					if (sqlLoggerQuery)
 					{	await sqlLoggerQuery.setStmtId(preStmtId);
 					}
-					await this.#sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams, sqlLoggerQuery);
+					await this.#sendComStmtExecute(preStmtId, preStmtParams.length, preStmtParams, sqlLoggerQuery, correctDates);
 				}
 				// Send prequery
 				if (prequery)
@@ -1146,7 +1166,7 @@ L:		while (true)
 					}
 				}
 				// Read prequery result
-				const resultsets = new ResultsetsInternal<Row>(rowType);
+				const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
 				let state = ProtocolState.IDLE;
 				if (prequery)
 				{	try
@@ -1207,9 +1227,9 @@ L:		while (true)
 			{	if (!error)
 				{	error = e;
 				}
-				if (nRetry>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !this.dsn.retryLockWaitTimeout))
-				{	this.logger.warn(`Query failed and will be retried more ${nRetry} times: ${error.message}`);
-					nRetry--;
+				if (retryQueryTimes>0 && (error instanceof SqlError) && error.canRetry==CanRetry.QUERY && !(error.errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT && !retryLockWaitTimeout))
+				{	this.logger.warn(`Query failed and will be retried more ${retryQueryTimes} times: ${error.message}`);
+					retryQueryTimes--;
 					preStmtId = -1;
 					prequery = undefined;
 					continue;
@@ -1224,7 +1244,16 @@ L:		while (true)
 		On error throws exception.
 		If `letReturnUndefined` and communication error occured on connection that was just taken form pool, returns undefined.
 	 **/
-	async sendComStmtPrepare<Row>(sql: SqlSource, putParamsTo: unknown[]|undefined, rowType: RowType, letReturnUndefined=false, skipColumns=false)
+	async sendComStmtPrepare<Row>
+	(	sql: SqlSource,
+		putParamsTo: unknown[]|undefined,
+		rowType: RowType,
+		letReturnUndefined = false,
+		skipColumns = false,
+		maxColumnLen = this.#maxColumnLen,
+		datesAsString = this.dsn.datesAsString,
+		correctDates = this.dsn.correctDates
+	)
 	{	const isFromPool = this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
@@ -1259,7 +1288,7 @@ L:		while (true)
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.start();
 			}
-			const resultsets = new ResultsetsInternal<Row>(rowType);
+			const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, datesAsString, correctDates);
 			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns);
 			resultsets.protocol = this;
 			this.#setState(ProtocolState.IDLE);
@@ -1288,7 +1317,7 @@ L:		while (true)
 		}
 	}
 
-	async #sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined)
+	async #sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined, correctDates: boolean)
 	{	const bitmaskAndTypesSize = (nPlaceholders >> 3) + (nPlaceholders&7 ? 1 : 0) + (nPlaceholders << 1); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (0 or 1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
 		let payloadLength = 11 + bitmaskAndTypesSize; // COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 11
 		const emptyBlobs = new Array<number>;
@@ -1568,7 +1597,7 @@ L:		while (true)
 				}
 				else if (param instanceof Date)
 				{	let date = param;
-					const timezoneMsecOffsetFromSystem = this.getTimezoneMsecOffsetFromSystem();
+					const timezoneMsecOffsetFromSystem = !correctDates ? 0 : this.getTimezoneMsecOffsetFromSystem();
 					if (timezoneMsecOffsetFromSystem != 0)
 					{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
 					}
@@ -1620,7 +1649,7 @@ L:		while (true)
 		}
 	}
 
-	async execStmt(resultsets: ResultsetsInternal<unknown>, params: Param[])
+	async execStmt(resultsets: ResultsetsInternal<unknown>, params: Param[], correctDates: boolean)
 	{	const {isPreparedStmt, stmtId, nPlaceholders} = resultsets;
 		if (stmtId < 0)
 		{	throw new SqlError(isPreparedStmt ? 'This prepared statement disposed' : 'Not a prepared statement');
@@ -1640,7 +1669,7 @@ L:		while (true)
 				{	await sqlLoggerQuery.setStmtId(stmtId);
 				}
 			}
-			await this.#sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery);
+			await this.#sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery, correctDates);
 			// Read Binary Protocol Resultset
 			const type = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT); // throw if ERR packet
 			if (sqlLoggerQuery)
@@ -1691,7 +1720,12 @@ L:		while (true)
 		}
 	}
 
-	async fetch<Row>(rowType: RowType, isForSerialize=false): Promise<Row | undefined>
+	async fetch<Row>
+	(	rowType: RowType,
+		maxColumnLen = this.#maxColumnLen,
+		datesAsString = this.dsn.datesAsString,
+		isForSerialize = false
+	): Promise<Row | undefined>
 	{	switch (this.#state)
 		{	case ProtocolState.IDLE:
 			case ProtocolState.IDLE_IN_POOL:
@@ -1727,12 +1761,12 @@ L:		while (true)
 			{	// Text protocol row
 				this.unput(type & 0xFF); // clear PACKET_NOT_READ_BIT
 				// deno-lint-ignore no-var no-inner-declarations
-				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, isForSerialize);
+				var {row, lastColumnReaderLen} = await this.deserializeRowText(rowType, columns, datesAsString, this, maxColumnLen, isForSerialize);
 			}
 			else
 			{	// Binary protocol row
 				// deno-lint-ignore no-var no-inner-declarations no-redeclare
-				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, this.dsn.datesAsString, this, this.#maxColumnLen, isForSerialize);
+				var {row, lastColumnReaderLen} = await this.deserializeRowBinary(rowType, columns, datesAsString, this, maxColumnLen, isForSerialize);
 			}
 			if (rowType==RowType.LAST_COLUMN_READER || rowType==RowType.LAST_COLUMN_READABLE)
 			{	// deno-lint-ignore no-this-alias
