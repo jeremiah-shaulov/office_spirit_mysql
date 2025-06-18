@@ -2,4 +2,4 @@
 
 [Documentation Index](../README.md)
 
-`type` QueryOptions = [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md) \& \{maxColumnLen?: `number`, datesAsString?: `boolean`, correctDates?: `boolean`}
+`type` QueryOptions = [QueryOptionsVoid](../private.type.QueryOptionsVoid/README.md) \& \{maxColumnLen?: `number`, jsonAsString?: `boolean`, datesAsString?: `boolean`, correctDates?: `boolean`}

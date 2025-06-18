@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.24.0/mod.ts"
+import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.25.0/mod.ts"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.
@@ -23,6 +23,7 @@ Possible parameters:
 - [ignoreSpace](../class.Dsn/README.md#-accessor-ignorespace-boolean)
 - [retryLockWaitTimeout](../class.Dsn/README.md#-accessor-retrylockwaittimeout-boolean)
 - [retryQueryTimes](../class.Dsn/README.md#-accessor-retryquerytimes-number)
+- [jsonAsString](../class.Dsn/README.md#-accessor-jsonasstring-boolean)
 - [datesAsString](../class.Dsn/README.md#-accessor-datesasstring-boolean)
 - [correctDates](../class.Dsn/README.md#-accessor-correctdates-boolean)
 - [storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number)
@@ -30,7 +31,7 @@ Possible parameters:
 ## This class has
 
 - [constructor](#-constructordsn-string--dsn)
-- 24 properties:
+- 25 properties:
 [hostname](#-accessor-hostname-string),
 [port](#-accessor-port-number),
 [username](#-accessor-username-string),
@@ -47,6 +48,7 @@ Possible parameters:
 [ignoreSpace](#-accessor-ignorespace-boolean),
 [retryLockWaitTimeout](#-accessor-retrylockwaittimeout-boolean),
 [retryQueryTimes](#-accessor-retryquerytimes-number),
+[jsonAsString](#-accessor-jsonasstring-boolean),
 [datesAsString](#-accessor-datesasstring-boolean),
 [correctDates](#-accessor-correctdates-boolean),
 [storeResultsetIfBigger](#-accessor-storeresultsetifbigger-number),
@@ -167,6 +169,14 @@ Possible parameters:
 > 
 > Automatically reissue queries this number of attempts, if error was "deadlock" in autocommit mode, or (if `retryLockWaitTimeout` was set) "lock wait timeout" in both modes.
 > Please note, that this will also rerun queries like `CALL`.
+
+
+
+#### 📄 `accessor` jsonAsString: `boolean`
+
+> Default value: `false`
+> 
+> If present, json columns will not be parsed when selected from MySQL, so they'll be returned as strings.
 
 
 

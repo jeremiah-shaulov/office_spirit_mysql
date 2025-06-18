@@ -7,9 +7,9 @@ Methods that don't exist on Resultsets are for internal use.
 
 ## This class has
 
-- [constructor](#-constructorrowtype-rowtype-maxcolumnlen-number-datesasstring-boolean-correctdates-boolean)
+- [constructor](#-constructorrowtype-rowtype-maxcolumnlen-number-jsonasstring-boolean-datesasstring-boolean-correctdates-boolean)
 - [destructor](#-override-symbolasyncdispose-promisevoid)
-- 10 properties:
+- 11 properties:
 [protocol](#-protocol-myprotocol--undefined),
 [isPreparedStmt](#-ispreparedstmt-boolean),
 [stmtId](#-stmtid-number),
@@ -17,6 +17,7 @@ Methods that don't exist on Resultsets are for internal use.
 [storedResultsets](#-storedresultsets-storedresultsetsrow--undefined),
 [rowType](#-readonly-rowtype-rowtype),
 [maxColumnLen](#-readonly-maxcolumnlen-number),
+[jsonAsString](#-readonly-jsonasstring-boolean),
 [datesAsString](#-readonly-datesasstring-boolean),
 [correctDates](#-readonly-correctdates-boolean),
 [hasMore](#-override-get-hasmore-boolean)
@@ -31,7 +32,7 @@ Methods that don't exist on Resultsets are for internal use.
 - 14 inherited members from [Resultsets](../class.Resultsets/README.md)
 
 
-#### 🔧 `constructor`(rowType: [RowType](../enum.RowType/README.md), maxColumnLen: `number`, datesAsString: `boolean`, correctDates: `boolean`)
+#### 🔧 `constructor`(rowType: [RowType](../enum.RowType/README.md), maxColumnLen: `number`, jsonAsString: `boolean`, datesAsString: `boolean`, correctDates: `boolean`)
 
 
 
@@ -66,6 +67,10 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 #### 📄 `readonly` maxColumnLen: `number`
+
+
+
+#### 📄 `readonly` jsonAsString: `boolean`
 
 
 
