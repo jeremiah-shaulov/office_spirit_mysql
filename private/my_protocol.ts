@@ -13,6 +13,7 @@ import {RdStream} from './deps.ts';
 import {Closer, Reader} from './deno_ifaces.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
 import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
+import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
@@ -889,7 +890,7 @@ L:		while (true)
 			pendingCloseStmts.length = i;
 			if (this.bufferEnd > this.buffer.length/2)
 			{	const promise = this.send();
-				return !logPromise ? promise : Promise.all([logPromise, promise]);
+				return !logPromise ? promise : promiseAllSettledThrow([logPromise, promise]);
 			}
 			return logPromise;
 		}
@@ -918,7 +919,10 @@ L:		while (true)
 		{	await this.#readPacket();
 		}
 		catch (e)
-		{	if ((e instanceof SqlError) && e.message=='Unknown command')
+		{	if (!(e instanceof SqlError))
+			{	throw e; // rethrow non-SQL error
+			}
+			if (e.message == 'Unknown command')
 			{	this.logger.warn(`Couldn't reset connection state. This is only supported on MySQL 5.7+ and MariaDB 10.2+`, e);
 				isOk = false;
 			}

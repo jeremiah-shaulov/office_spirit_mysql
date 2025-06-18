@@ -4,6 +4,7 @@ import {MyProtocolReader} from './my_protocol_reader.ts';
 import {RdStream} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
+import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
 
@@ -298,7 +299,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await this.send();
 				}
 				else
-				{	await Promise.all([logData(data), this.send()]);
+				{	await promiseAllSettledThrow([logData(data), this.send()]);
 				}
 				return false;
 			}
@@ -369,7 +370,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				{	await this.send();
 				}
 				else
-				{	await Promise.all([logData(this.buffer.subarray(from, this.bufferEnd)), this.send()]);
+				{	await promiseAllSettledThrow([logData(this.buffer.subarray(from, this.bufferEnd)), this.send()]);
 				}
 				return false;
 			}
@@ -392,7 +393,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							{	await this.writer.write(part);
 							}
 							else
-							{	await Promise.all([logData(part), this.writer.write(part)]);
+							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
 							}
 							dataChunkLen -= written;
 						}
@@ -417,7 +418,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 						}
 						else
-						{	await Promise.all([logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
+						{	await promiseAllSettledThrow([logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
 						}
 					}
 					else
@@ -432,7 +433,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							{	await this.writer.write(part);
 							}
 							else
-							{	await Promise.all([logData(part), this.writer.write(part)]);
+							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
 							}
 						}
 					}
@@ -503,7 +504,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length));
 					}
 					else
-					{	await Promise.all([logData(value), this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length))]);
+					{	await promiseAllSettledThrow([logData(value), this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length))]);
 					}
 				}
 				catch (e)

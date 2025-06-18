@@ -8,6 +8,7 @@ import {XaIdGen} from "./xa_id_gen.ts";
 import {SafeSqlLogger} from "./sql_logger.ts";
 import {Interval} from './interval.ts';
 import {HealthStatus, TRACK_HEALH_STATUS_FOR_PERIOD_SEC} from './health_status.ts';
+import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 
 const SAVE_UNUSED_BUFFERS = 10;
 const DEFAULT_MAX_CONNS_WAIT_QUEUE = 50;
@@ -521,7 +522,7 @@ L:		for (const info of takeCareOfDisconneced)
 		if (this.#nBusyAll+this.#nIdleAll+this.#takeCareOfDisconneced.length == 0)
 		{	this.#hCommonTask.stop();
 		}
-		await Promise.all(promises);
+		await promiseAllSettledThrow(promises);
 	}
 
 	/**	Find dangling XAs (where owner connection id is dead), and rollback them.
