@@ -1660,6 +1660,7 @@ L:		while (true)
 		this.#setQueryingState();
 		const noBackslashEscapes = (this.statusFlags & StatusFlags.SERVER_STATUS_NO_BACKSLASH_ESCAPES) != 0;
 		let sqlLoggerQuery: SafeSqlLoggerQuery | undefined;
+		let started = false;
 		try
 		{	debugAssert(!resultsets.hasMoreInternal); // because setQueryingState() ensures that current resultset is read to the end
 			let promise;
@@ -1673,11 +1674,12 @@ L:		while (true)
 				}
 			}
 			await this.#sendComStmtExecute(stmtId, nPlaceholders, params, sqlLoggerQuery, correctDates);
+			if (sqlLoggerQuery)
+			{	started = true;
+				await sqlLoggerQuery.start();
+			}
 			// Read Binary Protocol Resultset
 			const type = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT); // throw if ERR packet
-			if (sqlLoggerQuery)
-			{	await sqlLoggerQuery.start();
-			}
 			let rowNColumns = type & 0xFF; // clear PACKET_NOT_READ_BIT
 			if (rowNColumns >= 0xFB)
 			{	this.unput(rowNColumns);
@@ -1717,7 +1719,10 @@ L:		while (true)
 		}
 		catch (e)
 		{	if (sqlLoggerQuery)
-			{	await sqlLoggerQuery.end(e instanceof Error ? e : new Error(e+''), -1);
+			{	if (!started)
+				{	await sqlLoggerQuery.start();
+				}
+				await sqlLoggerQuery.end(e instanceof Error ? e : new Error(e+''), -1);
 			}
 			this.#rethrowError(e);
 		}
