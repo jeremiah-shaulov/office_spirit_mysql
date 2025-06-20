@@ -623,8 +623,7 @@ class ProtocolsFactory
 				{	const wait = Math.min(reconnectInterval, connectTill-now);
 					logger.warn(`Couldn't connect to ${dsn}. Will retry after ${wait} msec.`, e);
 					const curRetryingPromise = new Promise<true>
-					(	y =>
-						setTimeout
+					(	y => setTimeout
 						(	() =>
 							{	this.#curRetryingPromises.delete(dsnHash);
 								y(true);
