@@ -1,4 +1,4 @@
-import {ColumnFlags, MysqlType} from './constants.ts';
+import {Charset, MysqlType} from './constants.ts';
 import {type ColumnValue} from './resultsets.ts';
 
 const NONSAFE_INTEGER_MIN_LEN = Math.min((Number.MIN_SAFE_INTEGER+'').length, (Number.MAX_SAFE_INTEGER+'').length) - 1;
@@ -20,7 +20,7 @@ const C_E_CAP = 'E'.charCodeAt(0);
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function convColumnValue(value: Uint8Array, type: MysqlType, flags: number, decoder: TextDecoder, jsonAsString: boolean, datesAsString: boolean, isForSerialize: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
+export function convColumnValue(value: Uint8Array, type: MysqlType, charsetId: Charset, decoder: TextDecoder, jsonAsString: boolean, datesAsString: boolean, isForSerialize: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
 {	switch (type)
 	{	case MysqlType.MYSQL_TYPE_NULL:
 			return null;
@@ -77,7 +77,7 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, flags: numbe
 			return dataToTime(value);
 
 		default:
-			if ((flags & ColumnFlags.BINARY) && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL && type!=MysqlType.MYSQL_TYPE_DECIMAL || isForSerialize)
+			if (charsetId==Charset.BINARY && type!=MysqlType.MYSQL_TYPE_NEWDECIMAL && type!=MysqlType.MYSQL_TYPE_DECIMAL || isForSerialize)
 			{	return value.slice();
 			}
 			else

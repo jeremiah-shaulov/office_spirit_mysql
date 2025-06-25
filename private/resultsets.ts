@@ -508,7 +508,7 @@ class StoredResultsets<Row>
 			{	const rowArr = storedRows[r];
 				const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
 				for (let i=0; i<columns.length; i++)
-				{	const {typeId, flags, name} = columns[i];
+				{	const {typeId, charsetId, name} = columns[i];
 					let value = rowArr[i];
 					switch (typeId)
 					{	case MysqlType.MYSQL_TYPE_VARCHAR:
@@ -521,10 +521,8 @@ class StoredResultsets<Row>
 						case MysqlType.MYSQL_TYPE_LONG_BLOB:
 						case MysqlType.MYSQL_TYPE_BLOB:
 						case MysqlType.MYSQL_TYPE_GEOMETRY:
-							if (!(flags & ColumnFlags.BINARY))
-							{	if (value instanceof Uint8Array)
-								{	value = decoder.decode(value);
-								}
+							if (charsetId!=Charset.BINARY && value instanceof Uint8Array)
+							{	value = decoder.decode(value);
 							}
 							break;
 						case MysqlType.MYSQL_TYPE_DECIMAL:

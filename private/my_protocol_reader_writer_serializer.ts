@@ -1,5 +1,5 @@
 import {Column, type ColumnValue} from './resultsets.ts';
-import {ColumnFlags, MysqlType} from './constants.ts';
+import {ColumnFlags, MysqlType, Charset} from './constants.ts';
 import {MyProtocolReaderWriter} from './my_protocol_reader_writer.ts';
 import {RowType} from './my_protocol.ts';
 import {debugAssert} from './debug_assert.ts';
@@ -258,7 +258,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 			{	nullBitsI++;
 				nullBitMask = 1;
 			}
-			const {typeId, flags, name} = columns[i];
+			const {typeId, flags, charsetId, name} = columns[i];
 			if (!isNull)
 			{	switch (typeId)
 				{	case MysqlType.MYSQL_TYPE_TINY:
@@ -385,7 +385,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						else if (len>maxColumnLen || rowType==RowType.VOID)
 						{	this.readVoid(len) || await this.readVoidAsync(len);
 						}
-						else if ((flags & ColumnFlags.BINARY) && typeId!=MysqlType.MYSQL_TYPE_JSON || isForSerialize)
+						else if (charsetId==Charset.BINARY && typeId!=MysqlType.MYSQL_TYPE_JSON && typeId!=MysqlType.MYSQL_TYPE_NEWDECIMAL && typeId!=MysqlType.MYSQL_TYPE_DECIMAL || isForSerialize)
 						{	value = await this.readBytesToBuffer(new Uint8Array(len));
 						}
 						else
@@ -454,7 +454,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 		let lastColumnReaderLen = 0;
 		const nColumns = columns.length;
 		for (let i=0; i<nColumns; i++)
-		{	const {typeId, flags, name} = columns[i];
+		{	const {typeId, charsetId, name} = columns[i];
 			let len = this.readLenencInt() ?? await this.readLenencIntAsync();
 			if (len > Number.MAX_SAFE_INTEGER)
 			{	throw new Error(`Field is too long: ${len} bytes`);
@@ -480,7 +480,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						v = await this.readBytesToBuffer(buffer.subarray(0, len));
 						buffer = new Uint8Array(v.buffer);
 					}
-					value = convColumnValue(v, typeId, flags, this.decoder, jsonAsString, datesAsString, isForSerialize, tz);
+					value = convColumnValue(v, typeId, charsetId, this.decoder, jsonAsString, datesAsString, isForSerialize, tz);
 				}
 			}
 			switch (rowType)
