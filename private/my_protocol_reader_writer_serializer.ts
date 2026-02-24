@@ -470,7 +470,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 				}
 				else
 				{	let v;
-					if (len <= this.buffer.length)
+					if (len <= this.buffer.length-4)
 					{	v = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
 					}
 					else
