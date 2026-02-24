@@ -32,7 +32,7 @@ bytes into an array buffer asynchronously.
 > Implementations should not retain a reference to `p`.
 > 
 > Use
-> [`https://jsr.io/@std/io/doc/iterate-reader/\~/iterateReader iterateReader`](https://jsr.io/@std/io/doc/iterate-reader/%7e/iterateReader%20iterateReader)
+> [`iterateReader`](https://jsr.io/@std/io/doc/iterate-reader/%7e/iterateReader)
 > to turn [`Reader`](../interface.Reader/README.md) into an `AsyncIterator`.
 
 

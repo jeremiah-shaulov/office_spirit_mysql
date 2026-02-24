@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.0/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.1/mod.ts"
 ```
 
 ## This class has
@@ -27,18 +27,18 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.0/mod.ts"
 [forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus),
 [killQuery](#-killquery-promiseboolean),
 [use](#-useschema-string-void),
-[query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecord),
+[query](#-querycolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecordstring-columntype),
 [queryMap](#-querymapcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisemapstring-columntype),
 [queryArr](#-queryarrcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
 [queryCol](#-querycolcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
 [queryVoid](#-queryvoidsql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid),
-[queries](#-queriescolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecord),
+[queries](#-queriescolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromiserecordstring-columntype),
 [queriesMap](#-queriesmapcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisemapstring-columntype),
 [queriesArr](#-queriesarrcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
 [queriesCol](#-queriescolcolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-resultsetspromisecolumntype),
 [queriesVoid](#-queriesvoidsql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid),
 [makeLastColumnReadable](#-makelastcolumnreadablecolumntypecolumnvaluesql-sqlsource-params-params-queryoptions-queryoptions-promiseany),
-[prepare](#-preparecolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetsrecord),
+[prepare](#-preparecolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetsrecordstring-columntype),
 [prepareMap](#-preparemapcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetsmapstring-columntype),
 [prepareArr](#-preparearrcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetscolumntype),
 [prepareCol](#-preparecolcolumntypecolumnvaluesql-sqlsource-queryoptions-queryoptions-promiseresultsetscolumntype),
@@ -171,7 +171,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.0/mod.ts"
 
 
 
-#### ⚙ query\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
+#### ⚙ query\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record\<`string`, ColumnType>>
 
 
 
@@ -191,7 +191,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.0/mod.ts"
 
 
 
-#### ⚙ queries\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record>
+#### ⚙ queries\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), params?: [Params](../type.Params/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): [ResultsetsPromise](../class.ResultsetsPromise/README.md)\<Record\<`string`, ColumnType>>
 
 
 
@@ -217,7 +217,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.0/mod.ts"
 
 
 
-#### ⚙ prepare\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Record>>
+#### ⚙ prepare\<ColumnType=[ColumnValue](../type.ColumnValue/README.md)>(sql: [SqlSource](../type.SqlSource/README.md), queryOptions?: [QueryOptions](../private.type.QueryOptions/README.md)): Promise\<[Resultsets](../class.Resultsets/README.md)\<Record\<`string`, ColumnType>>>
 
 
 
