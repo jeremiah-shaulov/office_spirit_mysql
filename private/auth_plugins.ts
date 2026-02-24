@@ -25,7 +25,7 @@ export class AuthPlugin
 	}
 }
 
-async function hash(algorithm: AlgorithmIdentifier, data: Uint8Array)
+async function hash(algorithm: AlgorithmIdentifier, data: Uint8Array<ArrayBuffer>)
 {	return new Uint8Array(await crypto.subtle.digest(algorithm, data));
 }
 

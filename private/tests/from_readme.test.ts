@@ -1,5 +1,5 @@
 import {testWithDocker} from './test_with_docker.ts';
-import {storeExamplesToTmpFiles} from 'https://deno.land/x/tsa@v0.0.49/doc_test/mod.ts';
+import {storeExamplesToTmpFiles} from 'https://deno.land/x/tsa@v0.0.55/doc_test/mod.ts';
 
 const tests = new Array<() => Promise<void>>;
 for (const {exampleName, filename} of await storeExamplesToTmpFiles(import.meta.url))
