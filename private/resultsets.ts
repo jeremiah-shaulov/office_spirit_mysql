@@ -2,6 +2,7 @@ import {MysqlType, Charset, ColumnFlags, CHARSET_NAMES} from './constants.ts';
 import {CanceledError} from './errors.ts';
 import {MyProtocol, RowType} from './my_protocol.ts';
 import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
+import {RdStream, WrStream} from './deps.ts';
 
 const DEFAULT_STORE_RESULTSET_IF_BIGGER = 64*1024; // 64KiB
 
@@ -365,9 +366,11 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 						{	storedRows[storedRows.length] = row;
 							if (protocol.totalBytesInPacket > storeResultsetIfBigger)
 							{	storedResultsets.fileName = await Deno.makeTempFile({prefix: `rows-${protocol.dsn.hash}-${protocol.connectionId}-`, suffix: '.dat'});
-								storedResultsets.file = await Deno.open(storedResultsets.fileName, {create: true, truncate: true, write: true, read: true});
-								storedResultsets.writer = storedResultsets.file.writable.getWriter();
-								storedResultsets.reader = storedResultsets.file.readable.getReader({mode: 'byob'});
+								const file = await Deno.open(storedResultsets.fileName, {create: true, truncate: true, write: true, read: true});
+								storedResultsets.file = file;
+								// `file.writable.getWriter()` doesn't reliably flush to disk in Deno, and consuming `file.readable` to EOF auto-closes the file. So bypass the wrappers and call `file.write()` / `file.read()` directly.
+								storedResultsets.writer = new WrStream({write: b => file.write(b)}).getWriter();
+								storedResultsets.reader = new RdStream({read: b => file.read(b)}).getReader({mode: 'byob'});
 								serializer = new MyProtocolReaderWriterSerializer(storedResultsets.writer, storedResultsets.reader, decoder, undefined);
 								storedResultsets.serializer = serializer;
 								serializer.serializeBegin();
@@ -444,11 +447,14 @@ class StoredResultsets<Row>
 		}
 		try
 		{	this.file?.close();
-			this.file = undefined;
 		}
 		catch (e)
-		{	error ??= e instanceof Error ? e : new Error(e+'');
+		{	// When `this.file.readable` was read to EOF, Deno auto-closes the file, and `close()` throws `BadResource`.
+			if (!(e instanceof Deno.errors.BadResource))
+			{	error ??= e instanceof Error ? e : new Error(e+'');
+			}
 		}
+		this.file = undefined;
 		if (this.fileName)
 		{	try
 			{	await Deno.remove(this.fileName);

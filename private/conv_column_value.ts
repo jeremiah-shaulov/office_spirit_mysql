@@ -26,7 +26,14 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, charsetId: C
 			return null;
 
 		case MysqlType.MYSQL_TYPE_BIT:
-			return value[0] != 0;
+		{	// BIT(N) is stored in ceil(N/8) bytes (big-endian), so any non-zero byte means truthy.
+			for (let i=0, iEnd=value.length; i<iEnd; i++)
+			{	if (value[i] != 0)
+				{	return true;
+				}
+			}
+			return false;
+		}
 
 		case MysqlType.MYSQL_TYPE_DOUBLE:
 		case MysqlType.MYSQL_TYPE_FLOAT:

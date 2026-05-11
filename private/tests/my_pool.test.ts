@@ -336,19 +336,14 @@ async function testBasic(dsnStr: string)
 			{	const filename = await Deno.makeTempFile();
 				try
 				{	using fh = await Deno.open(filename, {write: true, read: true});
-					const writer = fh.writable.getWriter();
-					try
-					{	await writer.write(new TextEncoder().encode(id==6 ? '' : 'Message '+id));
-						await fh.seek(0, Deno.SeekMode.Start);
-						res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
-						assertEquals(res.lastInsertId, id);
-						assertEquals(res.affectedRows, 1);
-						const gen = new SqlSelectGenerator('t_log', 'id', id);
-						assertEquals(await conn.query(gen).first(), {id, time: new Date(now+id*1000), message: id==6 ? '' : 'Message '+id});
-					}
-					finally
-					{	writer.releaseLock();
-					}
+					// Note: writes via `fh.writable.getWriter()` are not reliably flushed to disk in current Deno, so write directly via `fh.write()`.
+					await fh.write(new TextEncoder().encode(id==6 ? '' : 'Message '+id));
+					await fh.seek(0, Deno.SeekMode.Start);
+					res = await conn.queryVoid("INSERT INTO t_log SET `time`=?, message=?", [new Date(now+id*1000), fh]);
+					assertEquals(res.lastInsertId, id);
+					assertEquals(res.affectedRows, 1);
+					const gen = new SqlSelectGenerator('t_log', 'id', id);
+					assertEquals(await conn.query(gen).first(), {id, time: new Date(now+id*1000), message: id==6 ? '' : 'Message '+id});
 				}
 				finally
 				{	await Deno.remove(filename);
@@ -1721,11 +1716,9 @@ async function testLoadBigDump(dsnStr: string)
 					const filename = await Deno.makeTempFile();
 					try
 					{	using fh = await Deno.open(filename, {write: true, read: true});
-						const writer = fh.writable.getWriter();
-						try
-						{	// Write INSERT query to file
+						{	// Write INSERT query to file (use `fh.write` directly because `fh.writable.getWriter()` writes are not reliably flushed in current Deno)
 							const queryPrefix = "INSERT INTO t_log SET message = '";
-							await writer.write(new TextEncoder().encode(queryPrefix));
+							await fh.write(new TextEncoder().encode(queryPrefix));
 							const buffer = new Uint8Array(64*1024);
 							for (let i=0; i<buffer.length; i++)
 							{	let c = i & 0x7F;
@@ -1737,11 +1730,11 @@ async function testLoadBigDump(dsnStr: string)
 							let curSize = 0;
 							for (let i=0; i<SIZE; i+=buffer.length)
 							{	const len = Math.min(buffer.length, SIZE-curSize);
-								await writer.write(buffer.subarray(0, len));
+								await fh.write(buffer.subarray(0, len));
 								curSize += len;
 							}
 							assertEquals(curSize, SIZE);
-							await writer.write(new TextEncoder().encode("'"));
+							await fh.write(new TextEncoder().encode("'"));
 
 							// DELETE
 							await conn.queryVoid("DELETE FROM t_log");
@@ -1786,7 +1779,22 @@ async function testLoadBigDump(dsnStr: string)
 							{	using fh2 = await Deno.open(filename2, {write: true, read: true});
 								const row = await conn.makeLastColumnReadable("SELECT message FROM t_log WHERE id="+recordId);
 								assert(row?.message instanceof ReadableStream);
-								await row.message.pipeTo(fh2.writable, {preventClose: true});
+								// Pipe to file via direct `fh2.write()` because `fh2.writable` writes are not reliably flushed in current Deno.
+								const msgReader = row.message.getReader({mode: 'byob'});
+								try
+								{	let chunkBuf = new Uint8Array(64*1024);
+									while (true)
+									{	const {value, done} = await msgReader.read(chunkBuf);
+										if (done)
+										{	break;
+										}
+										chunkBuf = new Uint8Array(value.buffer);
+										await fh2.write(value);
+									}
+								}
+								finally
+								{	msgReader.releaseLock();
+								}
 
 								// Validate the new file size
 								let size2 = await fh2.seek(0, Deno.SeekMode.End);
@@ -1796,38 +1804,28 @@ async function testLoadBigDump(dsnStr: string)
 								// Validate the new file contents
 								const since = Date.now();
 								console.log(`Started validating (size=${SIZE}, type=${dumpType==DumpType.String ? 'string': dumpType==DumpType.Uint8Array ? 'Uint8Array' : isReadableStream ? 'ReadableStream' : 'Deno.Reader'}, isSeekable=${isSeekable}, useBinarySelect=${useBinarySelect})`);
-								let buffer2 = new Uint8Array(buffer.length);
-								const fh2r = fh2.readable.getReader({mode: 'byob'});
-								try
-								{	while (size2 > 0)
-									{	let pos = 0;
-										const len = Math.min(buffer2.length, size2);
-										while (pos < len)
-										{	const {value, done} = await fh2r.read(buffer2.subarray(pos, len));
-											assert(!done);
-											buffer2 = new Uint8Array(value.buffer);
-											pos += value.length;
-										}
-
-										for (let i=0; i<len; i++)
-										{	if (buffer[i] != buffer2[i])
-											{	assertEquals(buffer[i], buffer2[i]);
-											}
-										}
-										size2 -= len;
+								const buffer2 = new Uint8Array(buffer.length);
+								while (size2 > 0)
+								{	let pos = 0;
+									const len = Math.min(buffer2.length, size2);
+									while (pos < len)
+									{	const n = await fh2.read(buffer2.subarray(pos, len));
+										assert(n != null);
+										pos += n;
 									}
-								}
-								finally
-								{	fh2r.releaseLock();
+
+									for (let i=0; i<len; i++)
+									{	if (buffer[i] != buffer2[i])
+										{	assertEquals(buffer[i], buffer2[i]);
+										}
+									}
+									size2 -= len;
 								}
 								console.log(`Done validating in ${(Date.now()-since) / 1000} sec`);
 							}
 							finally
 							{	await Deno.remove(filename2);
 							}
-						}
-						finally
-						{	writer.releaseLock();
 						}
 					}
 					finally
