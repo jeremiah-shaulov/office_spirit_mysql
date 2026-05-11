@@ -36,8 +36,10 @@ function appendZeroByte(data: Uint8Array)
 }
 
 function xor(a: Uint8Array, b: Uint8Array)
-{	for (let i=0, iEnd=a.length; i<iEnd; i++)
-	{	a[i] ^= b[i];
+{	// The MySQL caching_sha2_password full-auth flow XORs the password with the scramble, repeating the scramble as needed (passwords longer than the scramble would otherwise leave their tail un-XORed).
+	const bLen = b.length;
+	for (let i=0, iEnd=a.length; i<iEnd; i++)
+	{	a[i] ^= b[i % bLen];
 	}
 }
 

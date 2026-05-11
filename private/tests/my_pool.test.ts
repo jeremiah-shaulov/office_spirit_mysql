@@ -42,6 +42,7 @@ testWithDocker
 		testBitBinaryProtocol,
 		testDatetimeBinaryProtocolFormat,
 		testStoreFractionalTime,
+		testCachingSha2LongPassword,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1995,6 +1996,33 @@ async function testBindBigParam(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testCachingSha2LongPassword(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	// Long password forces the password-XOR-scramble path in caching_sha2_password full auth. The scramble is only 20 bytes, so passwords longer than that exercise the repeat-scramble logic.
+	const longPass = 'verylongpassword_with_more_than_twenty_characters_for_testing';
+	const userName = 'osm_test_longpass';
+	await conn.queryVoid(`DROP USER IF EXISTS '${userName}'@'%'`);
+	try
+	{	await conn.queryVoid(`CREATE USER '${userName}'@'%' IDENTIFIED WITH caching_sha2_password BY '${longPass}'`);
+		await conn.queryVoid(`GRANT SELECT ON tests.* TO '${userName}'@'%'`);
+		await conn.queryVoid('FLUSH PRIVILEGES');
+
+		// `caching_sha2_password` full auth happens on the first connection per user, because the server has no cached entry yet. So this connection MUST succeed if the password XOR/scramble is right.
+		const dsn2 = new Dsn(dsnStr);
+		dsn2.username = userName;
+		dsn2.password = longPass;
+		await using pool2 = new MyPool(dsn2);
+		using conn2 = pool2.getConn();
+		assertEquals(await conn2.queryCol('SELECT 1').first(), 1);
+	}
+	finally
+	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
+	}
 }
 
 async function testStoreFractionalTime(dsnStr: string)
