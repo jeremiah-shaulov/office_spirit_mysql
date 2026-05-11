@@ -2,7 +2,8 @@ import {crc32} from "./deps.ts";
 
 const wantUrlDecodeUsername = new URL('http://ф@localhost/').username.charAt(0) == '%';
 const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(0) == '%';
-const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(0) == '%';
+// The URL `pathname` always starts with `/`, so the first character can't be `%`. Inspect the next character to detect whether the runtime keeps percent-encoded bytes (which we then need to decode ourselves).
+const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(1) == '%';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;

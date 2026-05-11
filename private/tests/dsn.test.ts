@@ -257,3 +257,13 @@ Deno.test
 		assertEquals(dsn+'', 'mysql://root@[::1:2:3]/abc/def');
 	}
 );
+
+Deno.test
+(	'Pipe path with non-ASCII bytes is URL-decoded',
+	() =>
+	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.
+		const dsn = new Dsn('mysql://localhost/%D1%84/sock/schema');
+		assertEquals(dsn.pipe, '/ф/sock');
+		assertEquals(dsn.schema, 'schema');
+	}
+);
