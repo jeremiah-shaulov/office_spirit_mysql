@@ -311,7 +311,8 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 			else if (c==C_SLASH && data[i+1]==C_TIMES)
 			{	i++;
 				while (++i < data.length)
-				{	if (data[i]==C_TIMES || data[i+1]==C_SLASH)
+				{	// Look for the closing `*/` sequence — both bytes must match. The previous `||` form terminated the comment on any inner `*` or any `/` at the next position.
+					if (data[i]==C_TIMES && data[i+1]==C_SLASH)
 					{	i += 2;
 						break;
 					}
