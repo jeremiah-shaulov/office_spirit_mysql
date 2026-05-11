@@ -40,6 +40,7 @@ testWithDocker
 		testBindBigParamFromFile,
 		testBindBigParamFromStream,
 		testBitBinaryProtocol,
+		testDatetimeBinaryProtocolFormat,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1993,6 +1994,28 @@ async function testBindBigParam(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testDatetimeBinaryProtocolFormat(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.datesAsString = true;
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	await conn.queryVoid("DROP TABLE IF EXISTS t_test_dt");
+	await conn.queryVoid("CREATE TABLE t_test_dt (id INT PRIMARY KEY, dt DATETIME, ts TIMESTAMP NULL, d DATE)");
+	await conn.queryVoid("INSERT INTO t_test_dt VALUES (1, '1000-01-01 00:00:00', '1971-01-01 00:00:00', '1000-01-01'), (2, '2024-06-15 12:34:56', '2024-06-15 12:34:56', '2024-06-15')");
+
+	for (const useBinary of [false, true])
+	{	const rows = useBinary
+			? await conn.query("SELECT * FROM t_test_dt WHERE id<=?", [2]).all()
+			: await conn.query("SELECT * FROM t_test_dt").all();
+		const tag = useBinary ? 'binary' : 'text';
+		assertEquals(rows[0], {id: 1, dt: '1000-01-01 00:00:00', ts: '1971-01-01 00:00:00', d: '1000-01-01'}, `${tag} protocol id=1`);
+		assertEquals(rows[1], {id: 2, dt: '2024-06-15 12:34:56', ts: '2024-06-15 12:34:56', d: '2024-06-15'}, `${tag} protocol id=2`);
+	}
+
+	await conn.queryVoid("DROP TABLE t_test_dt");
 }
 
 async function testBitBinaryProtocol(dsnStr: string)

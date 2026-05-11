@@ -333,8 +333,10 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 								}
 							}
 							else
-							{	value = `${year<10 ? '000'+year : year<100 ? '00'+year : year<1000 ? '0'+year : year}-${month<10 ? '0'+month : month}-${day<10 ? '0'+day : day}`;
-								if (len >= 7)
+							{	// For DATETIME/TIMESTAMP, MySQL omits the time portion on the wire when it is 00:00:00 (`len`==4). Always render the time anyway so the output matches the text protocol and the column type.
+								const wantTime = typeId==MysqlType.MYSQL_TYPE_DATETIME || typeId==MysqlType.MYSQL_TYPE_TIMESTAMP;
+								value = `${year<10 ? '000'+year : year<100 ? '00'+year : year<1000 ? '0'+year : year}-${month<10 ? '0'+month : month}-${day<10 ? '0'+day : day}`;
+								if (len >= 7 || wantTime)
 								{	value += ` ${hour<10 ? '0'+hour : hour}:${minute<10 ? '0'+minute : minute}:${second<10 ? '0'+second : second}`;
 									if (len >= 11)
 									{	value += `.${micro<10 ? '00000'+micro : micro<100 ? '0000'+micro : micro<1000 ? '000'+micro : micro<10000 ? '00'+micro : micro<100000 ? '0'+micro : micro}`;
@@ -343,7 +345,12 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 							}
 						}
 						else
-						{	value = datesAsString ? '0000-00-00 00:00:00' : new Date(0);
+						{	if (!datesAsString)
+							{	value = new Date(0);
+							}
+							else
+							{	value = typeId==MysqlType.MYSQL_TYPE_DATE ? '0000-00-00' : '0000-00-00 00:00:00';
+							}
 						}
 						break;
 					}
