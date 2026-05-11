@@ -1389,7 +1389,8 @@ L:		while (true)
 						sqlLoggerQuery?.paramStart(i);
 						let isNotEmpty = false;
 						while (true)
-						{	this.startWritingNewPacket(!isNotEmpty);
+						{	// Each `COM_STMT_SEND_LONG_DATA` is its own command, so its packet must start with sequence id 0.
+							this.startWritingNewPacket(true);
 							this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 							this.writeUint32(stmtId);
 							this.writeUint16(i);
@@ -1422,7 +1423,8 @@ L:		while (true)
 				{	sqlLoggerQuery?.paramStart(i);
 					let isNotEmpty = false;
 					while (true)
-					{	this.startWritingNewPacket(!isNotEmpty);
+					{	// Each `COM_STMT_SEND_LONG_DATA` is its own command, so its packet must start with sequence id 0.
+						this.startWritingNewPacket(true);
 						this.writeUint8(Command.COM_STMT_SEND_LONG_DATA);
 						this.writeUint32(stmtId);
 						this.writeUint16(i);

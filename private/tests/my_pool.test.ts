@@ -37,6 +37,8 @@ testWithDocker
 		testLoadFile,
 		testMultiStatements,
 		testBindBigParam,
+		testBindBigParamFromFile,
+		testBindBigParamFromStream,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1989,6 +1991,99 @@ async function testBindBigParam(dsnStr: string)
 	}
 
 	// Drop database that i created
+	await conn.query("DROP DATABASE test1");
+}
+
+async function testBindBigParamFromFile(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.maxColumnLen = 0x1000000;
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	await conn.query("DROP DATABASE IF EXISTS test1");
+	await conn.query("CREATE DATABASE `test1`");
+	await conn.query("USE test1");
+	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, payload longblob)");
+
+	// Sizes that exercise both the single-packet and multi-packet COM_STMT_SEND_LONG_DATA paths.
+	for (const size of [10, 1000, 8000, 8200, 16384, 100000])
+	{	const filename = await Deno.makeTempFile();
+		try
+		{	using fh = await Deno.open(filename, {write: true, read: true});
+			const data = new Uint8Array(size);
+			for (let i=0; i<size; i++)
+			{	data[i] = i & 0xFF;
+			}
+			await fh.write(data);
+			await fh.seek(0, Deno.SeekMode.Start);
+
+			await conn.query("DELETE FROM t_log");
+			const ins = await conn.queryVoid("INSERT INTO t_log SET payload=?", [fh]);
+			assertEquals(ins.affectedRows, 1);
+
+			const got = await conn.queryCol("SELECT payload FROM t_log WHERE id=?", [Number(ins.lastInsertId)]).first();
+			assert(got instanceof Uint8Array, `size=${size}: not a Uint8Array, got ${typeof got}`);
+			assertEquals(got.length, size, `size=${size}: wrong length`);
+			for (let i=0; i<size; i++)
+			{	if (got[i] != (i & 0xFF))
+				{	assertEquals(got[i], i & 0xFF, `size=${size}: corrupt at offset ${i}`);
+				}
+			}
+		}
+		finally
+		{	await Deno.remove(filename);
+		}
+	}
+
+	await conn.query("DROP DATABASE test1");
+}
+
+async function testBindBigParamFromStream(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.maxColumnLen = 0x1000000;
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	await conn.query("DROP DATABASE IF EXISTS test1");
+	await conn.query("CREATE DATABASE `test1`");
+	await conn.query("USE test1");
+	await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, payload longblob)");
+
+	for (const size of [10, 1000, 8000, 8200, 16384, 100000])
+	{	const data = new Uint8Array(size);
+		for (let i=0; i<size; i++)
+		{	data[i] = i & 0xFF;
+		}
+		// Byte stream that exposes the buffer so we exercise the multi-packet `COM_STMT_SEND_LONG_DATA` loop.
+		let pos = 0;
+		const stream = new RdStream
+		(	{	read(b)
+				{	if (pos >= data.length)
+					{	return null;
+					}
+					const end = Math.min(pos + 4096, pos + b.length, data.length);
+					b.set(data.subarray(pos, end));
+					const n = end - pos;
+					pos = end;
+					return n;
+				}
+			}
+		);
+
+		await conn.query("DELETE FROM t_log");
+		const ins = await conn.queryVoid("INSERT INTO t_log SET payload=?", [stream]);
+		assertEquals(ins.affectedRows, 1);
+
+		const got = await conn.queryCol("SELECT payload FROM t_log WHERE id=?", [Number(ins.lastInsertId)]).first();
+		assert(got instanceof Uint8Array, `size=${size}: not a Uint8Array, got ${typeof got}`);
+		assertEquals(got.length, size, `size=${size}: wrong length`);
+		for (let i=0; i<size; i++)
+		{	if (got[i] != (i & 0xFF))
+			{	assertEquals(got[i], i & 0xFF, `size=${size}: corrupt at offset ${i}`);
+			}
+		}
+	}
+
 	await conn.query("DROP DATABASE test1");
 }
 
