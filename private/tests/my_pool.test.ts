@@ -43,6 +43,7 @@ testWithDocker
 		testDatetimeBinaryProtocolFormat,
 		testStoreFractionalTime,
 		testCachingSha2LongPassword,
+		testBigintUnsignedBinaryParam,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1996,6 +1997,26 @@ async function testBindBigParam(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testBigintUnsignedBinaryParam(dsnStr: string)
+{	await using pool = new MyPool(dsnStr);
+	using conn = pool.getConn();
+
+	await conn.queryVoid('DROP TABLE IF EXISTS t_test_bigu');
+	await conn.queryVoid('CREATE TABLE t_test_bigu (id INT PRIMARY KEY, v BIGINT UNSIGNED)');
+
+	// MAX_UINT64 (and any positive bigint > MAX_INT64) must be sent with the UNSIGNED flag in the binary protocol; otherwise the server reads it as a negative signed int64 and rejects it for an UNSIGNED column.
+	const max64 = (1n << 64n) - 1n;
+	const justOver = (1n << 63n) + 1n;
+	for (const [id, val] of [[1, max64], [2, justOver]] as const)
+	{	const ins = await conn.queryVoid('INSERT INTO t_test_bigu VALUES (?, ?)', [id, val]);
+		assertEquals(ins.affectedRows, 1, `insert v=${val}`);
+		const got = await conn.queryCol('SELECT v FROM t_test_bigu WHERE id=?', [id]).first();
+		assertEquals(got, val, `read back v=${val}`);
+	}
+
+	await conn.queryVoid('DROP TABLE t_test_bigu');
 }
 
 async function testCachingSha2LongPassword(dsnStr: string)

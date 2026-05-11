@@ -1522,7 +1522,8 @@ L:		while (true)
 					}
 				}
 				else if (typeof(param) == 'bigint')
-				{	type = MysqlType.MYSQL_TYPE_LONGLONG;
+				{	// Positive bigints that don't fit in a signed int64 must be transmitted with the UNSIGNED flag; otherwise MySQL reads the same 8 bytes as a negative signed int64.
+					type = param > 0x7FFF_FFFF_FFFF_FFFFn ? MysqlType.MYSQL_TYPE_LONGLONG | 0x8000 : MysqlType.MYSQL_TYPE_LONGLONG;
 				}
 				else if (typeof(param) == 'string')
 				{	// MysqlType.MYSQL_TYPE_STRING
