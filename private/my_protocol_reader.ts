@@ -73,6 +73,10 @@ export class MyProtocolReader
 				throw new ServerDisconnectedError('Lost connection to server');
 			}
 			this.buffer = new Uint8Array(value.buffer);
+			if (value.length == 0)
+			{	// A well-behaved byte source never fulfils a BYOB read with `{value: empty, done: false}`. If it does, looping would spin the event loop without I/O.
+				throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+			}
 			this.bufferEnd += value.length;
 		}
 		return true;
@@ -102,6 +106,9 @@ export class MyProtocolReader
 			{	throw new ServerDisconnectedError('Lost connection to server');
 			}
 			this.buffer = new Uint8Array(value.buffer);
+			if (value.length == 0)
+			{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+			}
 			this.bufferEnd += value.length;
 			const i = this.buffer.subarray(0, this.bufferEnd).indexOf(0, this.bufferEnd-value.length);
 			if (i != -1)
@@ -158,6 +165,9 @@ export class MyProtocolReader
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				this.buffer = new Uint8Array(value.buffer);
+				if (value.length == 0)
+				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+				}
 				this.bufferEnd += value.length;
 			}
 			// Next packet header
@@ -804,6 +814,9 @@ export class MyProtocolReader
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
+				if (value.length == 0)
+				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+				}
 				dest = new Uint8Array(value.buffer, byteOffset, length);
 				pos += value.length;
 				this.packetOffset += value.length;
@@ -849,6 +862,9 @@ export class MyProtocolReader
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				this.buffer = new Uint8Array(value.buffer);
+				if (value.length == 0)
+				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+				}
 				lenInCurPacket -= value.length;
 				this.bufferEnd = value.length;
 			}
