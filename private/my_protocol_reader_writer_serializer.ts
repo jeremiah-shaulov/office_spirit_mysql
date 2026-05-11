@@ -180,7 +180,8 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						break;
 					}
 					case MysqlType.MYSQL_TYPE_BIT:
-						this.writeUint16(Number(value) ? 257 : 256);
+						// Lenenc length byte (0x01) followed by 1 data byte. Little-endian Uint16: low byte = 0x01 (length), high byte = data.
+						this.writeUint16(Number(value) ? 0x0101 : 0x0001);
 						break;
 					default:
 					{	const v = value instanceof Uint8Array ? value : typeof(value)=='string' ? encoder.encode(value) : this.buffer.subarray(0, 0);
@@ -369,8 +370,20 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						break;
 					}
 					case MysqlType.MYSQL_TYPE_BIT:
-					{	// MySQL sends bit value as blob with length=1
-						value = (this.readUint16() ?? await this.readUint16Async()) == 257;
+					{	// MySQL sends BIT(N) value as a lenenc-prefixed blob of ceil(N/8) bytes (big-endian). The column reads truthy if any byte is non-zero.
+						let len = this.readLenencInt() ?? await this.readLenencIntAsync();
+						if (len > Number.MAX_SAFE_INTEGER)
+						{	throw new Error(`Field is too long: ${len} bytes`);
+						}
+						len = Number(len);
+						const bytes = this.readShortBytes(len) ?? await this.readShortBytesAsync(len);
+						value = false;
+						for (let j=0, jEnd=bytes.length; j<jEnd; j++)
+						{	if (bytes[j] != 0)
+							{	value = true;
+								break;
+							}
+						}
 						break;
 					}
 					default:

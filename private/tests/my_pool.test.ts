@@ -39,6 +39,7 @@ testWithDocker
 		testBindBigParam,
 		testBindBigParamFromFile,
 		testBindBigParamFromStream,
+		testBitBinaryProtocol,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1992,6 +1993,29 @@ async function testBindBigParam(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testBitBinaryProtocol(dsnStr: string)
+{	await using pool = new MyPool(dsnStr);
+	using conn = pool.getConn();
+
+	await conn.queryVoid("DROP TABLE IF EXISTS t_test_bit");
+	// BIT(N) values that don't reduce to 0x0101 on the wire: BIT(8) with non-1 value, and BIT(>8) generally.
+	await conn.queryVoid("CREATE TABLE t_test_bit (id INT PRIMARY KEY, b1 BIT(1), b8 BIT(8), b16 BIT(16), b64 BIT(64))");
+	await conn.queryVoid("INSERT INTO t_test_bit VALUES (1, b'1', b'101', b'0000000100000001', b'1111111100000000000000000000000000000000000000000000000000000000'), (2, b'0', b'0', b'0', b'0')");
+
+	for (const useBinary of [false, true])
+	{	const rows = useBinary ?
+			await conn.query("SELECT * FROM t_test_bit WHERE id<=?", [2]).all() :
+			await conn.query("SELECT * FROM t_test_bit").all();
+		const tag = useBinary ? 'binary' : 'text';
+		// id=1: every bit column is non-zero → true.
+		assertEquals(rows[0], {id: 1, b1: true, b8: true, b16: true, b64: true}, `${tag} protocol id=1`);
+		// id=2: every bit column is zero → false.
+		assertEquals(rows[1], {id: 2, b1: false, b8: false, b16: false, b64: false}, `${tag} protocol id=2`);
+	}
+
+	await conn.queryVoid("DROP TABLE t_test_bit");
 }
 
 async function testBindBigParamFromFile(dsnStr: string)
