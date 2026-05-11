@@ -41,6 +41,7 @@ testWithDocker
 		testBindBigParamFromStream,
 		testBitBinaryProtocol,
 		testDatetimeBinaryProtocolFormat,
+		testStoreFractionalTime,
 		testForceImmediateDisconnect,
 	]
 );
@@ -1994,6 +1995,33 @@ async function testBindBigParam(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testStoreFractionalTime(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.storeResultsetIfBigger = 0; // force store() to disk
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	await conn.queryVoid("DROP TABLE IF EXISTS t_test_time");
+	await conn.queryVoid("CREATE TABLE t_test_time (id INT PRIMARY KEY, t TIME(6))");
+	await conn.queryVoid("INSERT INTO t_test_time VALUES (1, '00:00:00.5'), (2, '00:00:00'), (3, '01:00:00'), (4, '-00:00:00.5')");
+
+	const expected = [{id: 1, t: 0.5}, {id: 2, t: 0}, {id: 3, t: 3600}, {id: 4, t: -0.5}];
+
+	// Sanity: direct fetch via binary protocol.
+	const direct = await conn.query("SELECT * FROM t_test_time WHERE id<=?", [10]).all();
+	assertEquals(direct, expected, 'direct binary');
+
+	// Stored path round-trips through `serializeRowBinary` / `deserializeRowBinary`.
+	await using rs = await conn.query("SELECT * FROM t_test_time WHERE id<=?", [10]);
+	const rows: unknown[] = [];
+	for await (const row of await rs.store(false))
+	{	rows.push(row);
+	}
+	assertEquals(rows, expected, 'stored binary');
+
+	await conn.queryVoid("DROP TABLE t_test_time");
 }
 
 async function testDatetimeBinaryProtocolFormat(dsnStr: string)

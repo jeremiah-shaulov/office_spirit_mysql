@@ -131,16 +131,18 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 								}
 							}
 						}
-						this.writeUint8(micro!=0 ? 11 : hour+minute+second!=0 ? 7 : year+month+day!=0 ? 4 : 0);
-						if (year+month+day != 0)
+						const len = micro!=0 ? 11 : hour+minute+second!=0 ? 7 : year+month+day!=0 ? 4 : 0;
+						this.writeUint8(len);
+						// The body is always required when `len > 0` — otherwise the deserializer reads `len` bytes from the next field and the protocol desyncs.
+						if (len >= 4)
 						{	this.writeUint16(year);
 							this.writeUint8(month);
 							this.writeUint8(day);
-							if (hour+minute+second+micro != 0)
+							if (len >= 7)
 							{	this.writeUint8(hour);
 								this.writeUint8(minute);
 								this.writeUint8(second);
-								if (micro != 0)
+								if (len >= 11)
 								{	this.writeUint32(micro);
 								}
 							}
@@ -165,16 +167,15 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 							num = Math.trunc(num / 60);
 							const hours = num % 24;
 							const days = Math.trunc(num / 24);
-							this.writeUint8(micro!=0 ? 12 : hours+minutes+seconds+days!=0 ? 8 : 0);
-							if (hours+minutes+seconds+days != 0)
-							{	this.writeUint8(isNegative ? 1 : 0);
-								this.writeUint32(days);
-								this.writeUint8(hours);
-								this.writeUint8(minutes);
-								this.writeUint8(seconds);
-								if (micro != 0)
-								{	this.writeUint32(micro);
-								}
+							// The body is always required when `len > 0` — otherwise the deserializer reads `len` bytes from the next field and the protocol desyncs.
+							this.writeUint8(micro!=0 ? 12 : 8);
+							this.writeUint8(isNegative ? 1 : 0);
+							this.writeUint32(days);
+							this.writeUint8(hours);
+							this.writeUint8(minutes);
+							this.writeUint8(seconds);
+							if (micro != 0)
+							{	this.writeUint32(micro);
 							}
 						}
 						break;
