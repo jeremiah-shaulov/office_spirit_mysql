@@ -1,5 +1,5 @@
 import {HealthStatus} from '../health_status.ts';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 Deno.test
 (	'Basic',

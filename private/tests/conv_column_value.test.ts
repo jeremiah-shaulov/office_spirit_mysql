@@ -1,6 +1,6 @@
 import {convColumnValue} from '../conv_column_value.ts';
 import {MysqlType, Charset} from '../constants.ts';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 const decoder = new TextDecoder;
 const tz = {getTimezoneMsecOffsetFromSystem: () => 0};

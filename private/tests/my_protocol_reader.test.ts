@@ -1,6 +1,6 @@
 import {MyProtocolReader} from '../my_protocol_reader.ts';
 import {ServerDisconnectedError} from '../errors.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;

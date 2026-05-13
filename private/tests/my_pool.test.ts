@@ -6,8 +6,8 @@ import {BusyError, CanceledError, SqlError} from '../errors.ts';
 import {testWithDocker} from "./test_with_docker.ts";
 import {RdStream} from '../deps.ts';
 import {Reader, Seeker} from '../deno_ifaces.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 import {ColumnValue} from '../../mod.ts';
 
 const encoder = new TextEncoder;

@@ -1,5 +1,5 @@
 import {Dsn} from '../dsn.ts';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;

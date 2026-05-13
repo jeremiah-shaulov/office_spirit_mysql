@@ -1,6 +1,6 @@
 import {SqlLogToWritable} from '../sql_log_to_writable.ts';
 import {Dsn} from '../dsn.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
 
 // Capture only the colourised query text (the logger prepends a per-connection
 // banner like `/* hostname #id */`; we want what `appendToQuery` itself emitted).

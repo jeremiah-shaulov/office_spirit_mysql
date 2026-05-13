@@ -1,6 +1,6 @@
 import {reallocAppend} from '../realloc_append.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 Deno.test
 (	'reallocAppend',

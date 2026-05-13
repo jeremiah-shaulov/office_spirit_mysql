@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.26.2/mod.ts"
+import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.26.3/mod.ts"
 ```
 
 ## This class has
