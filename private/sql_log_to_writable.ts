@@ -131,12 +131,13 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 		}
 
 		function start()
-		{	const withEllipsis = curDataLen>limit || curNFullLines>=maxLines;
+		{	const dataLen = curDataLen;
+			const withEllipsis = dataLen>limit || curNFullLines>=maxLines;
 			curNParam = -1;
 			curDataLen = 0;
 			curNFullLines = 0;
 			limit = queryMaxBytes;
-			return that.write(dsn, connectionId, !withEllipsis ? '\n' : !withColor ? `…(${curDataLen} bytes)\n` : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${curDataLen} bytes)${RESET_COLOR}\n`);
+			return that.write(dsn, connectionId, !withEllipsis ? '\n' : !withColor ? `…(${dataLen} bytes)\n` : `${RESET_COLOR}…${COLOR_SQL_COMMENT}(${dataLen} bytes)${RESET_COLOR}\n`);
 		}
 
 		return Promise.resolve
