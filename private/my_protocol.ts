@@ -2030,9 +2030,6 @@ L:		while (true)
 				try
 				{	if (this.#sqlLogger)
 					{	await this.#sqlLogger.resetConnection(this.connectionId);
-						if (withDisposeSqlLogger)
-						{	await this.#sqlLogger.dispose();
-						}
 					}
 					if (await protocol.#sendComResetConnectionAndInitDb(this.dsn.schema))
 					{	if (this.dsn.initSql)
@@ -2040,6 +2037,9 @@ L:		while (true)
 						}
 						debugAssert(protocol.#state == ProtocolState.IDLE);
 						protocol.#state = ProtocolState.IDLE_IN_POOL;
+						if (this.#sqlLogger && withDisposeSqlLogger)
+						{	await this.#sqlLogger.dispose(); // dispose only after recycling succeeded; otherwise the fall-through to disconnect() below would `write()` to an already-disposed logger
+						}
 						return protocol;
 					}
 				}
