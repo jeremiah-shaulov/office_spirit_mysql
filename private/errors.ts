@@ -23,14 +23,24 @@ export class SqlError extends Error
 
 	constructor(message: string, readonly errorCode=0, public sqlState='', autocommit=false, inTrx=false)
 	{	super(message);
-		if (errorCode==ErrorCodes.ER_LOCK_WAIT_TIMEOUT || errorCode==ErrorCodes.ER_LOCK_DEADLOCK)
-		{	this.canRetry = autocommit && !inTrx ? CanRetry.QUERY : CanRetry.TRX;
-		}
-		else if (errorCode == ErrorCodes.ER_SERVER_SHUTDOWN)
-		{	this.canRetry = CanRetry.CONN;
-		}
-		else
-		{	this.canRetry = CanRetry.NONE;
+		switch (errorCode)
+		{	case ErrorCodes.ER_LOCK_WAIT_TIMEOUT:
+			case ErrorCodes.ER_LOCK_DEADLOCK:
+			case ErrorCodes.ER_XA_RBTIMEOUT:
+			case ErrorCodes.ER_XA_RBDEADLOCK:
+				// Lock wait timeout / deadlock (and their XA-branch equivalents). The server rolled back the statement or transaction and asks to restart it.
+				this.canRetry = autocommit && !inTrx ? CanRetry.QUERY : CanRetry.TRX;
+				break;
+			case ErrorCodes.ER_SERVER_SHUTDOWN:
+			case ErrorCodes.ER_TOO_MANY_USER_CONNECTIONS:
+			case ErrorCodes.ER_CON_COUNT_ERROR:
+			case ErrorCodes.ER_USER_LIMIT_REACHED:
+			case ErrorCodes.ER_CANT_CREATE_THREAD:
+				// Server is shutting down, or a connection/resource limit was hit, or the server couldn't spawn a thread for the connection. Reconnecting (possibly after backoff) can recover.
+				this.canRetry = CanRetry.CONN;
+				break;
+			default:
+				this.canRetry = CanRetry.NONE;
 		}
 	}
 
