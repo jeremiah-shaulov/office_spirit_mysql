@@ -46,6 +46,34 @@ const C_QEST = '?'.charCodeAt(0);
 
 const encoder = new TextEncoder;
 
+/**	Represents a started transaction.
+	This object is returned from {@link MyConn.getTrx()} and {@link MySession.getTrx()}.
+	It's an `AsyncDisposable`, so you're expected to use it together with `await using`.
+	When the variable goes out of scope, the transaction is rolled back, unless you've called {@link Trx.commit()} on it.
+	This way the transaction can't be left dangling: it's either committed explicitly, or rolled back automatically.
+ **/
+export class Trx
+{	#conn;
+
+	constructor(conn: {commit(): Promise<void>; rollback(): Promise<void>})
+	{	this.#conn = conn;
+	}
+
+	/**	Commit the transaction.
+		After this call, disposing the `Trx` object will not rollback anything.
+	 **/
+	commit()
+	{	return this.#conn.commit();
+	}
+
+	/**	Rolls back the transaction, unless {@link Trx.commit()} was called.
+		This is invoked automatically at the end of the `await using` scope.
+	 **/
+	[Symbol.asyncDispose]()
+	{	return this.#conn.rollback();
+	}
+}
+
 /**	Object that {@link MyConn.forceImmediateDisconnect()} returns.
  **/
 export type DisconnectStatus =
@@ -495,6 +523,23 @@ export class MyConn
 		}
 		pendingTrxSql[0] = sql; // sql=='' means 'XA START' with connectionId appended, that will be known after the connection
 		this.#savepointEnum = 0;
+	}
+
+	/**	Commit current transaction (if any), and start new, returning a {@link Trx} object that represents the started transaction.
+		This is the same as {@link MyConn.startTrx()} (and accepts the same `options`), but instead of `void` it returns an `AsyncDisposable` object.
+		Use it together with `await using`, so that the transaction is rolled back at the end of the scope, unless you call `commit()` on it.
+
+		```ts
+		await using trx = await conn.getTrx();
+		await conn.query("INSERT INTO t_log SET a = 123");
+		await trx.commit();
+		```
+
+		If `commit()` is not reached (for example because an exception was thrown), the transaction is rolled back when `trx` goes out of scope.
+	 **/
+	async getTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string})
+	{	await this.startTrx(options);
+		return new Trx(this);
 	}
 
 	/**	Creates transaction savepoint, and returns ID number of this new savepoint.

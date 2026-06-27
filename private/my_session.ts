@@ -1,5 +1,5 @@
 import {Dsn} from './dsn.ts';
-import {DisconnectStatus, MyConn, MyConnInternal, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
+import {DisconnectStatus, MyConn, MyConnInternal, Trx, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
 import {Pool} from "./my_pool.ts";
 import {SqlLogger} from "./sql_logger.ts";
 import {SqlLogToWritable} from "./sql_log_to_writable.ts";
@@ -114,6 +114,24 @@ export class MySession
 		for (const conn of this.#connsArr)
 		{	conn.startTrx(trxOptions); // this must return resolved promise
 		}
+	}
+
+	/**	Commit current transaction (if any), and start new on all the connections of this session, returning a {@link Trx} object that represents the started transaction.
+		This is the same as {@link MySession.startTrx()} (and accepts the same `options`), but instead of `void` it returns an `AsyncDisposable` object.
+		Use it together with `await using`, so that the transaction is rolled back at the end of the scope, unless you call `commit()` on it.
+
+		```ts
+		await using trx = await session.getTrx();
+		const conn = session.conn();
+		await conn.query("INSERT INTO t_log SET a = 123");
+		await trx.commit();
+		```
+
+		If `commit()` is not reached (for example because an exception was thrown), the transaction is rolled back when `trx` goes out of scope.
+	 **/
+	async getTrx(options?: {readonly?: boolean, xa?: boolean})
+	{	await this.startTrx(options);
+		return new Trx(this);
 	}
 
 	/**	Create session-level savepoint, and return it's ID number.

@@ -8,7 +8,7 @@ import {RdStream} from '../deps.ts';
 import {Reader, Seeker} from '../deno_ifaces.ts';
 import {assert} from 'jsr:@std/assert@1.0.19/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
-import {ColumnValue} from '../../mod.ts';
+import {ColumnValue, Trx} from '../../mod.ts';
 
 const encoder = new TextEncoder;
 
@@ -31,6 +31,7 @@ testWithDocker
 		testManyPlaceholders2,
 		testReuseConnections,
 		testTrx,
+		testGetTrx,
 		testRetryQueryTimes,
 		testMaxConns,
 		testLoadBigDump,
@@ -1573,6 +1574,165 @@ async function testTrx(dsnStr: string)
 			}
 		);
 	}
+}
+
+async function testGetTrx(dsnStr: string)
+{	const MY_XA_ID = '8516327410293847-';
+	await using pool = new MyPool(dsnStr);
+	pool.options({managedXaDsns: dsnStr});
+
+	// MyConn.getTrx()
+	await pool.forConn
+	(	async conn =>
+		{	// Recover dangling XA from previous failed runs
+			try
+			{	for await (const row of await conn.query(`XA RECOVER`).all())
+				{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
+					{	await conn.query(`XA ROLLBACK '${row.data}'`);
+						console.log('Rolled back dangling XA');
+					}
+				}
+			}
+			catch (error)
+			{	if (!(error instanceof SqlError))
+				{	throw error;
+				}
+				// ok
+			}
+
+			// CREATE DATABASE
+			await conn.query("DROP DATABASE IF EXISTS test_get_trx");
+			await conn.query("CREATE DATABASE `test_get_trx`");
+			await conn.query("USE test_get_trx");
+			await conn.query("CREATE TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, a int)");
+
+			// getTrx() + commit() => the row is persisted
+			assertEquals(conn.inTrx, false);
+			{	await using trx = await conn.getTrx();
+				assert(trx instanceof Trx);
+				assertEquals(conn.inTrx, true);
+				assertEquals(conn.inTrxReadonly, false);
+				await conn.query("INSERT INTO t_log SET a = 123");
+				assertEquals(await conn.queryCol("SELECT a FROM t_log WHERE id=1").first(), 123);
+				await trx.commit();
+				assertEquals(conn.inTrx, false);
+			}
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+			// getTrx() without commit() => rolled back when `trx` goes out of scope
+			{	await using trx = await conn.getTrx();
+				assert(trx instanceof Trx);
+				await conn.query("INSERT INTO t_log SET a = 456");
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+			}
+			assertEquals(conn.inTrx, false);
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+			// Disposing after commit() must not rollback the committed data
+			{	await using trx = await conn.getTrx();
+				await conn.query("INSERT INTO t_log SET a = 789");
+				await trx.commit();
+			}
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+			await conn.query("DELETE FROM t_log");
+
+			// getTrx({readonly: true})
+			{	await using trx = await conn.getTrx({readonly: true});
+				assert(trx instanceof Trx);
+				assertEquals(conn.inTrx, true);
+				// `startTrx()` is lazy, so a query is needed to actually send `START TRANSACTION READ ONLY` and update the status flags
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+				assertEquals(conn.inTrxReadonly, true);
+				let error: Any;
+				try
+				{	await conn.query("INSERT INTO t_log SET a = 1");
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
+			}
+			assertEquals(conn.inTrx, false);
+			assertEquals(conn.inTrxReadonly, false);
+
+			// getTrx({xaId1}) + prepareCommit() + commit()
+			{	await using trx = await conn.getTrx({xaId1: MY_XA_ID});
+				assert(trx instanceof Trx);
+				assertEquals(conn.inXa, true);
+				await conn.query("INSERT INTO t_log SET a = 321");
+				await conn.prepareCommit();
+				await trx.commit();
+			}
+			assertEquals(conn.inXa, false);
+			assertEquals(conn.inTrx, false);
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+			await conn.query("DELETE FROM t_log");
+
+			// getTrx({xaId1}) without commit() => rolled back when `trx` goes out of scope
+			{	await using trx = await conn.getTrx({xaId1: MY_XA_ID});
+				assert(trx instanceof Trx);
+				await conn.query("INSERT INTO t_log SET a = 654");
+			}
+			assertEquals(conn.inXa, false);
+			assertEquals(conn.inTrx, false);
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+		}
+	);
+
+	// MySession.getTrx()
+	await pool.forSession
+	(	async session =>
+		{	const conn = session.conn();
+			await conn.query("USE test_get_trx");
+
+			// getTrx() + commit() => the row is persisted
+			{	await using trx = await session.getTrx();
+				assert(trx instanceof Trx);
+				assertEquals(conn.inTrx, true);
+				await conn.query("INSERT INTO t_log SET a = 111");
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+				await trx.commit();
+				assertEquals(conn.inTrx, false);
+			}
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+			// getTrx() without commit() => rolled back when `trx` goes out of scope
+			{	await using trx = await session.getTrx();
+				assert(trx instanceof Trx);
+				await conn.query("INSERT INTO t_log SET a = 222");
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+			}
+			assertEquals(conn.inTrx, false);
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+			await conn.query("DELETE FROM t_log");
+
+			// getTrx({xa: true}) + commit() => 2-phase commit, the row is persisted
+			{	await using trx = await session.getTrx({xa: true});
+				assert(trx instanceof Trx);
+				assertEquals(conn.inXa, true);
+				await conn.query("INSERT INTO t_log SET a = 333");
+				await trx.commit();
+				assertEquals(conn.inTrx, false);
+			}
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+
+			// getTrx({xa: true}) without commit() => rolled back when `trx` goes out of scope
+			{	await using trx = await session.getTrx({xa: true});
+				assert(trx instanceof Trx);
+				await conn.query("INSERT INTO t_log SET a = 444");
+				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
+			}
+			assertEquals(conn.inTrx, false);
+			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 1);
+		}
+	);
+
+	// Drop database that i created
+	await pool.forConn
+	(	async conn =>
+		{	await conn.query("DROP DATABASE test_get_trx");
+		}
+	);
 }
 
 async function testRetryQueryTimes(dsnStr: string)

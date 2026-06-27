@@ -1354,6 +1354,10 @@
 	// If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
 	MyConn.startTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<void>;
 
+	// The same as `startTrx()` (accepts the same `options`), but instead of `void` returns a `Trx` object that you can use with `await using`.
+	// The transaction is rolled back at the end of the scope, unless you call `commit()` on the returned object.
+	MyConn.getTrx(options?: {readonly?: boolean, xaId?: string, xaId1?: string}): Promise<Trx>;
+
 	// Creates transaction savepoint, and returns ID number of this new savepoint.
 	// Then you can call `conn.rollback(pointId)`.
 	// This is lazy operation. The corresponding command will be sent to the server later.
@@ -1440,6 +1444,20 @@
 
 	If you specify `xaId1`, the XA ID will consist of 2 parts: the string you provided (`xaId1`) and [conn.connectionId]{@link MyConn.connectionId} (the latter may be not known at this point if there's no connection to the server yet, so it will be appended later).
 
+	Instead of `startTrx()` you can use [conn.getTrx()]{@link MyConn.getTrx}. It starts a transaction the same way (and accepts the same `options`), but returns a {@link Trx} object that you can use together with `await using`.
+	The transaction is then rolled back at the end of the scope, unless you call `commit()` on the returned object. This way a transaction can't be accidentally left dangling.
+
+	```ts
+	// Start transaction
+	await using trx = await conn.getTrx();
+
+	// Insert a row
+	await conn.query("INSERT INTO t_log SET a = 123");
+
+	// Commit. If `commit()` is not reached (e.g. an exception is thrown), the transaction is rolled back when `trx` goes out of scope
+	await trx.commit();
+	```
+
 	Transaction-related functions are also present in {@link MySession} object.
 	If you start a transaction on the session level, all the connections in this session will have this transaction, and when you ask new connections, the current transaction with all the savepoints will be started there automatically.
 
@@ -1450,6 +1468,10 @@
 	// If then you'll ask a new connection, it will join the transaction.
 	// If commit fails, this function does rollback, and throws the Error.
 	function MySession.startTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<void>;
+
+	// The same as `startTrx()` (accepts the same `options`), but instead of `void` returns a `Trx` object that you can use with `await using`.
+	// The transaction is rolled back at the end of the scope, unless you call `commit()` on the returned object.
+	function MySession.getTrx(options?: {readonly?: boolean, xa?: boolean}): Promise<Trx>;
 
 	// Create session-level savepoint, and return it's ID number.
 	// Then you can call `session.rollback(pointId)`.
@@ -1668,7 +1690,7 @@ export {MyPool, type PoolStatus} from './private/my_pool.ts';
 export type {MyPoolOptions} from './private/my_pool.ts';
 export {MySession} from './private/my_session.ts';
 export {Dsn} from './private/dsn.ts';
-export {MyConn, type DisconnectStatus} from './private/my_conn.ts';
+export {MyConn, Trx, type DisconnectStatus} from './private/my_conn.ts';
 export {ResultsetsPromise, Resultsets, Column} from './private/resultsets.ts';
 export type {ColumnValue, JsonNode, Params} from './private/resultsets.ts';
 export {Charset, MysqlType, ColumnFlags, ErrorCodes} from './private/constants.ts';
