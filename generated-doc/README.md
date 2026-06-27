@@ -7,10 +7,10 @@
 
 
 
-| Classes                          |                            |                                        |                                  |                                                        |                                          |
-| -------------------------------- | -------------------------- | -------------------------------------- | -------------------------------- | ------------------------------------------------------ | ---------------------------------------- |
-| [MyPool](class.MyPool/README.md) | [Dsn](class.Dsn/README.md) | [MySession](class.MySession/README.md) | [MyConn](class.MyConn/README.md) | [ResultsetsPromise](class.ResultsetsPromise/README.md) | [Resultsets](class.Resultsets/README.md) |
-| [Column](class.Column/README.md) |                            |                                        |                                  |                                                        |                                          |
+| Classes                                  |                                  |                                        |                                  |                            |                                                        |
+| ---------------------------------------- | -------------------------------- | -------------------------------------- | -------------------------------- | -------------------------- | ------------------------------------------------------ |
+| [MyPool](class.MyPool/README.md)         | [Dsn](class.Dsn/README.md)       | [MySession](class.MySession/README.md) | [MyConn](class.MyConn/README.md) | [Trx](class.Trx/README.md) | [ResultsetsPromise](class.ResultsetsPromise/README.md) |
+| [Resultsets](class.Resultsets/README.md) | [Column](class.Column/README.md) |                                        |                                  |                            |                                                        |
 
 
 | Types                                              |                                           |                                         |                                                     |                                     |                                   |

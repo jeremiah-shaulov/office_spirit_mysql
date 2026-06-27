@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
+import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
 ```
 
 ## This class has
@@ -11,9 +11,10 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
 - [constructor](#-constructorpool-pool)
 - [destructor](#-symboldispose-void)
 - property [conns](#-get-conns-readonly-myconn)
-- 7 methods:
+- 8 methods:
 [conn](#-conndsn-dsn--string-fresh-booleanfalse-myconn),
 [startTrx](#-starttrxoptions-readonly-boolean-xa-boolean-promisevoid),
+[getTrx](#-gettrxoptions-readonly-boolean-xa-boolean-promisetrx),
 [savepoint](#-savepoint-number),
 [rollback](#-rollbacktopointid-number-promisevoid),
 [commit](#-commitandchain-booleanfalse-promisevoid),
@@ -47,6 +48,23 @@ import {MySession} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
 > Then new transaction will be started on all connections in this session.
 > If then you'll ask a new connection, it will join the transaction.
 > If commit fails, this function does rollback, and throws the Error.
+
+
+
+#### ⚙ getTrx(options?: \{readonly?: `boolean`, xa?: `boolean`}): Promise\<[Trx](../class.Trx/README.md)>
+
+> Commit current transaction (if any), and start new on all the connections of this session, returning a [Trx](../class.Trx/README.md) object that represents the started transaction.
+> This is the same as [MySession.startTrx()](../class.MySession/README.md#-starttrxoptions-readonly-boolean-xa-boolean-promisevoid) (and accepts the same `options`), but instead of `void` it returns an `AsyncDisposable` object.
+> Use it together with `await using`, so that the transaction is rolled back at the end of the scope, unless you call `commit()` on it.
+> 
+> ```ts
+> await using trx = await session.getTrx();
+> const conn = session.conn();
+> await conn.query("INSERT INTO t_log SET a = 123");
+> await trx.commit();
+> ```
+> 
+> If `commit()` is not reached (for example because an exception was thrown), the transaction is rolled back when `trx` goes out of scope.
 
 
 

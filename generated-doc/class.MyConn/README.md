@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
+import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
 ```
 
 ## This class has
@@ -21,7 +21,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
 [schema](#-get-schema-string),
 [inXa](#-get-inxa-boolean),
 [xaId](#-get-xaid-string)
-- 32 methods:
+- 33 methods:
 [connect](#-connect-promisevoid),
 [end](#-end-void),
 [forceImmediateDisconnect](#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus),
@@ -49,6 +49,7 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
 [forPreparedCol](#-forpreparedcolcolumntypecolumnvalue-tunknownsql-sqlsource-callback-prepared-resultsetscolumntype--promiset-queryoptions-queryoptions-promiset),
 [forPreparedVoid](#-forpreparedvoidtsql-sqlsource-callback-prepared-resultsetsvoid--promiset-queryoptions-queryoptionsvoid-promiset),
 [startTrx](#-starttrxoptions-readonly-boolean-xaid-string-xaid1-string-promisevoid),
+[getTrx](#-gettrxoptions-readonly-boolean-xaid-string-xaid1-string-promisetrx),
 [savepoint](#-savepoint-number),
 [prepareCommit](#-preparecommit-promisevoid),
 [rollback](#-rollbacktopointid-number-promisevoid),
@@ -266,6 +267,22 @@ import {MyConn} from "https://deno.land/x/office_spirit_mysql@v0.26.6/mod.ts"
 > To start distributed transaction, pass `{xaId: '...'}`.
 > If you want `conn.connectionId` to be automatically appended to XA identifier, pass `{xaId1: '...'}`, where `xaId1` is the first part of the `xaId`.
 > If connection to server was not yet established, the `conn.connectionId` is not known (and `startTrx()` will not connect), so `conn.connectionId` will be appended later on first query.
+
+
+
+#### ⚙ getTrx(options?: \{readonly?: `boolean`, xaId?: `string`, xaId1?: `string`}): Promise\<[Trx](../class.Trx/README.md)>
+
+> Commit current transaction (if any), and start new, returning a [Trx](../class.Trx/README.md) object that represents the started transaction.
+> This is the same as [MyConn.startTrx()](../class.MyConn/README.md#-starttrxoptions-readonly-boolean-xaid-string-xaid1-string-promisevoid) (and accepts the same `options`), but instead of `void` it returns an `AsyncDisposable` object.
+> Use it together with `await using`, so that the transaction is rolled back at the end of the scope, unless you call `commit()` on it.
+> 
+> ```ts
+> await using trx = await conn.getTrx();
+> await conn.query("INSERT INTO t_log SET a = 123");
+> await trx.commit();
+> ```
+> 
+> If `commit()` is not reached (for example because an exception was thrown), the transaction is rolled back when `trx` goes out of scope.
 
 
 
