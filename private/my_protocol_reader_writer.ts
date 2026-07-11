@@ -378,7 +378,16 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	// long string
 				const packetSize = this.bufferEnd - this.bufferStart - 4 + dataLength;
 				try
-				{	let packetSizeRemaining = packetSize;
+				{	// A packet boundary can fall in the middle of a multi-byte UTF-8 character, because MySQL
+					// reassembles the multi-packet payload byte-for-byte before parsing it. But `encodeInto()`
+					// never emits partial characters (it returns `{read: 0, written: 0}` if the next character
+					// doesn't fit the destination), so such a straddling character is encoded to `carry` and split
+					// by hand: the current packet is completed with `carry[0 .. carryStart]`, and the next packet's
+					// payload begins with `carry[carryStart .. carryEnd]`.
+					const carry = new Uint8Array(4); // 4 == max length of a UTF-8 encoded character
+					let carryStart = 0;
+					let carryEnd = 0;
+					let packetSizeRemaining = packetSize;
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
 						this.setHeader(0xFFFFFF);
@@ -386,16 +395,36 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
 						while (dataChunkLen > 0)
-						{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, dataChunkLen));
-							data = data.slice(read);
-							const part = this.buffer.subarray(0, written);
+						{	let part: Uint8Array;
+							if (carryEnd > carryStart)
+							{	// the tail of the character that was split at the previous packet boundary
+								part = carry.subarray(carryStart, carryEnd);
+								carryStart = carryEnd;
+							}
+							else
+							{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, dataChunkLen));
+								if (written > 0)
+								{	data = data.slice(read);
+									part = this.buffer.subarray(0, written);
+								}
+								else
+								{	// a multi-byte character straddles the packet boundary (1 to 3 bytes of space remain)
+									const char = String.fromCodePoint(data.codePointAt(0)!);
+									const charLen = encoder.encodeInto(char, carry).written;
+									debugAssert(charLen > dataChunkLen);
+									data = data.slice(char.length);
+									part = carry.subarray(0, dataChunkLen);
+									carryStart = dataChunkLen;
+									carryEnd = charLen;
+								}
+							}
 							if (!logData)
 							{	await this.writer.write(part);
 							}
 							else
 							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
 							}
-							dataChunkLen -= written;
+							dataChunkLen -= part.length;
 						}
 						this.bufferStart = 0;
 						this.bufferEnd = 4; // after header
@@ -403,13 +432,21 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					}
 					debugAssert(packetSizeRemaining < 0xFFFFFF);
 					if (this.bufferStart+4+packetSizeRemaining <= this.buffer.length) // if previous packets + header + payload can fit my buffer
-					{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.bufferEnd));
+					{	const from = this.bufferEnd;
+						if (carryEnd > carryStart)
+						{	// the tail of the character that was split at the last packet boundary
+							this.buffer.set(carry.subarray(carryStart, carryEnd), this.bufferEnd);
+							this.bufferEnd += carryEnd - carryStart;
+							dataLength -= carryEnd - carryStart;
+							carryStart = carryEnd;
+						}
+						const {read, written} = encoder.encodeInto(data, this.buffer.subarray(this.bufferEnd));
 						debugAssert(read == data.length);
 						debugAssert(written == dataLength);
 						this.bufferEnd += written;
 						if (canWait && this.bufferEnd+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
 						{	if (logData)
-							{	await logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd));
+							{	await logData(this.buffer.subarray(from, this.bufferEnd));
 							}
 							return true;
 						}
@@ -418,12 +455,24 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
 						}
 						else
-						{	await promiseAllSettledThrow([logData(this.buffer.subarray(this.bufferEnd-written, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
+						{	await promiseAllSettledThrow([logData(this.buffer.subarray(from, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
 						}
 					}
 					else
 					{	this.setHeader(packetSizeRemaining);
 						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						if (carryEnd > carryStart)
+						{	// the tail of the character that was split at the last packet boundary
+							const part = carry.subarray(carryStart, carryEnd);
+							dataLength -= part.length;
+							carryStart = carryEnd;
+							if (!logData)
+							{	await this.writer.write(part);
+							}
+							else
+							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
+							}
+						}
 						while (dataLength > 0)
 						{	const {read, written} = encoder.encodeInto(data, this.buffer.subarray(0, Math.min(dataLength, this.buffer.length)));
 							data = data.slice(read);
