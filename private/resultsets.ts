@@ -30,7 +30,10 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 		return rows;
 	}
 
-	/**	Reads all rows of the first resultset (if `allResultsets` is false)
+	/**	This method is deprecated. Instead of `rset.store(true)` use `rset.buffered()`,
+	 	and `rset.store(false)` is no longer supported.
+	 
+		Reads all rows of the first resultset (if `allResultsets` is false)
 		or of all resultsets (if `allResultsets` is true), and stores them either in memory or on disk.
 		Other resultsets will be discarded (if `allResultsets` is false).
 
@@ -41,10 +44,27 @@ export class ResultsetsPromise<Row> extends Promise<Resultsets<Row>>
 
 		You need to read this object to the end to release the file resource.
 		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+
+		@deprecated
 	 **/
 	async store(allResultsets=false): Promise<Resultsets<Row>>
 	{	const resultsets: Resultsets<Row> = await this;
 		return await resultsets.store(allResultsets);
+	}
+
+	/**	Reads all rows of all resultsets, and stores them either in memory or on disk.
+
+		This method returns `Resultsets` object, which is detached from the connection,
+		so you can perform other queries while you iterate over this object.
+
+		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
+
+		You need to read this object to the end to release the file resource.
+		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+	 **/
+	async buffered(): Promise<Resultsets<Row>>
+	{	const resultsets: Resultsets<Row> = await this;
+		return await resultsets.buffered();
 	}
 
 	/**	Returns the first row of the first resultset.
@@ -157,7 +177,10 @@ export class Resultsets<Row>
 		return rows;
 	}
 
-	/**	Reads all rows of the first resultset in this object (if `allResultsets` is false)
+	/**	This method is deprecated. Instead of `rset.store(true)` use `rset.buffered()`,
+	 	and `rset.store(false)` is no longer supported.
+	 
+		Reads all rows of the first resultset in this object (if `allResultsets` is false)
 		or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
 		Other resultsets will be discarded (if `allResultsets` is false).
 
@@ -170,8 +193,25 @@ export class Resultsets<Row>
 		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
 
 		@returns `this` object, which is now detached from the connection.
+		@deprecated
 	 **/
 	store(_allResultsets=false): Promise<this>
+	{	throw new Error('Not implemented');
+	}
+
+	/**	Reads all rows of all resultsets in this object, and stores them either in memory or on disk.
+
+		After the call this `Resultsets` object is detached from the connection,
+		so you can perform other queries while you iterate over this object.
+
+		The threshold for storing on disk is set in DSN parameter {@link Dsn.storeResultsetIfBigger}.
+
+		You need to read this object to the end to release the file resource.
+		Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+
+		@returns `this` object, which is now detached from the connection.
+	 **/
+	buffered(): Promise<this>
 	{	throw new Error('Not implemented');
 	}
 
@@ -329,11 +369,15 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 		this.isSlowQuery = false;
 	}
 
+	override buffered()
+	{	return this.store(true);
+	}
+
 	override async store(allResultsets=false): Promise<this>
 	{	if (!this.storedResultsets)
 		{	const {rowType, protocol, maxColumnLen, jsonAsString, datesAsString} = this;
 			if (rowType!=RowType.OBJECT && rowType!=RowType.ARRAY && rowType!=RowType.MAP)
-			{	throw new Error('Invalid use of store() method. This row type must be an object, an array or a map.');
+			{	throw new Error('Invalid use of buffered() method. This row type must be an object, an array or a map.');
 			}
 			if (protocol) // if there are resultsets to read
 			{	const storedRows = new Array<ColumnValue[]>; // read rows to here

@@ -111,7 +111,7 @@
 	- `jsonAsString` (boolean, default `false`) - if present, JSON columns will be returned as strings, not parsed into Javascript objects. This is useful if you want to select a row, and then to insert it back, without changing the JSON data.
 	- `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
 	- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
-	- `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.store()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
+	- `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.buffered()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
 
 	The DSN can contain `#` sign followed by SQL statement or several statements separated with semicolons.
 	This SQL will be executed before first query in each connection.
@@ -265,7 +265,7 @@
 
 	If there're rows, you need to iterate them to the end, before you can execute another query.
 	Executing another query while there're unread resultsets throws {@link BusyError}.
-	You can read all the rows with {@link Resultsets.all()}, {@link ResultsetsPromise.all()}, {@link Resultsets.store()} or {@link ResultsetsPromise.store()}.
+	You can read all the rows with {@link Resultsets.all()}, {@link ResultsetsPromise.all()}, {@link Resultsets.buffered()} or {@link ResultsetsPromise.buffered()}.
 
 	```ts
 	// To run this example:

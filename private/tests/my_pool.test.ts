@@ -491,46 +491,44 @@ async function testSerializeRows(dsnStr: string)
 		// SELECT
 		for (let bin=0; bin<2; bin++)
 		{	for (let pr=0; pr<2; pr++)
-			{	for (let all=0; all<2; all++)
-				{	const rows = new Array<Record<string, ColumnValue>>;
-					if (pr)
-					{	await using resultsets = bin ? await conn.query("SELECT * FROM t_log", []).store(all==1) : await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2").store(all==1);
-						for await (const row of resultsets)
-						{	rows.push(row);
-						}
-						for await (const row of resultsets)
-						{	rows.push(row);
-						}
+			{	const rows = new Array<Record<string, ColumnValue>>;
+				if (pr)
+				{	await using resultsets = bin ? await conn.query("SELECT * FROM t_log", []).buffered() : await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2").buffered();
+					for await (const row of resultsets)
+					{	rows.push(row);
 					}
-					else
-					{	await using resultsets = bin ? await conn.query("SELECT * FROM t_log", []) : await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2");
-						for await (const row of await resultsets.store(all==1))
-						{	rows.push(row);
-						}
-						for await (const row of resultsets)
-						{	rows.push(row);
-						}
+					for await (const row of resultsets)
+					{	rows.push(row);
 					}
-					if (!all || bin)
-					{	assertEquals
-						(	rows,
-							[	{id: 1, message: null, data: null, deci: null, en: null},
-								{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
-								{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
-							]
-						);
+				}
+				else
+				{	await using resultsets = bin ? await conn.query("SELECT * FROM t_log", []) : await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2");
+					for await (const row of await resultsets.buffered())
+					{	rows.push(row);
 					}
-					else
-					{	assertEquals
-						(	rows,
-							[	{id: 1, message: null, data: null, deci: null, en: null},
-								{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
-								{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
-								{id: 1},
-								{id: 2},
-							]
-						);
+					for await (const row of resultsets)
+					{	rows.push(row);
 					}
+				}
+				if (bin)
+				{	assertEquals
+					(	rows,
+						[	{id: 1, message: null, data: null, deci: null, en: null},
+							{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
+							{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+						]
+					);
+				}
+				else
+				{	assertEquals
+					(	rows,
+						[	{id: 1, message: null, data: null, deci: null, en: null},
+							{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
+							{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+							{id: 1},
+							{id: 2},
+						]
+					);
 				}
 			}
 		}
@@ -2208,7 +2206,7 @@ async function testCachingSha2LongPassword(dsnStr: string)
 
 async function testStoreFractionalTime(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
-	dsn.storeResultsetIfBigger = 0; // force store() to disk
+	dsn.storeResultsetIfBigger = 0; // force buffered() to disk
 	await using pool = new MyPool(dsn);
 	using conn = pool.getConn();
 
@@ -2225,7 +2223,7 @@ async function testStoreFractionalTime(dsnStr: string)
 	// Stored path round-trips through `serializeRowBinary` / `deserializeRowBinary`.
 	await using rs = await conn.query("SELECT * FROM t_test_time WHERE id<=?", [10]);
 	const rows: unknown[] = [];
-	for await (const row of await rs.store(false))
+	for await (const row of await rs.buffered())
 	{	rows.push(row);
 	}
 	assertEquals(rows, expected, 'stored binary');
