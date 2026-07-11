@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
+import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.27.1/mod.ts"
 ```
 
 ## This class has
@@ -11,10 +11,11 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.27.0
 - [constructor](#-constructorexecutor-resolve-value-t--promiseliket--void-reject-reason-any--void--void)
 - 5 methods:
 [all](#-all-promiserow),
-[store](#-storeallresultsets-booleanfalse-promiseresultsetsrow),
+[buffered](#-buffered-promiseresultsetsrow),
 [first](#-first-promiseany),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
+- [deprecated symbol](#-deprecated-storeallresultsets-booleanfalse-promiseresultsetsrow)
 - base class
 
 
@@ -37,11 +38,9 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.27.0
 
 
 
-#### ⚙ store(allResultsets: `boolean`=false): Promise\<[Resultsets](../class.Resultsets/README.md)\<Row>>
+#### ⚙ buffered(): Promise\<[Resultsets](../class.Resultsets/README.md)\<Row>>
 
-> Reads all rows of the first resultset (if `allResultsets` is false)
-> or of all resultsets (if `allResultsets` is true), and stores them either in memory or on disk.
-> Other resultsets will be discarded (if `allResultsets` is false).
+> Reads all rows of all resultsets, and stores them either in memory or on disk.
 > 
 > This method returns `Resultsets` object, which is detached from the connection,
 > so you can perform other queries while you iterate over this object.
@@ -70,4 +69,27 @@ import {ResultsetsPromise} from "https://deno.land/x/office_spirit_mysql@v0.27.0
 #### ⚙ \[Symbol.asyncIterator](): AsyncGenerator\<Row, `any`, `any`>
 
 
+
+<div style="opacity:0.6">
+
+#### ⚙ `deprecated` store(allResultsets: `boolean`=false): Promise\<[Resultsets](../class.Resultsets/README.md)\<Row>>
+
+> This method is deprecated. Instead of `rset.store(true)` use `rset.buffered()`,
+>  	and `rset.store(false)` is no longer supported.
+> 
+> 	Reads all rows of the first resultset (if `allResultsets` is false)
+> 	or of all resultsets (if `allResultsets` is true), and stores them either in memory or on disk.
+> 	Other resultsets will be discarded (if `allResultsets` is false).
+> 
+> 	This method returns `Resultsets` object, which is detached from the connection,
+> 	so you can perform other queries while you iterate over this object.
+> 
+> 	The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
+> 
+> You need to read this object to the end to release the file resource.
+> Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+
+
+
+</div>
 

@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Trx} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
+import {Trx} from "https://deno.land/x/office_spirit_mysql@v0.27.1/mod.ts"
 ```
 
 Represents a started transaction.

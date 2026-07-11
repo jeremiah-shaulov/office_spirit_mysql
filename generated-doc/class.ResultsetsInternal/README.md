@@ -21,12 +21,13 @@ Methods that don't exist on Resultsets are for internal use.
 [datesAsString](#-readonly-datesasstring-boolean),
 [correctDates](#-readonly-correctdates-boolean),
 [hasMore](#-override-get-hasmore-boolean)
-- 7 methods:
+- 8 methods:
 [exec](#-override-execparams-param-resultsetspromiserow),
 [nextResultset](#-override-nextresultset-promiseboolean),
 [discard](#-override-discard-promisevoid),
 [disposePreparedStmt](#-disposepreparedstmt-void),
 [resetFields](#-resetfields-void),
+[buffered](#-override-buffered-promisethis),
 [store](#-override-storeallresultsets-booleanfalse-promisethis),
 [\[Symbol.asyncIterator\]](#-override-symbolasynciterator-asyncgeneratorrow-any-any)
 - 14 inherited members from [Resultsets](../class.Resultsets/README.md)
@@ -114,8 +115,25 @@ Methods that don't exist on Resultsets are for internal use.
 
 
 
+#### ⚙ `override` buffered(): Promise\<`this`>
+
+> Reads all rows of all resultsets in this object, and stores them either in memory or on disk.
+> 
+> After the call this `Resultsets` object is detached from the connection,
+> so you can perform other queries while you iterate over this object.
+> 
+> The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
+> 
+> You need to read this object to the end to release the file resource.
+> Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+
+
+
 #### ⚙ `override` store(allResultsets: `boolean`=false): Promise\<`this`>
 
+> This method is deprecated. Instead of `rset.store(true)` use `rset.buffered()`,
+> and `rset.store(false)` is no longer supported.
+> 
 > Reads all rows of the first resultset in this object (if `allResultsets` is false)
 > or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
 > Other resultsets will be discarded (if `allResultsets` is false).

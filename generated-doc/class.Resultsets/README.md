@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
+import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.27.1/mod.ts"
 ```
 
 ## This class has
@@ -26,12 +26,13 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts
 - 8 methods:
 [exec](#-exec_params-param-resultsetspromiserow),
 [all](#-all-promiserow),
-[store](#-store_allresultsets-booleanfalse-promisethis),
+[buffered](#-buffered-promisethis),
 [first](#-first-promiserow),
 [forEach](#-foreachtcallback-row-row--t--promiset-promiset),
 [nextResultset](#-nextresultset-promiseboolean),
 [discard](#-discard-promisevoid),
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
+- [deprecated symbol](#-deprecated-store_allresultsets-booleanfalse-promisethis)
 
 
 #### 🔧 `constructor`(columns: [Column](../class.Column/README.md)\[]=new Array\<Column>, lastInsertId: `number` | `bigint`=0, affectedRows: `number` | `bigint`=0, foundRows: `number` | `bigint`=0, warnings: `number`=0, statusInfo: `string`="", noGoodIndexUsed: `boolean`=false, noIndexUsed: `boolean`=false, isSlowQuery: `boolean`=false, nPlaceholders: `number`=0)
@@ -126,11 +127,9 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts
 
 
 
-#### ⚙ store(\_allResultsets: `boolean`=false): Promise\<`this`>
+#### ⚙ buffered(): Promise\<`this`>
 
-> Reads all rows of the first resultset in this object (if `allResultsets` is false)
-> or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
-> Other resultsets will be discarded (if `allResultsets` is false).
+> Reads all rows of all resultsets in this object, and stores them either in memory or on disk.
 > 
 > After the call this `Resultsets` object is detached from the connection,
 > so you can perform other queries while you iterate over this object.
@@ -175,4 +174,31 @@ import {Resultsets} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts
 > Iterates over rows in current resultset.
 
 
+
+<div style="opacity:0.6">
+
+#### ⚙ `deprecated` store(\_allResultsets: `boolean`=false): Promise\<`this`>
+
+> This method is deprecated. Instead of `rset.store(true)` use `rset.buffered()`,
+>  	and `rset.store(false)` is no longer supported.
+> 
+> 	Reads all rows of the first resultset in this object (if `allResultsets` is false)
+> 	or of all resultsets in this object (if `allResultsets` is true), and stores them either in memory or on disk.
+> 	Other resultsets will be discarded (if `allResultsets` is false).
+> 
+> 	After the call this `Resultsets` object is detached from the connection,
+> 	so you can perform other queries while you iterate over this object.
+> 
+> 	The threshold for storing on disk is set in DSN parameter [Dsn.storeResultsetIfBigger](../class.Dsn/README.md#-accessor-storeresultsetifbigger-number).
+> 
+> You need to read this object to the end to release the file resource.
+> Or you can call `await resultsets.discard()` or to bind this `Resultsets` object to an `await using` variable.
+> 
+> ✔️ Return value:
+> 
+> `this` object, which is now detached from the connection.
+
+
+
+</div>
 

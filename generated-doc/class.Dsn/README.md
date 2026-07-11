@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.27.0/mod.ts"
+import {Dsn} from "https://deno.land/x/office_spirit_mysql@v0.27.1/mod.ts"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.
@@ -201,7 +201,7 @@ Possible parameters:
 
 > Default value: `64KiB`
 > 
-> When using [Resultsets.store()](../class.Resultsets/README.md#-store_allresultsets-booleanfalse-promisethis) and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
+> When using [Resultsets.buffered()](../class.Resultsets/README.md#-buffered-promisethis) and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
 
 
 
