@@ -1,5 +1,6 @@
 export const enum CapabilityFlags
-{	CLIENT_LONG_PASSWORD					= 1,		// new more secure passwords
+{	CLIENT_MYSQL							= 1,		// MariaDB reuses this bit to tell itself apart from MySQL: MariaDB (since 10.2) clears it, MySQL sets it
+	CLIENT_LONG_PASSWORD					= 1,		// new more secure passwords
 	CLIENT_FOUND_ROWS						= 2,		// Found instead of affected rows
 	CLIENT_LONG_FLAG						= 4,		// Get all column flags
 	CLIENT_CONNECT_WITH_DB					= 8,		// One can specify db on connect
@@ -24,6 +25,26 @@ export const enum CapabilityFlags
 	CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS		= 1 << 22,	// Don't close the connection for a connection with expired password.
 	CLIENT_SESSION_TRACK					= 1 << 23,	// Extended OK
 	CLIENT_DEPRECATE_EOF					= 1 << 24,
+}
+
+/**	MariaDB has 64-bit capability flags, where the upper 32 bits are MariaDB-specific.
+	They travel apart from the standard {@link CapabilityFlags}: the server sends them in the reserved area of the initial handshake packet,
+	and the client echoes back the negotiated subset in the reserved area of the handshake response.
+	The values here are the upper half, shifted down to bits 0-31 (e.g. `MARIADB_CLIENT_EXTENDED_METADATA` is bit 35 of the 64-bit value).
+	Only sent to servers that cleared {@link CapabilityFlags.CLIENT_MYSQL}, i.e. to MariaDB.
+ **/
+export const enum MariadbCapabilityFlags
+{	MARIADB_CLIENT_PROGRESS					= 1 << 0,	// Server can send progress reports
+	MARIADB_CLIENT_STMT_BULK_OPERATIONS		= 1 << 2,	// Bulk statement execution
+	MARIADB_CLIENT_EXTENDED_METADATA		= 1 << 3,	// Column definitions carry extended type info (this is how MariaDB tells that a column is JSON, as it stores JSON in LONGTEXT columns)
+	MARIADB_CLIENT_CACHE_METADATA			= 1 << 4,	// Server can skip resending unchanged metadata
+}
+
+/**	Keys of the extended type info that MariaDB attaches to each column definition when {@link MariadbCapabilityFlags.MARIADB_CLIENT_EXTENDED_METADATA} is negotiated.
+ **/
+export const enum MariadbFieldAttr
+{	DATA_TYPE_NAME = 0, // like "inet6", "uuid", "point"
+	FORMAT_NAME = 1, // "json" for JSON columns
 }
 
 export const enum StatusFlags

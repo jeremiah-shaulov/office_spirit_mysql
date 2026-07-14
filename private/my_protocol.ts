@@ -1,6 +1,6 @@
 import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
-import {CapabilityFlags, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ErrorCodes, SetOption} from './constants.ts';
+import {CapabilityFlags, MariadbCapabilityFlags, MariadbFieldAttr, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ErrorCodes, SetOption} from './constants.ts';
 import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
 import {Dsn} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
@@ -28,6 +28,11 @@ export type OnLoadFile = (filename: string, dsn: Dsn) => OnLoadFileResult | Prom
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
+
+const C_J = 'j'.charCodeAt(0);
+const C_S = 's'.charCodeAt(0);
+const C_O = 'o'.charCodeAt(0);
+const C_N = 'n'.charCodeAt(0);
 
 export interface Logger
 {	debug(...args: unknown[]): unknown;
@@ -82,6 +87,10 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	capabilityFlags = 0;
 	statusFlags = 0;
 	schema = '';
+
+	/**	Upper half of MariaDB's 64-bit capability flags. After the handshake this holds the negotiated set (what both sides support), and it's 0 when the server is MySQL.
+	 **/
+	#mariadbCapabilityFlags = 0;
 
 	// for connections pool:
 	useTill = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
@@ -189,6 +198,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		const connectionId = this.readUint32() ?? await this.readUint32Async();
 		let authPluginData: Uint8Array<ArrayBufferLike> = new Uint8Array(24).subarray(0, 0);
 		let capabilityFlags = 0;
+		let mariadbCapabilityFlags = 0;
 		let statusFlags = 0;
 		let authPluginName = '';
 		if (protocolVersion == 9)
@@ -205,10 +215,17 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 				let authPluginDataLen = 0;
 				if (capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH)
 				{	authPluginDataLen = this.readUint8() ?? await this.readUint8Async();
-					this.readVoid(10) || await this.readVoidAsync(10);
 				}
 				else
-				{	this.readVoid(11) || await this.readVoidAsync(11);
+				{	this.readVoid(1) || await this.readVoidAsync(1);
+				}
+				// 10 reserved bytes follow, but MariaDB (that clears `CLIENT_MYSQL`) puts the upper half of it's 64-bit capability flags to the last 4 of them
+				this.readVoid(6) || await this.readVoidAsync(6);
+				if (capabilityFlags & CapabilityFlags.CLIENT_MYSQL)
+				{	this.readVoid(4) || await this.readVoidAsync(4);
+				}
+				else
+				{	mariadbCapabilityFlags = this.readUint32() ?? await this.readUint32Async();
 				}
 				if (capabilityFlags & CapabilityFlags.CLIENT_SECURE_CONNECTION)
 				{	// read 2nd part of auth_plugin_data
@@ -229,6 +246,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		this.serverVersion = serverVersion;
 		this.connectionId = connectionId;
 		this.capabilityFlags = capabilityFlags;
+		this.#mariadbCapabilityFlags = mariadbCapabilityFlags;
 		this.statusFlags = statusFlags;
 		return AuthPlugin.inst(authPluginName, authPluginData, this.dsn);
 	}
@@ -259,13 +277,17 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_SESSION_TRACK)
 		{	this.schema = schema;
 		}
+		// apply MariaDB-specific capabilities (the server sent 0 here if it's MySQL, so nothing gets negotiated then)
+		this.#mariadbCapabilityFlags &= MariadbCapabilityFlags.MARIADB_CLIENT_EXTENDED_METADATA;
 		// send packet
 		this.startWritingNewPacket();
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
 		{	this.writeUint32(this.capabilityFlags);
 			this.writeUint32(0xFFFFFF); // max packet size
 			this.writeUint8(DEFAULT_CHARACTER_SET_CLIENT);
-			this.writeZero(23);
+			// 23 reserved bytes, where MariaDB expects the upper half of the 64-bit capability flags in the last 4 (for MySQL they remain zero, as the whole area is)
+			this.writeZero(19);
+			this.writeUint32(this.#mariadbCapabilityFlags);
 			this.writeShortNulString(username);
 			// auth: always let the plugin produce the token, even for empty password (e.g. `client_ed25519` signs the nonce, and `parsec` requests the salt in any case)
 			const auth = await authPlugin.quickAuth(password);
@@ -727,6 +749,32 @@ L:		while (true)
 		}
 	}
 
+	/**	When `MARIADB_CLIENT_EXTENDED_METADATA` is negotiated, each column definition carries an additional block of extended type info,
+		that is a sequence of `attribute key, value length, value` triples (see {@link MariadbFieldAttr}).
+		Reads the block, and returns true if it says that the column format is JSON.
+	 **/
+	async #readMariadbExtendedTypeInfo()
+	{	const blockLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
+		if (blockLen > 0)
+		{	const block = this.readShortBytes(blockLen) ?? await this.readShortBytesAsync(blockLen);
+			for (let i=0; i+2 <= blockLen;)
+			{	const attrKey = block[i++];
+				const valueLen = block[i++];
+				if (i+valueLen > blockLen)
+				{	break; // badly encoded data
+				}
+				if (attrKey == MariadbFieldAttr.FORMAT_NAME)
+				{	if (valueLen==4 && block[i]==C_J && block[i+1]==C_S && block[i+2]==C_O && block[i+3]==C_N)
+					{	return true;
+					}
+					break;
+				}
+				i += valueLen;
+			}
+		}
+		return false;
+	}
+
 	async #readColumnDefinitionPackets(nPackets: number)
 	{	const columns = new Array<Column>;
 		if (nPackets > 0)
@@ -740,6 +788,7 @@ L:		while (true)
 					const orgTable = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					const name = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					const orgName = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
+					const isJson = this.#mariadbCapabilityFlags & MariadbCapabilityFlags.MARIADB_CLIENT_EXTENDED_METADATA ? await this.#readMariadbExtendedTypeInfo() : false;
 					const blockLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
 					if (blockLen < 12)
 					{	throw new Error('Invalid column definition packet: block length too small');
@@ -748,7 +797,8 @@ L:		while (true)
 					const v = new DataView(block.buffer, block.byteOffset);
 					const charset = v.getUint16(0, true);
 					const columnLen = v.getUint32(2, true);
-					const columnType = v.getUint8(6);
+					// MariaDB stores JSON in LONGTEXT columns, and only the extended type info tells them apart. Report such columns as JSON, like MySQL does, so the value gets parsed.
+					const columnType = isJson ? MysqlType.MYSQL_TYPE_JSON : v.getUint8(6);
 					const flags = v.getUint16(7, true);
 					const decimals = v.getUint8(9);
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
@@ -2036,6 +2086,8 @@ L:		while (true)
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
+				// `COM_RESET_CONNECTION` doesn't renegotiate the capabilities, so the recycled connection continues to speak the dialect that was negotiated during the handshake, including `MARIADB_CLIENT_EXTENDED_METADATA` (that makes the server send the extended type info in each column definition)
+				protocol.#mariadbCapabilityFlags = this.#mariadbCapabilityFlags;
 				protocol.#maxColumnLen = this.#maxColumnLen;
 				protocol.#curMultiStatements = this.#curMultiStatements;
 				protocol.#retryQueryTimes = this.#retryQueryTimes;

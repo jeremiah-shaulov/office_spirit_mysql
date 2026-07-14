@@ -48,6 +48,7 @@ testWithDocker
 		testAuthSha256Password,
 		testAuthEd25519,
 		testAuthParsec,
+		testJsonColumnType,
 		testBigintUnsignedBinaryParam,
 		testForceImmediateDisconnect,
 		testForceImmediateDisconnectCleanupWhenSaturated,
@@ -464,6 +465,14 @@ async function testNoDsn(_dsnStr: string)
 	}
 }
 
+/**	MySQL has a distinct JSON column type, so JSON values are recognized and parsed.
+	MariaDB stores JSON in LONGTEXT columns, and only reports the difference through the extended metadata that appeared in 10.5.
+	On older MariaDB such columns are indistinguishable from text, so their values remain strings.
+ **/
+function isJsonColumnDetectable(version: string)
+{	return version.includes('MariaDB') ? parseVersion(version)>=1005 : parseVersion(version)>=507;
+}
+
 async function testSerializeRows(dsnStr: string)
 {	for (const storeResultsetIfBigger of [0, 12, 30, 100, 10000])
 	{	const dsn = new Dsn(dsnStr);
@@ -471,6 +480,10 @@ async function testSerializeRows(dsnStr: string)
 		await using pool = new MyPool(dsn);
 		using session = pool.getSession();
 		using conn = session.conn();
+
+		const jsonParsed = isJsonColumnDetectable(String(await conn.queryCol('SELECT VERSION()').first()));
+		const data2: ColumnValue = jsonParsed ? 123 : '123';
+		const data3: ColumnValue = jsonParsed ? [1, 2, 3] : '[1,2,3]';
 
 		// CREATE TABLE
 		await conn.query
@@ -519,8 +532,8 @@ async function testSerializeRows(dsnStr: string)
 				{	assertEquals
 					(	rows,
 						[	{id: 1, message: null, data: null, deci: null, en: null},
-							{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
-							{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+							{id: 2, message: `Message 2`, data: data2, deci: '1.23', en: 'two'},
+							{id: 3, message: `Message 3`, data: data3, deci: '4.56', en: 'three'},
 						]
 					);
 				}
@@ -528,8 +541,8 @@ async function testSerializeRows(dsnStr: string)
 				{	assertEquals
 					(	rows,
 						[	{id: 1, message: null, data: null, deci: null, en: null},
-							{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
-							{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+							{id: 2, message: `Message 2`, data: data2, deci: '1.23', en: 'two'},
+							{id: 3, message: `Message 3`, data: data3, deci: '4.56', en: 'three'},
 							{id: 1},
 							{id: 2},
 						]
@@ -554,8 +567,8 @@ async function testSerializeRows(dsnStr: string)
 			assertEquals
 			(	rowsByResultset,
 				[	[	{id: 1, message: null, data: null, deci: null, en: null},
-						{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
-						{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+						{id: 2, message: `Message 2`, data: data2, deci: '1.23', en: 'two'},
+						{id: 3, message: `Message 3`, data: data3, deci: '4.56', en: 'three'},
 					],
 					[	{id: 1},
 						{id: 2},
@@ -2454,6 +2467,44 @@ async function testAuthParsec(dsnStr: string)
 }
 
 // `mysql_clear_password` is not integration-tested here: the server side only requests it for externally checked accounts (PAM, LDAP), that need extra infrastructure. It's unit-tested in auth_plugins.test.ts.
+
+async function testJsonColumnType(dsnStr: string)
+{	await using pool = new MyPool(dsnStr);
+	using conn = pool.getConn();
+
+	const version = String(await conn.queryCol('SELECT VERSION()').first());
+	if (!isJsonColumnDetectable(version))
+	{	console.log(`\tskipped: this server cannot report JSON columns (server is ${version})`);
+		return;
+	}
+
+	await conn.queryVoid('DROP TABLE IF EXISTS t_json');
+	// `data` is JSON, and `not_data` is the LONGTEXT that MariaDB stores JSON in, so this also proves that plain text columns don't get mistaken for JSON
+	await conn.queryVoid('CREATE TABLE t_json (id integer, data json, not_data longtext)');
+	try
+	{	await conn.queryVoid(`INSERT INTO t_json VALUES (1, '{"a":[1,2]}', '{"a":[1,2]}')`);
+		for (const binary of [false, true])
+		{	await using resultsets = binary ? await conn.query('SELECT * FROM t_json', []) : await conn.query('SELECT * FROM t_json');
+			const {columns} = resultsets;
+			assertEquals(columns[1].type, 'json', `${binary ? 'binary' : 'text'} protocol: data column type`);
+			assertEquals(columns[2].type, 'longtext', `${binary ? 'binary' : 'text'} protocol: not_data column type`);
+			const row = await resultsets.first();
+			assertEquals(row?.data, {a: [1, 2]}, `${binary ? 'binary' : 'text'} protocol: JSON is parsed`);
+			assertEquals(row?.not_data, '{"a":[1,2]}', `${binary ? 'binary' : 'text'} protocol: LONGTEXT stays a string`);
+		}
+		// `jsonAsString` must keep the JSON column unparsed. MySQL stores JSON in binary form, and prints it back with it's own spacing, so compare the meaning, not the exact text.
+		const dsn2 = new Dsn(dsnStr);
+		dsn2.jsonAsString = true;
+		await using pool2 = new MyPool(dsn2);
+		using conn2 = pool2.getConn();
+		const asString = await conn2.queryCol('SELECT data FROM t_json').first();
+		assertEquals(typeof asString, 'string', 'jsonAsString: the value must remain a string');
+		assertEquals(JSON.parse(String(asString)), {a: [1, 2]}, 'jsonAsString: the string must be the JSON text');
+	}
+	finally
+	{	await conn.queryVoid('DROP TABLE t_json');
+	}
+}
 
 async function testStoreFractionalTime(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
