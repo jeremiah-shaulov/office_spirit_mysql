@@ -88,9 +88,43 @@ Deno.test
 		// Allowed through Unix-domain socket without the parameter
 		plugin = AuthPlugin.inst('mysql_clear_password', scramble, new Dsn(PIPE_DSN));
 		assertEquals(await plugin.quickAuth('pwd'), new Uint8Array([...encoder.encode('pwd'), 0]));
+		// Allowed through TLS without the parameter
+		plugin = AuthPlugin.inst('mysql_clear_password', scramble, new Dsn(TCP_DSN+'?tls'));
+		assertEquals(await plugin.quickAuth('pwd'), new Uint8Array([...encoder.encode('pwd'), 0]));
 		// Empty password is only the nul terminator
 		plugin = AuthPlugin.inst('mysql_clear_password', scramble, new Dsn(TCP_DSN+'?allowCleartextPasswords'));
 		assertEquals(await plugin.quickAuth(''), new Uint8Array([0]));
+	}
+);
+
+Deno.test
+(	'caching_sha2_password full auth',
+	async () =>
+	{	const scramble = randomScramble(20);
+		const password = 'pwd @אя';
+		const fullAuthRequest = Uint8Array.of(4); // AuthStatusFlags.FullAuth
+
+		// Refused through untrusted TCP without opt-in
+		{	const plugin = AuthPlugin.inst('caching_sha2_password', scramble, new Dsn(TCP_DSN));
+			const error = await getError(() => plugin.progress(password, 1, fullAuthRequest, new FakeWriter as Any));
+			assert(error.includes('allowPublicKeyRetrieval'), error);
+		}
+
+		// Through trusted transport (pipe or TLS) the plain password is sent (nul-terminated)
+		for (const dsnStr of [PIPE_DSN, TCP_DSN+'?tls'])
+		{	const plugin = AuthPlugin.inst('caching_sha2_password', scramble, new Dsn(dsnStr));
+			const writer = new FakeWriter;
+			assertEquals(await plugin.progress(password, 1, fullAuthRequest, writer as Any), false);
+			assertEquals(writer.sent, [new Uint8Array([...encoder.encode(password), 0])]);
+			assertEquals(await plugin.progress(password, 0, new Uint8Array, writer as Any), true); // OK packet ends the flow
+		}
+
+		// Through untrusted TCP with the opt-in parameter the server public key is requested
+		{	const plugin = AuthPlugin.inst('caching_sha2_password', scramble, new Dsn(TCP_DSN+'?allowPublicKeyRetrieval'));
+			const writer = new FakeWriter;
+			assertEquals(await plugin.progress(password, 1, fullAuthRequest, writer as Any), false);
+			assertEquals(writer.sent, [Uint8Array.of(2)]); // REQUEST_PUBLIC_KEY
+		}
 	}
 );
 
@@ -122,6 +156,10 @@ Deno.test
 
 		// Trusted transport (pipe): clear text password + nul
 		plugin = AuthPlugin.inst('sha256_password', scramble, new Dsn(PIPE_DSN));
+		assertEquals(await plugin.quickAuth(password), passwordWithNul);
+
+		// Trusted transport (TLS): clear text password + nul
+		plugin = AuthPlugin.inst('sha256_password', scramble, new Dsn(TCP_DSN+'?tls'));
 		assertEquals(await plugin.quickAuth(password), passwordWithNul);
 
 		// Pinned public key: encrypted immediately

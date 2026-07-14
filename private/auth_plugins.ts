@@ -22,11 +22,11 @@ export class AuthPlugin
 		throw new Error(`Authentication plugin is not supported: ${name}`);
 	}
 
-	/**	True when the transport cannot be eavesdropped: currently only Unix-domain socket.
-		When TLS support is added, this is the single place that must recognize it.
+	/**	True when the transport cannot be eavesdropped: Unix-domain socket, or TLS.
+		When `dsn.tls` is set, the connection is upgraded to TLS before the authentication starts (or the connection fails), so by the time an auth plugin runs, the transport is already encrypted.
 	 **/
 	protected get isConnectionTrusted()
-	{	return !!this.dsn.pipe;
+	{	return !!this.dsn.pipe || this.dsn.tls;
 	}
 
 	quickAuth(_password: string): Promise<Uint8Array>
@@ -133,7 +133,13 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 					return false;
 				}
 				else if (statusFlag == AuthStatusFlags.FullAuth)
-				{	if (this.dsn.serverPublicKey)
+				{	if (this.isConnectionTrusted)
+					{	// On a secure channel (TLS or Unix-domain socket) the plain password is sent directly (nul-terminated), like the standard clients do
+						await writer.authSendBytesPacket(appendZeroByte(encoder.encode(password)));
+						this.#state = State.Done;
+						return false;
+					}
+					if (this.dsn.serverPublicKey)
 					{	// The user pinned the trusted server public key, so no need to request it from the server
 						await writer.authSendBytesPacket(await encryptPassword(password, this.scramble, this.dsn.serverPublicKey));
 						this.#state = State.Done;
@@ -143,9 +149,10 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 					{	// Requesting the key through untrusted TCP connection allows an active MITM to substitute the key, and to decrypt the password
 						throw new Error
 						(	`The server requested 'caching_sha2_password' full authentication, that requires the server RSA public key, but the connection is not secure (TCP without TLS). Options: `+
-							`1) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
-							`2) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'); `+
-							`3) connect through Unix-domain socket.`
+							`1) add 'tls' parameter to the DSN to encrypt the connection; `+
+							`2) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
+							`3) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'); `+
+							`4) connect through Unix-domain socket.`
 						);
 					}
 					await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
@@ -194,9 +201,10 @@ class AuthPluginSha256Password extends AuthPlugin
 		if (!this.dsn.allowPublicKeyRetrieval)
 		{	throw new Error
 			(	`The server requested 'sha256_password' authentication, that requires the server RSA public key, but the connection is not secure (TCP without TLS). Options: `+
-				`1) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
-				`2) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Rsa_public_key'); `+
-				`3) connect through Unix-domain socket.`
+				`1) add 'tls' parameter to the DSN to encrypt the connection; `+
+				`2) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
+				`3) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Rsa_public_key'); `+
+				`4) connect through Unix-domain socket.`
 			);
 		}
 		// Request the public key from the server (the server will send it, and `progress()` will do the encryption)
@@ -230,8 +238,9 @@ class AuthPluginMysqlClearPassword extends AuthPlugin
 	{	if (!this.isConnectionTrusted && !this.dsn.allowCleartextPasswords)
 		{	throw new Error
 			(	`The server requested 'mysql_clear_password' authentication, that sends the password in clear text, but the connection is not secure (TCP without TLS). Options: `+
-				`1) add 'allowCleartextPasswords' parameter to the DSN, if the network path to the server is trusted; `+
-				`2) connect through Unix-domain socket.`
+				`1) add 'tls' parameter to the DSN to encrypt the connection; `+
+				`2) add 'allowCleartextPasswords' parameter to the DSN, if the network path to the server is trusted; `+
+				`3) connect through Unix-domain socket.`
 			);
 		}
 		return Promise.resolve(appendZeroByte(encoder.encode(password)));

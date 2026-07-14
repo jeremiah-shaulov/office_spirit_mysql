@@ -40,6 +40,9 @@ export function publicKeyToBase64(publicKey: string)
 	- {@link allowPublicKeyRetrieval}
 	- {@link serverPublicKey}
 	- {@link allowCleartextPasswords}
+	- {@link tls}
+	- {@link tlsCaCert}
+	- {@link tlsHostname}
  **/
 export class Dsn
 {	#hostname: string;
@@ -74,6 +77,12 @@ export class Dsn
 	#serverPublicKey: string;
 	/** Allow to send the password in clear text through the untrusted connection, if the server requests `mysql_clear_password` authentication */
 	#allowCleartextPasswords: boolean;
+	/** Connect over TLS */
+	#tls: boolean;
+	/** CA certificate(s) in PEM format, to validate the server certificate against (in addition to the built-in root certificates) */
+	#tlsCaCert: string;
+	/** Server host name that the server certificate must be issued to, if different from `hostname` */
+	#tlsHostname: string;
 	#initSql: string;
 	#name: string;
 	#hash: number;
@@ -305,7 +314,7 @@ export class Dsn
 	/**	If the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password.
 		If this parameter is present, the key will be requested from the server itself, through the untrusted connection.
 		This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password.
-		To avoid the risk, pin the trusted key in {@link serverPublicKey}, or connect through Unix-domain socket.
+		To avoid the risk, enable {@link tls}, or pin the trusted key in {@link serverPublicKey}, or connect through Unix-domain socket.
 		@default false
 	 **/
 	get allowPublicKeyRetrieval()
@@ -341,6 +350,53 @@ export class Dsn
 	}
 	set allowCleartextPasswords(value: boolean)
 	{	this.#allowCleartextPasswords = value;
+		this.#updateNameAndHash();
+	}
+
+	/**	If present, the connection will be upgraded to TLS before the authentication (and so before any credentials are sent).
+		The server certificate will be validated against the operating system root certificates (or the ones from `DENO_CERT` environment variable), plus {@link tlsCaCert} if set.
+		This only applies to TCP connections. For Unix-domain socket (see {@link pipe}) this parameter is ignored.
+		@default false
+	 **/
+	get tls()
+	{	return this.#tls;
+	}
+	set tls(value: boolean)
+	{	this.#tls = value;
+		this.#updateNameAndHash();
+	}
+
+	/**	CA certificate (or several certificates concatenated) in PEM format, that the server certificate will be validated against, in addition to the built-in root certificates.
+		Use it when the server has a self-signed certificate, or a certificate issued by your private CA.
+		Setting this to nonempty string also enables {@link tls}.
+		In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
+		@default empty string
+	 **/
+	get tlsCaCert()
+	{	return this.#tlsCaCert;
+	}
+	set tlsCaCert(value: string)
+	{	this.#tlsCaCert = value;
+		if (value)
+		{	this.#tls = true;
+		}
+		this.#updateNameAndHash();
+	}
+
+	/**	Host name that the server certificate must be issued to.
+		Set it when you connect by IP address or through a tunnel, and the certificate is issued to the server domain name.
+		If empty, {@link hostname} is used.
+		Setting this to nonempty string also enables {@link tls}.
+		@default empty string
+	 **/
+	get tlsHostname()
+	{	return this.#tlsHostname;
+	}
+	set tlsHostname(value: string)
+	{	this.#tlsHostname = value;
+		if (value)
+		{	this.#tls = true;
+		}
 		this.#updateNameAndHash();
 	}
 
@@ -409,6 +465,9 @@ export class Dsn
 			this.#allowPublicKeyRetrieval = dsn.#allowPublicKeyRetrieval;
 			this.#serverPublicKey = dsn.#serverPublicKey;
 			this.#allowCleartextPasswords = dsn.#allowCleartextPasswords;
+			this.#tls = dsn.#tls;
+			this.#tlsCaCert = dsn.#tlsCaCert;
+			this.#tlsHostname = dsn.#tlsHostname;
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
@@ -454,6 +513,9 @@ export class Dsn
 			const allowPublicKeyRetrieval = url.searchParams.get('allowPublicKeyRetrieval');
 			const serverPublicKey = url.searchParams.get('serverPublicKey');
 			const allowCleartextPasswords = url.searchParams.get('allowCleartextPasswords');
+			const tls = url.searchParams.get('tls');
+			const tlsCaCert = url.searchParams.get('tlsCaCert');
+			const tlsHostname = url.searchParams.get('tlsHostname');
 			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -473,6 +535,9 @@ export class Dsn
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
 			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
 			this.#allowCleartextPasswords = allowCleartextPasswords != null;
+			this.#tlsCaCert = tlsCaCert ?? '';
+			this.#tlsHostname = tlsHostname ?? '';
+			this.#tls = tls!=null || !!this.#tlsCaCert || !!this.#tlsHostname;
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
@@ -503,7 +568,10 @@ export class Dsn
 			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '') +
 			(this.#allowPublicKeyRetrieval ? '&allowPublicKeyRetrieval' : '') +
 			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '') +
-			(this.#allowCleartextPasswords ? '&allowCleartextPasswords' : '')
+			(this.#allowCleartextPasswords ? '&allowCleartextPasswords' : '') +
+			(this.#tls ? '&tls' : '') +
+			(this.#tlsCaCert ? '&tlsCaCert='+encodeURIComponent(this.#tlsCaCert) : '') +
+			(this.#tlsHostname ? '&tlsHostname='+encodeURIComponent(this.#tlsHostname) : '')
 		);
 		const name0 =
 		(	'mysql://' +

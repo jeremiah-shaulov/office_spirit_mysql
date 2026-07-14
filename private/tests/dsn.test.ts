@@ -301,6 +301,58 @@ Deno.test
 );
 
 Deno.test
+(	'tls, tlsCaCert and tlsHostname',
+	() =>
+	{	// '+' and '/' are legitimate base64 chars, so the PEM must survive percent-encoding round-trip byte-to-byte
+		const pem = '-----BEGIN CERTIFICATE-----\nMIIBhTCCASugAwIBAgIQIRi6zePL6mKjOipn+dNuaTAKBggqhkjOPQQDAjASMRAw\nDgYDVQQKEwdBY21lIENvMB4XDTIzMDEwMTAwMDAwMFoXDTI0MDEwMTAwMDAwMFow\nEjEQMA4GA1UEChMHQWNtZSBDbw+/PQ==\n-----END CERTIFICATE-----\n';
+
+		let dsn = new Dsn('mysql://root@localhost/?tls');
+		assertEquals(dsn.tls, true);
+		assertEquals(dsn.tlsCaCert, '');
+		assertEquals(dsn.tlsHostname, '');
+		assertEquals(dsn+'', 'mysql://root@localhost/?tls');
+		dsn.tls = false;
+		assertEquals(dsn.tls, false);
+		assertEquals(dsn+'', 'mysql://root@localhost/');
+
+		// Percent-encoded PEM in the URL is preserved byte-to-byte
+		dsn = new Dsn('mysql://root@localhost/?tlsCaCert='+encodeURIComponent(pem));
+		assertEquals(dsn.tls, true); // `tlsCaCert` enables `tls`
+		assertEquals(dsn.tlsCaCert, pem);
+		assertEquals(dsn+'', 'mysql://root@localhost/?tls&tlsCaCert='+encodeURIComponent(pem));
+		assertEquals(new Dsn(dsn+'').tlsCaCert, pem); // `name` round-trip
+
+		// `tlsHostname` enables `tls` too
+		dsn = new Dsn('mysql://root@127.0.0.1/?tlsHostname=db.example.com');
+		assertEquals(dsn.tls, true);
+		assertEquals(dsn.tlsHostname, 'db.example.com');
+		assertEquals(dsn+'', 'mysql://root@127.0.0.1/?tls&tlsHostname=db.example.com');
+
+		// Copy-constructor
+		dsn.tlsCaCert = pem;
+		const dsn2 = new Dsn(dsn);
+		assertEquals(dsn2.tls, true);
+		assertEquals(dsn2.tlsCaCert, pem);
+		assertEquals(dsn2.tlsHostname, 'db.example.com');
+
+		// The setters also enable `tls`
+		dsn = new Dsn('mysql://root@localhost/');
+		assertEquals(dsn.tls, false);
+		dsn.tlsCaCert = pem;
+		assertEquals(dsn.tls, true);
+		dsn = new Dsn('mysql://root@localhost/');
+		dsn.tlsHostname = 'db.example.com';
+		assertEquals(dsn.tls, true);
+
+		// Clearing them doesn't disable `tls` (it was enabled, maybe also explicitly)
+		dsn.tlsHostname = '';
+		assertEquals(dsn.tls, true);
+		dsn.tls = false;
+		assertEquals(dsn+'', 'mysql://root@localhost/');
+	}
+);
+
+Deno.test
 (	'Pipe path with non-ASCII bytes is URL-decoded',
 	() =>
 	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.

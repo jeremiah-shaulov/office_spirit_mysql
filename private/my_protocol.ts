@@ -123,7 +123,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	}
 
 	static async inst(dsn: Dsn, pendingChangeSchema: string, takeCareOfDisconneced: TakeCareOfDisconneced[], useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
-	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes} = dsn;
+	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes, tls, pipe} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
 		}
@@ -147,12 +147,16 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		protocol.#onLoadFile = onLoadFile;
 		try
 		{	const authPlugin = await protocol.#readHandshake();
+			protocol.#applyClientCapabilities(pendingChangeSchema || schema, foundRows, ignoreSpace, multiStatements || !!initSql, tls && !pipe);
+			if (tls && !pipe) // TLS applies to TCP connections (Unix-domain socket is local, and cannot be eavesdropped)
+			{	await protocol.#upgradeToTls(conn);
+			}
 			if (sqlLogger)
 			{	// connectionId is set after `readHandshake()`
 				protocol.#sqlLogger = sqlLogger;
 				await sqlLogger.connect(protocol.connectionId);
 			}
-			await protocol.#writeHandshakeResponse(username, password, pendingChangeSchema || schema, authPlugin, foundRows, ignoreSpace, multiStatements || !!initSql);
+			await protocol.#writeHandshakeResponse(username, password, pendingChangeSchema || schema, authPlugin);
 			const authPlugin2 = await protocol.#readAuthResponse(password, authPlugin);
 			if (authPlugin2)
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
@@ -168,7 +172,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		}
 		catch (e)
 		{	try
-			{	conn.close();
+			{	protocol.#closer[Symbol.dispose](); // not `conn.close()`: after the TLS upgrade the original connection object is detached, and `#closer` is the TLS connection
 			}
 			catch (e2)
 			{	protocol.logger.debug(e2);
@@ -251,11 +255,11 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		return AuthPlugin.inst(authPluginName, authPluginData, this.dsn);
 	}
 
-	/**	Write client's response to initial server handshake packet.
+	/**	Negotiate the client capabilities: leave in `capabilityFlags` (and `#mariadbCapabilityFlags`) only what both the server offered and this client supports.
+		Called after the server handshake packet is read, and before the response (or the TLS upgrade, that must advertise the same flags) is sent.
 	 **/
-	async #writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean)
-	{	// apply client capabilities
-		this.capabilityFlags &=
+	#applyClientCapabilities(schema: string, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean, useTls: boolean)
+	{	this.capabilityFlags &=
 		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
 			CapabilityFlags.CLIENT_LONG_PASSWORD |
 			CapabilityFlags.CLIENT_TRANSACTIONS |
@@ -272,14 +276,48 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			(schema ? CapabilityFlags.CLIENT_CONNECT_WITH_DB : 0) |
 			(foundRows ? CapabilityFlags.CLIENT_FOUND_ROWS : 0) |
 			(ignoreSpace ? CapabilityFlags.CLIENT_IGNORE_SPACE : 0) |
-			(multiStatements ? CapabilityFlags.CLIENT_MULTI_STATEMENTS : 0)
+			(multiStatements ? CapabilityFlags.CLIENT_MULTI_STATEMENTS : 0) |
+			(useTls ? CapabilityFlags.CLIENT_SSL : 0)
 		);
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_SESSION_TRACK)
 		{	this.schema = schema;
 		}
 		// apply MariaDB-specific capabilities (the server sent 0 here if it's MySQL, so nothing gets negotiated then)
 		this.#mariadbCapabilityFlags &= MariadbCapabilityFlags.MARIADB_CLIENT_EXTENDED_METADATA;
-		// send packet
+	}
+
+	/**	Send SSL request packet (the short prefix of the handshake response with `CLIENT_SSL` set), and upgrade the connection to TLS.
+		Called after the server handshake packet is read and the capabilities are negotiated, and before the handshake response is sent,
+		so the credentials and everything that follows go through the encrypted channel.
+	 **/
+	async #upgradeToTls(conn: Deno.TcpConn)
+	{	if (!(this.capabilityFlags & CapabilityFlags.CLIENT_SSL) || !(this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41))
+		{	throw new Error(`Server doesn't support TLS. If you want to connect through unencrypted connection, remove the 'tls' parameter from the DSN`);
+		}
+		debugAssert(this.bufferStart == this.bufferEnd); // the server sends nothing between it's handshake packet and our response, so nothing could be over-read to the buffer, and after the upgrade the reading can continue from the TLS stream
+		this.startWritingNewPacket();
+		this.writeUint32(this.capabilityFlags);
+		this.writeUint32(0xFFFFFF); // max packet size
+		this.writeUint8(DEFAULT_CHARACTER_SET_CLIENT);
+		// 23 reserved bytes, where MariaDB expects the upper half of the 64-bit capability flags in the last 4 (for MySQL they remain zero, as the whole area is)
+		this.writeZero(19);
+		this.writeUint32(this.#mariadbCapabilityFlags);
+		await this.send();
+		// the server now waits for the TLS handshake, and after it for the (full) handshake response
+		this.reader.releaseLock();
+		this.writer.releaseLock();
+		const {hostname, tlsHostname, tlsCaCert} = this.dsn;
+		const tlsConn = await Deno.startTls(conn, {hostname: tlsHostname || hostname, caCerts: tlsCaCert ? [tlsCaCert] : undefined});
+		this.#closer = tlsConn;
+		this.reader = tlsConn.readable.getReader({mode: 'byob'});
+		this.writer = tlsConn.writable.getWriter();
+		await tlsConn.handshake(); // do the TLS handshake now, to report possible errors (like invalid server certificate) from here, rather than from a following read or write
+	}
+
+	/**	Write client's response to initial server handshake packet.
+	 **/
+	async #writeHandshakeResponse(username: string, password: string, schema: string, authPlugin: AuthPlugin)
+	{	// send packet
 		this.startWritingNewPacket();
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_PROTOCOL_41)
 		{	this.writeUint32(this.capabilityFlags);

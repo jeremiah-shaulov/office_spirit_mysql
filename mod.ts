@@ -112,9 +112,12 @@
 	- `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
 	- `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
 	- `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.buffered()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
-	- `allowPublicKeyRetrieval` (boolean, default `false`) - if the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password. If this parameter is present, the key will be requested from the server itself, through the untrusted connection. This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password. To avoid the risk, pin the trusted key in `serverPublicKey`, or connect through Unix-domain socket.
+	- `allowPublicKeyRetrieval` (boolean, default `false`) - if the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password. If this parameter is present, the key will be requested from the server itself, through the untrusted connection. This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password. To avoid the risk, enable `tls`, or pin the trusted key in `serverPublicKey`, or connect through Unix-domain socket.
 	- `serverPublicKey` (string, default empty) - server RSA public key (PEM, or only it's base64 body), used to encrypt the password during `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted connection. If this parameter is set, the key will not be requested from the server. You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` (for `sha256_password` - `SHOW STATUS LIKE 'Rsa_public_key'`) on the server. In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
-	- `allowCleartextPasswords` (boolean, default `false`) - if the server requests `mysql_clear_password` authentication (usually because the account is checked externally, like PAM or LDAP), this library needs to send the password in clear text. If this parameter is present, the password will be sent through the unencrypted TCP connection, where an eavesdropper can read it, so only use it when the network path to the server is trusted. Connections through Unix-domain socket are always allowed to use this method.
+	- `allowCleartextPasswords` (boolean, default `false`) - if the server requests `mysql_clear_password` authentication (usually because the account is checked externally, like PAM or LDAP), this library needs to send the password in clear text. If this parameter is present, the password will be sent through the unencrypted TCP connection, where an eavesdropper can read it, so only use it when the network path to the server is trusted. Connections through Unix-domain socket or TLS are always allowed to use this method.
+	- `tls` (boolean, default `false`) - if present, the connection will be upgraded to TLS before the authentication, so the credentials and all the following traffic will be encrypted. The server certificate is validated against the operating system root certificates (or the ones that Deno gets from `DENO_CERT` environment variable or `--cert` command line option), plus `tlsCaCert` if given. This parameter only applies to TCP connections (for Unix-domain socket it's ignored, as such connections cannot be eavesdropped).
+	- `tlsCaCert` (string, default empty) - CA certificate (or several certificates concatenated) in PEM format, that the server certificate will be validated against, in addition to the built-in root certificates. Use it when the server has a self-signed certificate, or a certificate issued by your private CA. Setting this parameter also enables `tls`. In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
+	- `tlsHostname` (string, default empty) - host name that the server certificate must be issued to, if different from `hostname` (e.g. when you connect by IP address or through a tunnel). Setting this parameter also enables `tls`.
 
 	The DSN can contain `#` sign followed by SQL statement or several statements separated with semicolons.
 	This SQL will be executed before first query in each connection.
@@ -131,6 +134,34 @@
 	- `parsec` - modern MariaDB authentication (MariaDB 11.6+)
 
 	Multi-factor authentication is not supported.
+
+	## TLS
+
+	To encrypt the traffic, add the [tls]{@link Dsn.tls} parameter to the DSN:
+
+	`mysql://user:password@host/schema?tls`
+
+	The connection is upgraded to TLS before the authentication, so the credentials are only sent through the encrypted channel.
+	If the server doesn't support TLS, the connection fails (it will not silently proceed unencrypted).
+
+	The server certificate is validated against the operating system root certificates, or the certificates that Deno gets from the `DENO_CERT` environment variable or the `--cert` command line option.
+	If the server has a self-signed certificate, or a certificate issued by your private CA, provide the CA certificate in the [tlsCaCert]{@link Dsn.tlsCaCert} parameter:
+
+	```ts
+	import {MyPool, Dsn} from './mod.ts';
+
+	const dsn = new Dsn(Deno.env.get('DSN') || 'mysql://root:hello@localhost/tests');
+	dsn.tlsCaCert = await Deno.readTextFile('/path/to/ca.pem'); // setting this also enables `tls`
+	await using pool = new MyPool(dsn);
+	```
+
+	If the certificate is issued to a different host name than the one you connect to (for example, you connect by IP address, or through an SSH tunnel), specify the certificate's host name in [tlsHostname]{@link Dsn.tlsHostname}.
+
+	Deno doesn't provide a way to skip the server certificate validation for a single connection, but you can run your application with `deno run --unsafely-ignore-certificate-errors` to skip it globally (dangerous - only for testing).
+
+	On TLS connections (like on Unix-domain socket ones) the authentication methods that need a secure channel work without additional parameters:
+	`caching_sha2_password` full authentication and `sha256_password` send the password through the encrypted connection without requesting the server RSA public key,
+	and `mysql_clear_password` doesn't require `allowCleartextPasswords`.
 
 	## Connections
 
