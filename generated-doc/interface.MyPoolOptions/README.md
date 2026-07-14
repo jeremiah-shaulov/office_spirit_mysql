@@ -35,6 +35,12 @@ import {MyPoolOptions} from "https://deno.land/x/office_spirit_mysql@v0.27.1/mod
 #### 📄 `readonly` onLoadFile?: [OnLoadFile](../type.OnLoadFile/README.md)
 
 > Handler for `LOAD DATA LOCAL INFILE` query.
+> Setting this handler is what enables the feature: the `CLIENT_LOCAL_FILES` capability is only advertised to the server on connections created while the handler is set,
+> so without it the server cannot request local files at the protocol level.
+> 
+> SECURITY: the filename that the handler receives comes from the server, not from the query text you sent.
+> A compromised or malicious server can respond to any query with a request for any file (e.g. `/etc/passwd`),
+> so the handler must validate the filename against an allowlist, and never open arbitrary paths.
 
 
 

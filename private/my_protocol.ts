@@ -249,7 +249,8 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			CapabilityFlags.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA |
 			CapabilityFlags.CLIENT_DEPRECATE_EOF |
 			CapabilityFlags.CLIENT_SESSION_TRACK |
-			CapabilityFlags.CLIENT_LOCAL_FILES |
+			// The LOCAL INFILE filename is dictated by the server, so a rogue server could probe local files. Advertise the capability only when the application opted in by registering the handler.
+			(this.#onLoadFile ? CapabilityFlags.CLIENT_LOCAL_FILES : 0) |
 			(schema ? CapabilityFlags.CLIENT_CONNECT_WITH_DB : 0) |
 			(foundRows ? CapabilityFlags.CLIENT_FOUND_ROWS : 0) |
 			(ignoreSpace ? CapabilityFlags.CLIENT_IGNORE_SPACE : 0) |

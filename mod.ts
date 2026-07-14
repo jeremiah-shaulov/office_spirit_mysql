@@ -82,7 +82,7 @@
 
 	- `dsn` - Default Data Source Name for this pool.
 	- `maxConnsWaitQueue` - (number, default 50) When `maxConns` exceeded, new connection requests will enter waiting queue (like backlog). This is the queue maximum size.
-	- `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query.
+	- `onLoadFile` - Handler for `LOAD DATA LOCAL INFILE` query. Setting it enables the feature (`CLIENT_LOCAL_FILES` capability is only advertised on connections created while it's set). The filename it receives is dictated by the server, so it must validate the filename against an allowlist (see [LOAD DATA LOCAL INFILE](#load-data-local-infile) below).
 	- `onBeforeCommit` - Callback that will be called every time a transaction is about to be committed.
 	- `managedXaDsns` - Will automatically manage distributed transactions on DSNs listed here (will rollback or commit dangling transactions).
 	- `xaCheckEach` - (number, default `6000`) Check for dangling transactions each this number of milliseconds.
@@ -992,6 +992,11 @@
 	## LOAD DATA LOCAL INFILE
 
 	If this feature is enabled on your server, you can register a custom handler that will take `LOAD DATA LOCAL INFILE` requests.
+	The feature is disabled until you register the handler: the `CLIENT_LOCAL_FILES` capability is only advertised to the server on connections created while the handler is set.
+
+	SECURITY WARNING: the filename that the handler receives comes from the server's response, not from the query text you sent.
+	A compromised or malicious server can answer any query (even a plain `SELECT`) with a request for any file on your machine, and the driver would send that file's contents to the server.
+	Therefore the handler must strictly validate the filename against an allowlist of expected paths or directories, like in the example below, and never blindly open the requested path.
 
 	```ts
 	// To run this example:
