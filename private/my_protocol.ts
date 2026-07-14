@@ -2017,7 +2017,8 @@ L:		while (true)
 			this.#onEndSession = undefined;
 			if (recycleConnection && (state==ProtocolState.IDLE || state==ProtocolState.IDLE_IN_POOL))
 			{	// recycle connection
-				const protocol = new MyProtocol(this.writer, this.reader, this.#closer, this.decoder, this.recycleBuffer(), this.dsn, this.logger);
+				// Reset the results decoder to UTF-8 (like a fresh connection). COM_RESET_CONNECTION restores `character_set_results` to its post-auth default, but the server may not re-emit the session-track for it, so inheriting `this.decoder` (possibly mutated by a prior `SET NAMES`/`SET character_set_results`) would silently decode results with the wrong charset. (The timezone offset is likewise re-derived fresh, not inherited.)
+				const protocol = new MyProtocol(this.writer, this.reader, this.#closer, DEFAULT_TEXT_DECODER, this.recycleBuffer(), this.dsn, this.logger);
 				protocol.useTill = this.useTill;
 				protocol.useNTimes = this.useNTimes;
 				protocol.serverVersion = this.serverVersion;
