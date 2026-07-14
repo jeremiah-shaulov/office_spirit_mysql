@@ -11,6 +11,7 @@ import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 import {ColumnValue, MyConn, Trx} from '../../mod.ts';
 
 const encoder = new TextEncoder;
+const decoder = new TextDecoder;
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -1297,12 +1298,14 @@ async function testTrx(dsnStr: string)
 			{	// Recover
 				try
 				{	for await (const row of await conn.query(`XA RECOVER`).all())
-					{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
-						{	await conn.query(`XA ROLLBACK '${row.data}'`);
+					{	// MariaDB reports the `data` column with the binary charset, so it arrives as `Uint8Array`, while MySQL reports it as text, and it arrives as string
+						const xaId = row.data instanceof Uint8Array ? decoder.decode(row.data) : row.data+'';
+						if (xaId.startsWith(MY_XA_ID))
+						{	await conn.query(`XA ROLLBACK '${xaId}'`);
 							console.log('Rolled back dangling XA');
 						}
 						else
-						{	console.log("%cWarning: there's active XA:%c %s %c(expecting auto rollback)", 'background-color:black; color:yellow', 'font-weight:bold', row.data, '');
+						{	console.log("%cWarning: there's active XA:%c %s %c(expecting auto rollback)", 'background-color:black; color:yellow', 'font-weight:bold', xaId, '');
 						}
 					}
 				}
@@ -1645,8 +1648,10 @@ async function testGetTrx(dsnStr: string)
 		{	// Recover dangling XA from previous failed runs
 			try
 			{	for await (const row of await conn.query(`XA RECOVER`).all())
-				{	if (typeof(row.data)=='string' && row.data.startsWith(MY_XA_ID))
-					{	await conn.query(`XA ROLLBACK '${row.data}'`);
+				{	// MariaDB reports the `data` column with the binary charset, so it arrives as `Uint8Array`, while MySQL reports it as text, and it arrives as string
+					const xaId = row.data instanceof Uint8Array ? decoder.decode(row.data) : row.data+'';
+					if (xaId.startsWith(MY_XA_ID))
+					{	await conn.query(`XA ROLLBACK '${xaId}'`);
 						console.log('Rolled back dangling XA');
 					}
 				}
@@ -2749,7 +2754,9 @@ async function testForceImmediateDisconnectCleanupWhenSaturated(dsnStr: string)
 	const xaPresent = async () =>
 	{	using conn = monPool.getConn();
 		for await (const {data} of await conn.query("XA RECOVER"))
-		{	if ((data+'') == XID)
+		{	// MariaDB reports the `data` column with the binary charset, so it arrives as `Uint8Array`, while MySQL reports it as text, and it arrives as string
+			const xaId = data instanceof Uint8Array ? decoder.decode(data) : data+'';
+			if (xaId == XID)
 			{	return true;
 			}
 		}

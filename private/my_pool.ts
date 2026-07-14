@@ -19,6 +19,8 @@ const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_AND_CLEAR_DISCONNECTED_EACH_MSEC = 1000;
 const DEFAULT_DANGLING_XA_CHECK_EACH_MSEC = 6000;
 
+const decoder = new TextDecoder;
+
 export interface MyPoolOptions
 {	/**	Default Data Source Name for the pool.
 	 **/
@@ -546,7 +548,8 @@ L:		for (const info of takeCareOfDisconneced)
 					const xas = new Array<{xaId: string, time: number, pid: number, connectionId: number}>;
 					const cids = new Array<number>;
 					for await (const {data} of await conn.query("XA RECOVER"))
-					{	const xaId = data+'';
+					{	// MariaDB reports the `data` column with the binary charset, so it arrives as `Uint8Array`, while MySQL reports it as text, and it arrives as string
+						const xaId = data instanceof Uint8Array ? decoder.decode(data) : data+'';
 						const m = XaIdGen.decode(xaId);
 						if (m)
 						{	const {time, pid, connectionId} = m;
