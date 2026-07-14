@@ -21,10 +21,11 @@ Methods that don't exist on Resultsets are for internal use.
 [datesAsString](#-readonly-datesasstring-boolean),
 [correctDates](#-readonly-correctdates-boolean),
 [hasMore](#-override-get-hasmore-boolean)
-- 8 methods:
+- 9 methods:
 [exec](#-override-execparams-param-resultsetspromiserow),
 [nextResultset](#-override-nextresultset-promiseboolean),
 [discard](#-override-discard-promisevoid),
+[discardProtocol](#-discardprotocol-promisevoid),
 [disposePreparedStmt](#-disposepreparedstmt-void),
 [resetFields](#-resetfields-void),
 [buffered](#-override-buffered-promisethis),
@@ -104,6 +105,13 @@ Methods that don't exist on Resultsets are for internal use.
 #### ⚙ `override` discard(): Promise\<`void`>
 
 > Reads and discards all the rows in all the resultsets of this query.
+
+
+
+#### ⚙ discardProtocol(): Promise\<`void`>
+
+> Reads and discards all remaining resultsets from the live protocol connection.
+> Unlike `discard()`, this leaves `storedResultsets` (the buffered rows and their backing temp file) untouched.
 
 
 

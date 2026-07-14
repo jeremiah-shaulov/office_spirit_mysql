@@ -23,8 +23,9 @@
 [writer](#-writer-writablestreamdefaultwriteruint8arrayarraybufferlike),
 [reader](#-reader-readablestreambyobreader),
 [serializer](#-serializer-myprotocolreaderwriterserializer)
-- 2 methods:
+- 3 methods:
 [nextResultset](#-nextresultset-nrows-number-columns-column-lastinsertid-number--bigint-affectedrows-number--bigint-foundrows-number--bigint-warnings-number-statusinfo-string-nogoodindexused-boolean-noindexused-boolean-isslowquery-boolean-nplaceholders-number),
+[discard](#-discard-promisevoid),
 [\[Symbol.asyncIterator\]](#-symbolasynciterator-asyncgeneratorrow-any-any)
 
 
@@ -101,6 +102,12 @@
 
 
 #### ⚙ nextResultset(): \{nRows: `number`, columns: Column\[], lastInsertId: `number` | `bigint`, affectedRows: `number` | `bigint`, foundRows: `number` | `bigint`, warnings: `number`, statusInfo: `string`, noGoodIndexUsed: `boolean`, noIndexUsed: `boolean`, isSlowQuery: `boolean`, nPlaceholders: `number`}
+
+
+
+#### ⚙ discard(): Promise\<`void`>
+
+> Marks all remaining resultsets as read, and releases the associated resources (like the temporary file, if the rows were stored on disk).
 
 
 
