@@ -414,9 +414,9 @@ export class Pool
 		const iterTill = Math.min(till, now + reconnectInterval);
 		let hTimer;
 		const promiseNo = new Promise<void>(y => {hTimer = setTimeout(y, iterTill-now)});
-		const hTimer2 = hTimer;
-		const promiseYes = new Promise<void>(y => {conns.haveSlotsCallbacks.push({y, till: iterTill}); clearTimeout(hTimer2)});
+		const promiseYes = new Promise<void>(y => {conns.haveSlotsCallbacks.push({y, till: iterTill})});
 		await Promise.race([promiseYes, promiseNo]);
+		clearTimeout(hTimer);
 		return true;
 	}
 
