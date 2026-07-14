@@ -43,6 +43,7 @@ testWithDocker
 		testBitBinaryProtocol,
 		testDatetimeBinaryProtocolFormat,
 		testStoreFractionalTime,
+		testBufferedDiscardReleasesFile,
 		testCachingSha2LongPassword,
 		testBigintUnsignedBinaryParam,
 		testForceImmediateDisconnect,
@@ -2229,6 +2230,34 @@ async function testStoreFractionalTime(dsnStr: string)
 	assertEquals(rows, expected, 'stored binary');
 
 	await conn.queryVoid("DROP TABLE t_test_time");
+}
+
+async function testBufferedDiscardReleasesFile(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.storeResultsetIfBigger = 0; // force buffered() to spill to a temp file on disk
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	// Buffer a multi-row resultset. With `storeResultsetIfBigger = 0` it spills to a temp file on disk.
+	const rs = await conn.query("SELECT 1 AS n UNION SELECT 2 UNION SELECT 3").buffered();
+
+	// The temp file backing the buffered rows must exist at this point.
+	const fileName: string = (rs as Any).storedResultsets?.fileName;
+	assert(fileName, 'buffered() did not spill to disk as expected');
+	await Deno.stat(fileName); // throws if the file is missing
+
+	// `discard()` must release the temp file and its fd, not just drain the (already-drained) protocol.
+	await rs.discard();
+
+	assertEquals((rs as Any).storedResultsets.fileName, '', 'discard() left the temp file registered');
+	let removed = false;
+	try
+	{	await Deno.stat(fileName);
+	}
+	catch (e)
+	{	removed = e instanceof Deno.errors.NotFound;
+	}
+	assert(removed, 'discard() leaked the buffered temp file: '+fileName);
 }
 
 async function testDatetimeBinaryProtocolFormat(dsnStr: string)

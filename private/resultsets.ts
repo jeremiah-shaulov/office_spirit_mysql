@@ -342,6 +342,16 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override async discard()
+	{	await this.discardProtocol();
+		if (this.storedResultsets)
+		{	await this.storedResultsets[Symbol.asyncDispose]();
+		}
+	}
+
+	/**	Reads and discards all remaining resultsets from the live protocol connection.
+		Unlike `discard()`, this leaves `storedResultsets` (the buffered rows and their backing temp file) untouched.
+	 **/
+	async discardProtocol()
 	{	if (this.hasMoreInternal)
 		{	while (this.protocol && await this.protocol.nextResultset(true));
 		}
@@ -434,7 +444,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				{	error = e instanceof Error ? e : new Error(e+'');
 				}
 				try
-				{	await this.discard();
+				{	await this.discardProtocol();
 				}
 				catch (e)
 				{	error ??= e instanceof Error ? e : new Error(e+'');
