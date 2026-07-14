@@ -47,6 +47,7 @@ testWithDocker
 		testCachingSha2LongPassword,
 		testBigintUnsignedBinaryParam,
 		testForceImmediateDisconnect,
+		testForceImmediateDisconnectCleanupWhenSaturated,
 	]
 );
 
@@ -2468,4 +2469,87 @@ async function testForceImmediateDisconnect(dsnStr: string)
 
 	// Drop database that i created
 	await conn.query("DROP DATABASE test1");
+}
+
+async function testForceImmediateDisconnectCleanupWhenSaturated(dsnStr: string)
+{	// Regression test for issue #9: after `forceImmediateDisconnect()` leaves a deferred XA ROLLBACK,
+	// the `#commonTask` janitor must not drop that entry when the pool is saturated (all `maxConns`
+	// slots busy) at the moment it runs. Previously the entry was silently dropped, so the prepared
+	// XA kept holding locks forever.
+	const XID = 'osm_issue9_dangling_xa';
+	const dsn = new Dsn(dsnStr);
+	dsn.maxConns = 1;
+	dsn.connectionTimeout = 30_000;
+	dsn.reconnectInterval = 0;
+	await using pool = new MyPool(dsn);
+	// Separate pool for out-of-band checks. It never competes for the target pool's single slot, and
+	// (importantly) it has its own deferred-cleanup queue, so its connections don't clean up the target's.
+	const monDsn = new Dsn(dsnStr);
+	monDsn.maxConns = 4;
+	await using monPool = new MyPool(monDsn);
+
+	const xaPresent = async () =>
+	{	using conn = monPool.getConn();
+		for await (const {data} of await conn.query("XA RECOVER"))
+		{	if ((data+'') == XID)
+			{	return true;
+			}
+		}
+		return false;
+	};
+
+	try
+	{	// Setup: a table to write to (so the XA does real work and shows up in `XA RECOVER`), and make
+		// sure no stale XA with our id survived a previous run.
+		{	using conn = monPool.getConn();
+			await conn.query("CREATE TABLE IF NOT EXISTS t_issue9 (id integer PRIMARY KEY, v integer) ENGINE=InnoDB");
+			await conn.query("DELETE FROM t_issue9");
+		}
+		try
+		{	using conn = monPool.getConn();
+			await conn.query(`XA ROLLBACK '${XID}'`);
+		}
+		catch
+		{	// no such XA - ok
+		}
+
+		// 1. conn A: start an XA, do a write, and prepare it. This occupies the only slot.
+		using connA = pool.getConn();
+		await connA.startTrx({xaId: XID});
+		await connA.query("INSERT INTO t_issue9 SET id=1, v=1"); // establishes the connection + XA START + write
+		await connA.prepareCommit(); // XA END + XA PREPARE - now a durable prepared XA holding a lock
+		assertEquals(await xaPresent(), true);
+
+		// 2. conn B: request it - it becomes a waiter, because the pool is saturated at maxConns=1.
+		using connB = pool.getConn();
+		const bConnected = connB.connect();
+		await new Promise(y => setTimeout(y, 150)); // let B register as a waiter
+
+		// 3. Force-disconnect A. This queues the deferred "XA ROLLBACK", closes A's socket, and frees the
+		// slot. Freeing the slot wakes B's waiter, which bumps `nConnecting` to 1 before the (immediate)
+		// `#commonTask` tick - so the janitor sees the DSN saturated again.
+		connA.forceImmediateDisconnect();
+		await bConnected;
+
+		// 4. The deferred XA ROLLBACK must eventually run (on a `#commonTask` tick once a slot is free, or
+		// via `#clearDisconnected()` on B's fresh connection). With the bug it was dropped and never ran.
+		let cleared = false;
+		for (let i=0; i<20 && !cleared; i++)
+		{	await new Promise(y => setTimeout(y, 300));
+			cleared = !await xaPresent();
+		}
+		assertEquals(cleared, true);
+	}
+	finally
+	{	// Roll back the XA if it leaked (releases its locks), then drop the table.
+		try
+		{	using conn = monPool.getConn();
+			await conn.query(`XA ROLLBACK '${XID}'`);
+		}
+		catch
+		{	// already rolled back - ok
+		}
+		using conn = monPool.getConn();
+		await conn.query("DROP TABLE IF EXISTS t_issue9");
+	}
 }

@@ -501,7 +501,10 @@ L:		for (const info of takeCareOfDisconneced)
 			for (const [dsnHash, {busy, nConnecting}] of protocolsPerSchema)
 			{	if (dsnHash == dsn.hash)
 				{	if (busy.length+nConnecting >= maxConns)
-					{	continue L;
+					{	// This DSN is saturated, so i cannot open a fresh connection to run the deferred KILL / XA ROLLBACK.
+						// Re-queue the entry, so it will be retried on a later `#commonTask` tick (or handled by `#clearDisconnected()` when a new connection to this host appears), instead of being dropped and leaving the runaway query / prepared XA alive.
+						this.#takeCareOfDisconneced.push(info);
+						continue L;
 					}
 				}
 			}
