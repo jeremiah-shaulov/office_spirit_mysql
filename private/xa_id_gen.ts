@@ -1,4 +1,4 @@
-const RE_XA_ID = /^([0-9a-z]{6})\.[0-9a-z]+@([0-9a-z]+)-(\d*)$/;
+const RE_XA_ID = /^([0-9a-z]{5,})\.[0-9a-z]+@([0-9a-z]+)-(\d*)$/;
 
 export class XaIdGen
 {	#lastTime = 0;
