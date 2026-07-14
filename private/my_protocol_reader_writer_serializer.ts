@@ -410,7 +410,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						{	value = await this.readBytesToBuffer(new Uint8Array(len));
 						}
 						else
-						{	if (len <= this.buffer.length)
+						{	if (len <= this.buffer.length-4)
 							{	value = this.readShortString(len) ?? await this.readShortStringAsync(len);
 							}
 							else
