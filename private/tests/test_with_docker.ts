@@ -1,7 +1,8 @@
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 /*	Option 1. Run tests using already existing and running database server:
-		DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --allow-all --coverage=.vscode/coverage/profile private/tests
+		TESTS_DSN='mysql://root:hello@localhost/tests' deno test --fail-fast --allow-all --coverage=.vscode/coverage/profile private/tests
+	If the server uses `caching_sha2_password` authentication (default since MySQL 8.0.4), and the connection is over TCP, add `?allowPublicKeyRetrieval` to the DSN.
 
 	Option 2. Use docker to download and run various database servers during testing:
 		rm -r .vscode/coverage/profile; WITH_DOCKER=1 deno test --fail-fast --allow-all --coverage=.vscode/coverage/profile private/tests
@@ -191,7 +192,8 @@ async function withDocker(imageName: string, withPassword: boolean, withSchema: 
 		}
 		// Call the cb
 		console.log(`%cWorking with ${imageName} on port ${port}`, 'color:blue');
-		await cb(`mysql://root:${password}@127.0.0.1:${port}/${schema}?connectionTimeout=${15*60*1000}`);
+		// `allowPublicKeyRetrieval` is for `caching_sha2_password` full auth over TCP (the docker network is local and trusted)
+		await cb(`mysql://root:${password}@127.0.0.1:${port}/${schema}?connectionTimeout=${15*60*1000}&allowPublicKeyRetrieval`);
 	}
 	finally
 	{	// Drop the container

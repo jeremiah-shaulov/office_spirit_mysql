@@ -8,6 +8,14 @@ const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(1) 
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
+/**	Extracts the base64 body from PEM public key, like "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----", dropping the armor lines and all whitespace.
+	If there's no PEM armor, assumes that the whole string is the base64 body, and only strips whitespace and zero bytes (MySQL server terminates the key with zero byte when sending it during handshake).
+ **/
+export function publicKeyToBase64(publicKey: string)
+{	const m = publicKey.match(/-----BEGIN[^-]*-----([^-]*)-----END[^-]*-----/);
+	return (m ? m[1] : publicKey).replace(/[\s\0]+/g, '');
+}
+
 /** Data source name. URL string that specifies how to connect to MySQL server.
 	Format: `mysql://user:password@host:port/schema?param1=value1&param2=value2#INITIAL_SQL`.
 	Or: `mysql://user:password@localhost/path/to/named.pipe/schema`.
@@ -29,6 +37,8 @@ type Any = any;
 	- {@link datesAsString}
 	- {@link correctDates}
 	- {@link storeResultsetIfBigger}
+	- {@link allowPublicKeyRetrieval}
+	- {@link serverPublicKey}
  **/
 export class Dsn
 {	#hostname: string;
@@ -57,6 +67,10 @@ export class Dsn
 	#datesAsString: boolean;
 	#correctDates: boolean;
 	#storeResultsetIfBigger: number;
+	/** Allow to retrieve the server RSA public key through the untrusted connection during `caching_sha2_password` full authentication */
+	#allowPublicKeyRetrieval: boolean;
+	/** Pinned server RSA public key (base64 body of the PEM) for `caching_sha2_password` full authentication */
+	#serverPublicKey: string;
 	#initSql: string;
 	#name: string;
 	#hash: number;
@@ -285,6 +299,35 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If the server requests `caching_sha2_password` full authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password.
+		If this parameter is present, the key will be requested from the server itself, through the untrusted connection.
+		This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password.
+		To avoid the risk, pin the trusted key in {@link serverPublicKey}, or connect through Unix-domain socket.
+		@default false
+	 **/
+	get allowPublicKeyRetrieval()
+	{	return this.#allowPublicKeyRetrieval;
+	}
+	set allowPublicKeyRetrieval(value: boolean)
+	{	this.#allowPublicKeyRetrieval = value;
+		this.#updateNameAndHash();
+	}
+
+	/**	Server RSA public key, used to encrypt the password during `caching_sha2_password` full authentication over unencrypted connection.
+		If this parameter is set, the key will not be requested from the server.
+		You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` on the server.
+		The setter accepts PEM string ("-----BEGIN PUBLIC KEY-----...") or only it's base64 body. The value is stored without the PEM armor and whitespace.
+		In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
+		@default empty string
+	 **/
+	get serverPublicKey()
+	{	return this.#serverPublicKey;
+	}
+	set serverPublicKey(value: string)
+	{	this.#serverPublicKey = publicKeyToBase64(value);
+		this.#updateNameAndHash();
+	}
+
 	/**	SQL statement, or several statements separated with `;`, that will be executed to initialize each connection right after connecting.
 	 **/
 	get initSql()
@@ -347,6 +390,8 @@ export class Dsn
 			this.#datesAsString = dsn.#datesAsString;
 			this.#correctDates = dsn.#correctDates;
 			this.#storeResultsetIfBigger = dsn.#storeResultsetIfBigger;
+			this.#allowPublicKeyRetrieval = dsn.#allowPublicKeyRetrieval;
+			this.#serverPublicKey = dsn.#serverPublicKey;
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
@@ -389,6 +434,8 @@ export class Dsn
 			const datesAsString = url.searchParams.get('datesAsString');
 			const correctDates = url.searchParams.get('correctDates');
 			const storeResultsetIfBigger = url.searchParams.get('storeResultsetIfBigger');
+			const allowPublicKeyRetrieval = url.searchParams.get('allowPublicKeyRetrieval');
+			const serverPublicKey = url.searchParams.get('serverPublicKey');
 			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -404,6 +451,9 @@ export class Dsn
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
 			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
+			this.#allowPublicKeyRetrieval = allowPublicKeyRetrieval != null;
+			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
+			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
@@ -431,7 +481,9 @@ export class Dsn
 			(this.#jsonAsString ? '&jsonAsString' : '') +
 			(this.#datesAsString ? '&datesAsString' : '') +
 			(this.#correctDates ? '&correctDates' : '') +
-			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '')
+			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '') +
+			(this.#allowPublicKeyRetrieval ? '&allowPublicKeyRetrieval' : '') +
+			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '')
 		);
 		const name0 =
 		(	'mysql://' +

@@ -1,3 +1,4 @@
+import {publicKeyToBase64} from "./dsn.ts";
 import {MyProtocol} from "./my_protocol.ts";
 
 const encoder = new TextEncoder;
@@ -94,6 +95,16 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 		return stage1;
 	}
 
+	/**	Encrypts `password + "\0"` XORed with the scramble, using the server RSA public key (RSA-OAEP SHA-1).
+		`publicKeyBase64` is the key in SPKI DER form, base64-encoded (PEM without the armor).
+	 **/
+	async #encryptPassword(password: string, publicKeyBase64: string)
+	{	const stage1 = appendZeroByte(encoder.encode(password));
+		xor(stage1, this.scramble);
+		const publicKeyObj = await crypto.subtle.importKey('spki', strToBytes(atob(publicKeyBase64)), {name: 'RSA-OAEP', hash: 'SHA-1'}, true, ['encrypt']);
+		return new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
+	}
+
 	override async progress(password: string, _packetType: number, packetData: Uint8Array, writer: MyProtocol)
 	{	switch (this.#state)
 		{	case State.Initial:
@@ -103,7 +114,23 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 					return false;
 				}
 				else if (statusFlag == AuthStatusFlags.FullAuth)
-				{	await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
+				{	const {dsn} = writer;
+					if (dsn.serverPublicKey)
+					{	// The user pinned the trusted server public key, so no need to request it from the server
+						await writer.authSendBytesPacket(await this.#encryptPassword(password, dsn.serverPublicKey));
+						this.#state = State.Done;
+						return false;
+					}
+					if (!dsn.pipe && !dsn.allowPublicKeyRetrieval)
+					{	// Requesting the key through untrusted TCP connection allows an active MITM to substitute the key, and to decrypt the password
+						throw new Error
+						(	`The server requested 'caching_sha2_password' full authentication, that requires the server RSA public key, but the connection is not secure (TCP without TLS). Options: `+
+							`1) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
+							`2) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'); `+
+							`3) connect through Unix-domain socket.`
+						);
+					}
+					await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
 					this.#state = State.Encrypt;
 					return false;
 				}
@@ -112,14 +139,8 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				}
 			}
 			case State.Encrypt:
-			{	const publicKey = decoder.decode(packetData);
-				const stage1 = appendZeroByte(encoder.encode(password));
-				xor(stage1, this.scramble);
-
-				const publicKeyObj = await crypto.subtle.importKey('spki', strToBytes(atob(publicKey.slice(publicKey.indexOf('\n')+1, publicKey.lastIndexOf('\n', publicKey.length-2)+1))), {name: 'RSA-OAEP', hash: 'SHA-1'}, true, ['encrypt']);
-				const encryptedPassword = new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
-
-				await writer.authSendBytesPacket(encryptedPassword);
+			{	const publicKey = publicKeyToBase64(decoder.decode(packetData));
+				await writer.authSendBytesPacket(await this.#encryptPassword(password, publicKey));
 				this.#state = State.Done;
 				return false;
 			}

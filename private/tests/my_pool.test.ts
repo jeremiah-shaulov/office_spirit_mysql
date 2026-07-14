@@ -2235,13 +2235,44 @@ async function testCachingSha2LongPassword(dsnStr: string)
 		await conn.queryVoid(`GRANT SELECT ON tests.* TO '${userName}'@'%'`);
 		await conn.queryVoid('FLUSH PRIVILEGES');
 
-		// `caching_sha2_password` full auth happens on the first connection per user, because the server has no cached entry yet. So this connection MUST succeed if the password XOR/scramble is right.
 		const dsn2 = new Dsn(dsnStr);
 		dsn2.username = userName;
 		dsn2.password = longPass;
-		await using pool2 = new MyPool(dsn2);
-		using conn2 = pool2.getConn();
-		assertEquals(await conn2.queryCol('SELECT 1').first(), 1);
+		dsn2.allowPublicKeyRetrieval = false;
+		dsn2.serverPublicKey = '';
+
+		// Full auth over TCP requires the server RSA public key, and requesting the key through the untrusted connection must be refused, unless allowed explicitly.
+		if (!dsn2.pipe)
+		{	await using pool2 = new MyPool(dsn2);
+			let error: Any;
+			try
+			{	using conn2 = pool2.getConn();
+				await conn2.queryCol('SELECT 1').first();
+			}
+			catch (e)
+			{	error = e;
+			}
+			assert(error instanceof Error && error.message.includes('allowPublicKeyRetrieval'), error?.message);
+		}
+
+		// `caching_sha2_password` full auth happens on the first connection per user, because the server has no cached entry yet (the refused connection above didn't authenticate, so it didn't populate the cache). So this connection MUST succeed if the password XOR/scramble is right.
+		const dsn3 = new Dsn(dsn2);
+		dsn3.allowPublicKeyRetrieval = true;
+		await using pool3 = new MyPool(dsn3);
+		using conn3 = pool3.getConn();
+		assertEquals(await conn3.queryCol('SELECT 1').first(), 1);
+
+		// Full auth with the pinned server public key. `allowPublicKeyRetrieval` is off, so the success proves that the pinned key was used. MariaDB has no such status variable, so there this case is skipped.
+		const row = await conn.query("SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'").first();
+		const serverPublicKey = !row ? '' : String(row.Value);
+		if (serverPublicKey)
+		{	await conn.queryVoid('FLUSH PRIVILEGES'); // clears the server-side fast-auth cache, so the next connection does full auth again
+			const dsn4 = new Dsn(dsn2);
+			dsn4.serverPublicKey = serverPublicKey;
+			await using pool4 = new MyPool(dsn4);
+			using conn4 = pool4.getConn();
+			assertEquals(await conn4.queryCol('SELECT 1').first(), 1);
+		}
 	}
 	finally
 	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);

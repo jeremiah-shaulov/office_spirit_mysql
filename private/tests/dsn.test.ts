@@ -259,6 +259,48 @@ Deno.test
 );
 
 Deno.test
+(	'allowPublicKeyRetrieval and serverPublicKey',
+	() =>
+	{	const base64 = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Zx6vB+sqLm4rF8/w2Qk3Zx6vB+sqLm4rF8/w2QkAQAB==';
+		const pem = '-----BEGIN PUBLIC KEY-----\n'+base64.slice(0, 44)+'\n'+base64.slice(44)+'\n-----END PUBLIC KEY-----\n';
+
+		let dsn = new Dsn('mysql://root@localhost/?allowPublicKeyRetrieval');
+		assertEquals(dsn.allowPublicKeyRetrieval, true);
+		assertEquals(dsn.serverPublicKey, '');
+		assertEquals(dsn+'', 'mysql://root@localhost/?allowPublicKeyRetrieval');
+		dsn.allowPublicKeyRetrieval = false;
+		assertEquals(dsn.allowPublicKeyRetrieval, false);
+		assertEquals(dsn+'', 'mysql://root@localhost/');
+
+		// Percent-encoded PEM in the URL: the armor and whitespace are stripped
+		dsn = new Dsn('mysql://root@localhost/?serverPublicKey='+encodeURIComponent(pem));
+		assertEquals(dsn.allowPublicKeyRetrieval, false);
+		assertEquals(dsn.serverPublicKey, base64);
+		assertEquals(dsn+'', 'mysql://root@localhost/?serverPublicKey='+encodeURIComponent(base64));
+		assertEquals(new Dsn(dsn+'').serverPublicKey, base64); // `name` round-trip
+
+		// Raw (not percent-encoded) base64 in the URL: '+' chars decode to spaces, and the parser must convert them back
+		dsn = new Dsn('mysql://root@localhost/?serverPublicKey='+base64);
+		assertEquals(dsn.serverPublicKey, base64);
+
+		// Copy-constructor
+		dsn.allowPublicKeyRetrieval = true;
+		const dsn2 = new Dsn(dsn);
+		assertEquals(dsn2.allowPublicKeyRetrieval, true);
+		assertEquals(dsn2.serverPublicKey, base64);
+
+		// The setter accepts PEM (also zero-terminated, like MySQL server sends it) and bare base64
+		dsn.serverPublicKey = pem+'\0';
+		assertEquals(dsn.serverPublicKey, base64);
+		dsn.serverPublicKey = base64;
+		assertEquals(dsn.serverPublicKey, base64);
+		dsn.serverPublicKey = '';
+		assertEquals(dsn.serverPublicKey, '');
+		assertEquals(dsn+'', 'mysql://root@localhost/?allowPublicKeyRetrieval');
+	}
+);
+
+Deno.test
 (	'Pipe path with non-ASCII bytes is URL-decoded',
 	() =>
 	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.
