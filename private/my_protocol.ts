@@ -743,7 +743,9 @@ L:		while (true)
 					const name = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					const orgName = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					const blockLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
-					debugAssert(blockLen >= 12);
+					if (blockLen < 12)
+					{	throw new Error('Invalid column definition packet: block length too small');
+					}
 					const block = this.readShortBytes(blockLen) ?? await this.readShortBytesAsync(blockLen);
 					const v = new DataView(block.buffer, block.byteOffset);
 					const charset = v.getUint16(0, true);
@@ -762,10 +764,16 @@ L:		while (true)
 					const table = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					const name = this.readShortLenencString() ?? await this.readShortLenencStringAsync();
 					let blockLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
+					if (blockLen < 3)
+					{	throw new Error('Invalid column definition packet: block length too small');
+					}
 					let block = this.readShortBytes(blockLen) ?? await this.readShortBytesAsync(blockLen);
 					let v = new DataView(block.buffer, block.byteOffset);
 					const columnLen = v.getUint16(0, true) | (v.getUint8(2) << 16);
 					blockLen = Number(this.readLenencInt() ?? await this.readLenencIntAsync());
+					if (blockLen < 1)
+					{	throw new Error('Invalid column definition packet: block length too small');
+					}
 					block = this.readShortBytes(blockLen) ?? await this.readShortBytesAsync(blockLen);
 					v = new DataView(block.buffer, block.byteOffset);
 					const columnType = v.getUint8(0);
@@ -775,11 +783,17 @@ L:		while (true)
 					let flags;
 					let decimals;
 					if (this.capabilityFlags & CapabilityFlags.CLIENT_LONG_FLAG)
-					{	flags = v.getUint16(0, true);
+					{	if (blockLen < 3)
+						{	throw new Error('Invalid column definition packet: block length too small');
+						}
+						flags = v.getUint16(0, true);
 						decimals = v.getUint8(2);
 					}
 					else
-					{	flags = v.getUint8(0);
+					{	if (blockLen < 2)
+						{	throw new Error('Invalid column definition packet: block length too small');
+						}
+						flags = v.getUint8(0);
 						decimals = v.getUint8(1);
 					}
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
