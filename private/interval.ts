@@ -42,7 +42,7 @@ export class Interval
 					if (this.#state == IntervalState.Terminated)
 					{	this.#onEnd?.();
 					}
-					else if (this.#state != IntervalState.Inactive)
+					else if (this.#state == IntervalState.Executing) // Reschedule only after a normal completion. If the state is `Active`, an external `start()` (arriving while the callback called `stop()` on itself and then awaited) has already scheduled a new timer, and rescheduling here would leak a second, unclearable handle that can fire after disposal.
 					{	this.#state = IntervalState.Inactive;
 						this.start();
 					}
