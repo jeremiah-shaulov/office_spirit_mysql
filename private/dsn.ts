@@ -39,6 +39,7 @@ export function publicKeyToBase64(publicKey: string)
 	- {@link storeResultsetIfBigger}
 	- {@link allowPublicKeyRetrieval}
 	- {@link serverPublicKey}
+	- {@link allowCleartextPasswords}
  **/
 export class Dsn
 {	#hostname: string;
@@ -71,6 +72,8 @@ export class Dsn
 	#allowPublicKeyRetrieval: boolean;
 	/** Pinned server RSA public key (base64 body of the PEM) for `caching_sha2_password` full authentication */
 	#serverPublicKey: string;
+	/** Allow to send the password in clear text through the untrusted connection, if the server requests `mysql_clear_password` authentication */
+	#allowCleartextPasswords: boolean;
 	#initSql: string;
 	#name: string;
 	#hash: number;
@@ -299,7 +302,7 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
-	/**	If the server requests `caching_sha2_password` full authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password.
+	/**	If the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password.
 		If this parameter is present, the key will be requested from the server itself, through the untrusted connection.
 		This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password.
 		To avoid the risk, pin the trusted key in {@link serverPublicKey}, or connect through Unix-domain socket.
@@ -313,9 +316,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
-	/**	Server RSA public key, used to encrypt the password during `caching_sha2_password` full authentication over unencrypted connection.
+	/**	Server RSA public key, used to encrypt the password during `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted connection.
 		If this parameter is set, the key will not be requested from the server.
-		You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` on the server.
+		You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` (for `sha256_password` - `SHOW STATUS LIKE 'Rsa_public_key'`) on the server.
 		The setter accepts PEM string ("-----BEGIN PUBLIC KEY-----...") or only it's base64 body. The value is stored without the PEM armor and whitespace.
 		In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
 		@default empty string
@@ -325,6 +328,19 @@ export class Dsn
 	}
 	set serverPublicKey(value: string)
 	{	this.#serverPublicKey = publicKeyToBase64(value);
+		this.#updateNameAndHash();
+	}
+
+	/**	If the server requests `mysql_clear_password` authentication (usually because the account uses PAM or LDAP on the server side), this library needs to send the password in clear text.
+		If this parameter is present, the password will be sent through the unencrypted TCP connection, where an eavesdropper can read it, so only use it when the network path is trusted.
+		Connections through Unix-domain socket are always allowed to use this authentication method.
+		@default false
+	 **/
+	get allowCleartextPasswords()
+	{	return this.#allowCleartextPasswords;
+	}
+	set allowCleartextPasswords(value: boolean)
+	{	this.#allowCleartextPasswords = value;
 		this.#updateNameAndHash();
 	}
 
@@ -392,6 +408,7 @@ export class Dsn
 			this.#storeResultsetIfBigger = dsn.#storeResultsetIfBigger;
 			this.#allowPublicKeyRetrieval = dsn.#allowPublicKeyRetrieval;
 			this.#serverPublicKey = dsn.#serverPublicKey;
+			this.#allowCleartextPasswords = dsn.#allowCleartextPasswords;
 			this.#initSql = dsn.#initSql;
 			this.#name = dsn.#name;
 			this.#hash = dsn.#hash;
@@ -436,6 +453,7 @@ export class Dsn
 			const storeResultsetIfBigger = url.searchParams.get('storeResultsetIfBigger');
 			const allowPublicKeyRetrieval = url.searchParams.get('allowPublicKeyRetrieval');
 			const serverPublicKey = url.searchParams.get('serverPublicKey');
+			const allowCleartextPasswords = url.searchParams.get('allowCleartextPasswords');
 			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
@@ -454,6 +472,7 @@ export class Dsn
 			this.#allowPublicKeyRetrieval = allowPublicKeyRetrieval != null;
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
 			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
+			this.#allowCleartextPasswords = allowCleartextPasswords != null;
 			// initSql
 			this.#initSql = decodeURIComponent(url.hash.slice(1)).trim();
 			this.#name = '';
@@ -483,7 +502,8 @@ export class Dsn
 			(this.#correctDates ? '&correctDates' : '') +
 			(!isNaN(this.#storeResultsetIfBigger) ? '&storeResultsetIfBigger='+this.#storeResultsetIfBigger : '') +
 			(this.#allowPublicKeyRetrieval ? '&allowPublicKeyRetrieval' : '') +
-			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '')
+			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '') +
+			(this.#allowCleartextPasswords ? '&allowCleartextPasswords' : '')
 		);
 		const name0 =
 		(	'mysql://' +

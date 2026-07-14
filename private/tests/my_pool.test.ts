@@ -8,7 +8,7 @@ import {RdStream} from '../deps.ts';
 import {Reader, Seeker} from '../deno_ifaces.ts';
 import {assert} from 'jsr:@std/assert@1.0.19/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
-import {ColumnValue, Trx} from '../../mod.ts';
+import {ColumnValue, MyConn, Trx} from '../../mod.ts';
 
 const encoder = new TextEncoder;
 
@@ -45,6 +45,9 @@ testWithDocker
 		testStoreFractionalTime,
 		testBufferedDiscardReleasesFile,
 		testCachingSha2LongPassword,
+		testAuthSha256Password,
+		testAuthEd25519,
+		testAuthParsec,
 		testBigintUnsignedBinaryParam,
 		testForceImmediateDisconnect,
 		testForceImmediateDisconnectCleanupWhenSaturated,
@@ -2226,6 +2229,12 @@ async function testCachingSha2LongPassword(dsnStr: string)
 	await using pool = new MyPool(dsn);
 	using conn = pool.getConn();
 
+	const version = String(await conn.queryCol('SELECT VERSION()').first());
+	if (version.includes('MariaDB'))
+	{	console.log(`\tskipped: 'caching_sha2_password' is a MySQL plugin (server is ${version})`);
+		return;
+	}
+
 	// Long password forces the password-XOR-scramble path in caching_sha2_password full auth. The scramble is only 20 bytes, so passwords longer than that exercise the repeat-scramble logic.
 	const longPass = 'verylongpassword_with_more_than_twenty_characters_for_testing';
 	const userName = 'osm_test_longpass';
@@ -2278,6 +2287,173 @@ async function testCachingSha2LongPassword(dsnStr: string)
 	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
 	}
 }
+
+/**	Parses "8.0.36" or "11.8.2-MariaDB-..." to a comparable number, like 800 or 1108.
+ **/
+function parseVersion(version: string)
+{	const m = version.match(/^(\d+)\.(\d+)/);
+	return !m ? 0 : Number(m[1])*100 + Number(m[2]);
+}
+
+/**	Installs a MariaDB plugin if not yet installed, and returns true if it's available.
+ **/
+async function installMariadbPlugin(conn: MyConn, soname: string, pluginName: string)
+{	try
+	{	await conn.queryVoid(`INSTALL SONAME '${soname}'`);
+	}
+	catch (e)
+	{	// Maybe already installed (possibly built-in), maybe the library is not shipped in this build - the following query decides
+		console.log(`\tINSTALL SONAME '${soname}': ${e instanceof Error ? e.message : e}`);
+	}
+	const row = await conn.queryCol(`SELECT plugin_name FROM information_schema.PLUGINS WHERE plugin_name = '${pluginName}'`).first();
+	return row != undefined;
+}
+
+async function testAuthSha256Password(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	const version = String(await conn.queryCol('SELECT VERSION()').first());
+	if (version.includes('MariaDB') || parseVersion(version)<507)
+	{	console.log(`\tskipped: 'sha256_password' is a MySQL 5.7+ plugin (server is ${version})`);
+		return;
+	}
+
+	const password = 'verylongpassword_with_more_than_twenty_characters @אя';
+	const userName = 'osm_test_sha256';
+	await conn.queryVoid(`DROP USER IF EXISTS '${userName}'@'%'`);
+	let created = false;
+	try
+	{	try
+		{	await conn.queryVoid(`CREATE USER '${userName}'@'%' IDENTIFIED WITH sha256_password BY '${password}'`);
+			created = true;
+		}
+		catch (e)
+		{	// The plugin was removed in recent MySQL versions
+			console.log(`\tskipped: cannot create 'sha256_password' user on ${version}: ${e instanceof Error ? e.message : e}`);
+			return;
+		}
+		await conn.queryVoid(`GRANT SELECT ON tests.* TO '${userName}'@'%'`);
+		await conn.queryVoid('FLUSH PRIVILEGES');
+
+		const dsn2 = new Dsn(dsnStr);
+		dsn2.username = userName;
+		dsn2.password = password;
+		dsn2.allowPublicKeyRetrieval = false;
+		dsn2.serverPublicKey = '';
+
+		// `sha256_password` over TCP requires the server RSA public key, and requesting the key through the untrusted connection must be refused, unless allowed explicitly.
+		if (!dsn2.pipe)
+		{	await using pool2 = new MyPool(dsn2);
+			let error: Any;
+			try
+			{	using conn2 = pool2.getConn();
+				await conn2.queryCol('SELECT 1').first();
+			}
+			catch (e)
+			{	error = e;
+			}
+			assert(error instanceof Error && error.message.includes('allowPublicKeyRetrieval'), error?.message);
+		}
+
+		// With the key retrieval allowed the authentication must succeed
+		const dsn3 = new Dsn(dsn2);
+		dsn3.allowPublicKeyRetrieval = true;
+		await using pool3 = new MyPool(dsn3);
+		using conn3 = pool3.getConn();
+		assertEquals(await conn3.queryCol('SELECT 1').first(), 1);
+
+		// With the pinned server public key. `allowPublicKeyRetrieval` is off, so the success proves that the pinned key was used.
+		const row = await conn.query("SHOW STATUS LIKE 'Rsa_public_key'").first();
+		const serverPublicKey = !row ? '' : String(row.Value);
+		if (serverPublicKey)
+		{	const dsn4 = new Dsn(dsn2);
+			dsn4.serverPublicKey = serverPublicKey;
+			await using pool4 = new MyPool(dsn4);
+			using conn4 = pool4.getConn();
+			assertEquals(await conn4.queryCol('SELECT 1').first(), 1);
+		}
+	}
+	finally
+	{	if (created)
+		{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
+		}
+	}
+}
+
+async function testAuthEd25519(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	const version = String(await conn.queryCol('SELECT VERSION()').first());
+	// The `IDENTIFIED VIA ed25519 USING PASSWORD('...')` syntax works since MariaDB 10.4
+	if (!version.includes('MariaDB') || parseVersion(version)<1004)
+	{	console.log(`\tskipped: 'client_ed25519' needs MariaDB 10.4+ (server is ${version})`);
+		return;
+	}
+	if (!await installMariadbPlugin(conn, 'auth_ed25519', 'ed25519'))
+	{	console.log(`\tskipped: the 'ed25519' plugin is not available on ${version}`);
+		return;
+	}
+
+	const password = 'verylongpassword_with_more_than_thirty_two_characters @אя';
+	const userName = 'osm_test_ed25519';
+	await conn.queryVoid(`DROP USER IF EXISTS '${userName}'@'%'`);
+	try
+	{	await conn.queryVoid(`CREATE USER '${userName}'@'%' IDENTIFIED VIA ed25519 USING PASSWORD('${password}')`);
+		await conn.queryVoid(`GRANT SELECT ON tests.* TO '${userName}'@'%'`);
+		await conn.queryVoid('FLUSH PRIVILEGES');
+
+		const dsn2 = new Dsn(dsnStr);
+		dsn2.username = userName;
+		dsn2.password = password;
+		await using pool2 = new MyPool(dsn2);
+		using conn2 = pool2.getConn();
+		assertEquals(await conn2.queryCol('SELECT 1').first(), 1);
+	}
+	finally
+	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
+	}
+}
+
+async function testAuthParsec(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	const version = String(await conn.queryCol('SELECT VERSION()').first());
+	if (!version.includes('MariaDB') || parseVersion(version)<1106)
+	{	console.log(`\tskipped: 'parsec' needs MariaDB 11.6+ (server is ${version})`);
+		return;
+	}
+	if (!await installMariadbPlugin(conn, 'auth_parsec', 'parsec'))
+	{	console.log(`\tskipped: the 'parsec' plugin is not available on ${version}`);
+		return;
+	}
+
+	const password = 'verylongpassword_with_more_than_thirty_two_characters @אя';
+	const userName = 'osm_test_parsec';
+	await conn.queryVoid(`DROP USER IF EXISTS '${userName}'@'%'`);
+	try
+	{	await conn.queryVoid(`CREATE USER '${userName}'@'%' IDENTIFIED VIA parsec USING PASSWORD('${password}')`);
+		await conn.queryVoid(`GRANT SELECT ON tests.* TO '${userName}'@'%'`);
+		await conn.queryVoid('FLUSH PRIVILEGES');
+
+		const dsn2 = new Dsn(dsnStr);
+		dsn2.username = userName;
+		dsn2.password = password;
+		await using pool2 = new MyPool(dsn2);
+		using conn2 = pool2.getConn();
+		assertEquals(await conn2.queryCol('SELECT 1').first(), 1);
+	}
+	finally
+	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
+	}
+}
+
+// `mysql_clear_password` is not integration-tested here: the server side only requests it for externally checked accounts (PAM, LDAP), that need extra infrastructure. It's unit-tested in auth_plugins.test.ts.
 
 async function testStoreFractionalTime(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);

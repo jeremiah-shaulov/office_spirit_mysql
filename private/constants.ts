@@ -45,6 +45,7 @@ export const enum StatusFlags
 
 export const enum PacketType
 {	OK = 0x00,
+	AUTH_NEXT_FACTOR = 0x02,
 	EOF = 0xFE,
 	ERR = 0xFF,
 	NULL_OR_LOCAL_INFILE = 0xFB,

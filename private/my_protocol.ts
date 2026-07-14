@@ -230,7 +230,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		this.connectionId = connectionId;
 		this.capabilityFlags = capabilityFlags;
 		this.statusFlags = statusFlags;
-		return AuthPlugin.inst(authPluginName, authPluginData);
+		return AuthPlugin.inst(authPluginName, authPluginData, this.dsn);
 	}
 
 	/**	Write client's response to initial server handshake packet.
@@ -267,23 +267,18 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			this.writeUint8(DEFAULT_CHARACTER_SET_CLIENT);
 			this.writeZero(23);
 			this.writeShortNulString(username);
-			// auth
-			if (!password)
-			{	this.writeUint8(0);
+			// auth: always let the plugin produce the token, even for empty password (e.g. `client_ed25519` signs the nonce, and `parsec` requests the salt in any case)
+			const auth = await authPlugin.quickAuth(password);
+			if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
+			{	this.writeLenencInt(auth.length);
+				this.writeShortBytes(auth);
+			}
+			else if (this.capabilityFlags & CapabilityFlags.CLIENT_SECURE_CONNECTION)
+			{	this.writeUint8(auth.length);
+				this.writeShortBytes(auth);
 			}
 			else
-			{	const auth = await authPlugin.quickAuth(password);
-				if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
-				{	this.writeLenencInt(auth.length);
-					this.writeShortBytes(auth);
-				}
-				else if (this.capabilityFlags & CapabilityFlags.CLIENT_SECURE_CONNECTION)
-				{	this.writeUint8(auth.length);
-					this.writeShortBytes(auth);
-				}
-				else
-				{	this.writeShortNulBytes(auth);
-				}
+			{	this.writeShortNulBytes(auth);
 			}
 			// schema
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
@@ -298,7 +293,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		{	this.writeUint16(this.capabilityFlags);
 			this.writeUint32(0xFFFFFF); // max packet size
 			this.writeShortNulString(username);
-			const auth = !password ? new Uint8Array : await authPlugin.quickAuth(password);
+			const auth = await authPlugin.quickAuth(password);
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
 			{	this.writeShortNulBytes(auth);
 				this.writeShortNulString(schema);
@@ -322,7 +317,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			{	const authPluginName = this.readShortNulString() ?? await this.readShortNulStringAsync();
 				const authPluginData = (this.readShortEofBytes() ?? await this.readShortEofBytesAsync()).slice();
 				debugAssert(this.isAtEndOfPacket());
-				return AuthPlugin.inst(authPluginName, authPluginData);
+				return AuthPlugin.inst(authPluginName, authPluginData, this.dsn);
 			}
 			case PacketType.OK:
 			{	this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
@@ -336,6 +331,9 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 				}
 				const errorMessage = this.readShortEofString() ?? await this.readShortEofStringAsync();
 				throw new SqlError(errorMessage, errorCode, sqlState, (this.statusFlags & StatusFlags.SERVER_STATUS_AUTOCOMMIT) != 0, (this.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) != 0);
+			}
+			case PacketType.AUTH_NEXT_FACTOR:
+			{	throw new Error(`This server uses multi-factor authentication, that is not supported by this client`);
 			}
 			default: // Use plugin for authentication
 			{	let data = this.readShortEofBytes() ?? await this.readShortEofBytesAsync();
@@ -353,10 +351,9 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	 **/
 	async #writeAuthSwitchResponse(password: string, authPlugin: AuthPlugin)
 	{	this.startWritingNewPacket();
-		if (password)
-		{	const auth = await authPlugin.quickAuth(password);
-			this.writeShortBytes(auth);
-		}
+		// Always let the plugin produce the token, even for empty password (e.g. `client_ed25519` signs the nonce, and `parsec` requests the salt in any case)
+		const auth = await authPlugin.quickAuth(password);
+		this.writeShortBytes(auth);
 		return await this.send();
 	}
 

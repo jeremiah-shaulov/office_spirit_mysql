@@ -131,11 +131,25 @@ The DSN can contain question mark followed by parameters. Possible parameters ar
 - `datesAsString` (boolean, default `false`) - if present, date, datetime and timestamp columns will not be converted to `Date` objects when selected from MySQL, so they'll be returned as strings
 - `correctDates` (boolean, default `false`) - enables timezone correction when converting between Javascript `Date` objects and MySQL date, datetime and timestamp types. This feature is supported on MySQL 5.7+, and MariaDB 10.3+.
 - `storeResultsetIfBigger` (number, default 64KiB) - when using `Resultsets.buffered()` and the resultset is bigger than this number of bytes, it will be stored on disk, rather than in RAM (array).
-- `allowPublicKeyRetrieval` (boolean, default `false`) - if the server requests `caching_sha2_password` full authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password. If this parameter is present, the key will be requested from the server itself, through the untrusted connection. This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password. To avoid the risk, pin the trusted key in `serverPublicKey`, or connect through Unix-domain socket.
-- `serverPublicKey` (string, default empty) - server RSA public key (PEM, or only it's base64 body), used to encrypt the password during `caching_sha2_password` full authentication over unencrypted connection. If this parameter is set, the key will not be requested from the server. You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` on the server. In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
+- `allowPublicKeyRetrieval` (boolean, default `false`) - if the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password. If this parameter is present, the key will be requested from the server itself, through the untrusted connection. This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password. To avoid the risk, pin the trusted key in `serverPublicKey`, or connect through Unix-domain socket.
+- `serverPublicKey` (string, default empty) - server RSA public key (PEM, or only it's base64 body), used to encrypt the password during `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted connection. If this parameter is set, the key will not be requested from the server. You can get the key by executing `SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'` (for `sha256_password` - `SHOW STATUS LIKE 'Rsa_public_key'`) on the server. In DSN string this parameter must be percent-encoded (e.g. with `encodeURIComponent()`).
+- `allowCleartextPasswords` (boolean, default `false`) - if the server requests `mysql_clear_password` authentication (usually because the account is checked externally, like PAM or LDAP), this library needs to send the password in clear text. If this parameter is present, the password will be sent through the unencrypted TCP connection, where an eavesdropper can read it, so only use it when the network path to the server is trusted. Connections through Unix-domain socket are always allowed to use this method.
 
 The DSN can contain `#` sign followed by SQL statement or several statements separated with semicolons.
 This SQL will be executed before first query in each connection.
+
+## Authentication
+
+The library supports the following authentication plugins, that the server can request:
+
+- `mysql_native_password` - the default on MySQL before 8.0, and on MariaDB
+- `caching_sha2_password` - the default since MySQL 8.0. On unencrypted TCP connections the full authentication requires the server RSA public key - see `allowPublicKeyRetrieval` and `serverPublicKey`
+- `sha256_password` - legacy MySQL 5.6 - 8.x plugin, with the same RSA public key requirements as `caching_sha2_password`
+- `mysql_clear_password` - for accounts that the server checks externally (PAM, LDAP) - see `allowCleartextPasswords`
+- `client_ed25519` - MariaDB Ed25519 authentication
+- `parsec` - modern MariaDB authentication (MariaDB 11.6+)
+
+Multi-factor authentication is not supported.
 
 ## Connections
 
