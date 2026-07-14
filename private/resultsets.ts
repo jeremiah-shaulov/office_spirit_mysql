@@ -273,7 +273,7 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override get hasMore()
-	{	return this.hasMoreInternal;
+	{	return this.storedResultsets?.hasMore ?? this.hasMoreInternal;
 	}
 
 	override exec(params: Param[])
@@ -332,7 +332,13 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	}
 
 	override nextResultset()
-	{	if (!this.hasMoreInternal)
+	{	const {storedResultsets} = this;
+		if (storedResultsets)
+		{	// In stored mode iterating a resultset (`Symbol.asyncIterator`) already advances to the next one,
+			// so here we only report whether another stored resultset remains to be read.
+			return Promise.resolve(storedResultsets.hasMore);
+		}
+		if (!this.hasMoreInternal)
 		{	return Promise.resolve(false);
 		}
 		if (!this.protocol)
@@ -343,8 +349,10 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 
 	override async discard()
 	{	await this.discardProtocol();
-		if (this.storedResultsets)
-		{	await this.storedResultsets[Symbol.asyncDispose]();
+		const {storedResultsets} = this;
+		if (storedResultsets)
+		{	// Marks all stored resultsets as read (so `hasMore` becomes false) and releases the backing temp file, if any.
+			await storedResultsets.discard();
 		}
 	}
 
@@ -444,7 +452,8 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 				{	error = e instanceof Error ? e : new Error(e+'');
 				}
 				try
-				{	await this.discardProtocol();
+				{	// Drain resultsets left in the connection (e.g. when `allResultsets` is false), without disposing the store being built.
+					await this.discardProtocol();
 				}
 				catch (e)
 				{	error ??= e instanceof Error ? e : new Error(e+'');
@@ -537,6 +546,13 @@ class StoredResultsets<Row>
 		resultsets.isSlowQuery = r.isSlowQuery;
 		resultsets.nPlaceholders = r.nPlaceholders;
 		return r;
+	}
+
+	/**	Marks all remaining resultsets as read, and releases the associated resources (like the temporary file, if the rows were stored on disk).
+	 **/
+	async discard()
+	{	this.nResultset = this.resultsetsInfo.length;
+		await this[Symbol.asyncDispose]();
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>

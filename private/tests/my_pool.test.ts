@@ -533,6 +533,48 @@ async function testSerializeRows(dsnStr: string)
 				}
 			}
 		}
+
+		// Buffered multi-resultset with the documented `do {...} while (await rs.nextResultset())` loop (issue #8).
+		// Before the fix `nextResultset()` and `hasMore` consulted only the live-protocol flag (which is already
+		// drained after `buffered()`), so the loop stopped after the first resultset and silently dropped the rest.
+		{	const rowsByResultset = new Array<Array<Record<string, ColumnValue>>>;
+			await using resultsets = await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2").buffered();
+			do
+			{	const rows = new Array<Record<string, ColumnValue>>;
+				for await (const row of resultsets)
+				{	rows.push(row);
+				}
+				rowsByResultset.push(rows);
+			}
+			while (await resultsets.nextResultset());
+			assertEquals
+			(	rowsByResultset,
+				[	[	{id: 1, message: null, data: null, deci: null, en: null},
+						{id: 2, message: `Message 2`, data: 123, deci: '1.23', en: 'two'},
+						{id: 3, message: `Message 3`, data: [1,2,3], deci: '4.56', en: 'three'},
+					],
+					[	{id: 1},
+						{id: 2},
+					],
+				]
+			);
+		}
+
+		// `hasMore` and `discard()` over buffered resultsets (issue #8). `discard()` must also release the
+		// temporary file for the on-disk case - the resource-leak check in `runTests()` guards this.
+		{	await using resultsets = await conn.queries("SELECT * FROM t_log; SELECT id FROM t_log WHERE id<=2").buffered();
+			assertEquals(resultsets.hasMore, true);
+			const firstRows = new Array<Record<string, ColumnValue>>;
+			for await (const row of resultsets) // read only the first of the two resultsets
+			{	firstRows.push(row);
+			}
+			assertEquals(firstRows.length, 3);
+			assertEquals(resultsets.hasMore, true); // second resultset is still pending
+			await resultsets.discard();
+			assertEquals(resultsets.hasMore, false);
+			await resultsets.discard(); // discarding again is a no-op
+			assertEquals(resultsets.hasMore, false);
+		}
 	}
 }
 
