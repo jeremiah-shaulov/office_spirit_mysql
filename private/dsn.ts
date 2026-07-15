@@ -40,6 +40,7 @@ export function publicKeyToBase64(publicKey: string)
 	- {@link allowPublicKeyRetrieval}
 	- {@link serverPublicKey}
 	- {@link allowCleartextPasswords}
+	- {@link compress}
 	- {@link tls}
 	- {@link tlsCaCert}
 	- {@link tlsHostname}
@@ -77,6 +78,8 @@ export class Dsn
 	#serverPublicKey: string;
 	/** Allow to send the password in clear text through the untrusted connection, if the server requests `mysql_clear_password` authentication */
 	#allowCleartextPasswords: boolean;
+	/** Use the compressed protocol */
+	#compress: boolean;
 	/** Connect over TLS */
 	#tls: boolean;
 	/** CA certificate(s) in PEM format, to validate the server certificate against (in addition to the built-in root certificates) */
@@ -353,6 +356,19 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
+	/**	If present, and the server supports the compressed protocol, the packets between the client and the server will be compressed with zlib (deflate).
+		This reduces the network traffic at the cost of some CPU time, so it pays off on slow or metered links, or when large query results travel the network.
+		The compression starts after the authentication. When used together with {@link tls}, the packets are compressed before being encrypted.
+		@default false
+	 **/
+	get compress()
+	{	return this.#compress;
+	}
+	set compress(value: boolean)
+	{	this.#compress = value;
+		this.#updateNameAndHash();
+	}
+
 	/**	If present, the connection will be upgraded to TLS before the authentication (and so before any credentials are sent).
 		The server certificate will be validated against the operating system root certificates (or the ones from `DENO_CERT` environment variable), plus {@link tlsCaCert} if set.
 		This only applies to TCP connections. For Unix-domain socket (see {@link pipe}) this parameter is ignored.
@@ -465,6 +481,7 @@ export class Dsn
 			this.#allowPublicKeyRetrieval = dsn.#allowPublicKeyRetrieval;
 			this.#serverPublicKey = dsn.#serverPublicKey;
 			this.#allowCleartextPasswords = dsn.#allowCleartextPasswords;
+			this.#compress = dsn.#compress;
 			this.#tls = dsn.#tls;
 			this.#tlsCaCert = dsn.#tlsCaCert;
 			this.#tlsHostname = dsn.#tlsHostname;
@@ -513,6 +530,7 @@ export class Dsn
 			const allowPublicKeyRetrieval = url.searchParams.get('allowPublicKeyRetrieval');
 			const serverPublicKey = url.searchParams.get('serverPublicKey');
 			const allowCleartextPasswords = url.searchParams.get('allowCleartextPasswords');
+			const compress = url.searchParams.get('compress');
 			const tls = url.searchParams.get('tls');
 			const tlsCaCert = url.searchParams.get('tlsCaCert');
 			const tlsHostname = url.searchParams.get('tlsHostname');
@@ -535,6 +553,7 @@ export class Dsn
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
 			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
 			this.#allowCleartextPasswords = allowCleartextPasswords != null;
+			this.#compress = compress != null;
 			this.#tlsCaCert = tlsCaCert ?? '';
 			this.#tlsHostname = tlsHostname ?? '';
 			this.#tls = tls!=null || !!this.#tlsCaCert || !!this.#tlsHostname;
@@ -569,6 +588,7 @@ export class Dsn
 			(this.#allowPublicKeyRetrieval ? '&allowPublicKeyRetrieval' : '') +
 			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '') +
 			(this.#allowCleartextPasswords ? '&allowCleartextPasswords' : '') +
+			(this.#compress ? '&compress' : '') +
 			(this.#tls ? '&tls' : '') +
 			(this.#tlsCaCert ? '&tlsCaCert='+encodeURIComponent(this.#tlsCaCert) : '') +
 			(this.#tlsHostname ? '&tlsHostname='+encodeURIComponent(this.#tlsHostname) : '')

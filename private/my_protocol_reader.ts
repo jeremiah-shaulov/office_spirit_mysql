@@ -1,7 +1,10 @@
 import {debugAssert} from './debug_assert.ts';
 import {ServerDisconnectedError} from './errors.ts';
+import {inflateSync} from 'node:zlib';
 
 const BUFFER_LEN = 8*1024;
+
+export const COMPRESSED_HEADER_LEN = 7; // 3-byte payload length + 1-byte compressed sequence id + 3-byte uncompressed payload length
 
 const STUB = new Uint8Array;
 
@@ -12,6 +15,25 @@ export class MyProtocolReader
 	protected sequenceId = 0;
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
+
+	/**	True when the connection was switched to the compressed protocol (`CLIENT_COMPRESS` negotiated, after the authentication).
+		Then everything sent and received over the connection is wrapped in compressed packets: a 7-byte header
+		(3-byte payload length, 1-byte sequence id, 3-byte uncompressed length) followed by the payload,
+		that is either a zlib-deflated part of the ordinary packet stream, or (if the uncompressed length field is 0) a verbatim part of it.
+	 **/
+	protected compression = false;
+
+	/**	The compressed protocol sequence id. It works like the ordinary packet sequence id, but counts compressed packets, and travels in their headers.
+		The server counts the compressed packets it reads within each command read cycle, so the numbering must restart from 0
+		when a compressed packet begins a new command (`MyProtocolReaderWriter.sendPackets()` takes care of this),
+		and continue from the last received number + 1 when the client writes in the middle of a command
+		(like the `LOCAL INFILE` file data) - {@link readFromConn()} adopts the numbers it receives for this.
+	 **/
+	protected compressedSeqId = 0;
+
+	#inflated: Uint8Array | undefined; // inflated payload of the current compressed packet, not yet delivered to the caller
+	#verbatimRemaining = 0; // how many bytes of the current uncompressed-in-transit payload remain to be passed through
+	#frameBuffer: Uint8Array | undefined; // scratch buffer for compressed packet headers and deflated payloads (allocated on the first compressed packet read)
 
 	totalBytesInPacket = 0;
 
@@ -52,6 +74,87 @@ export class MyProtocolReader
 
 	// --- 1. recv*
 
+	/**	Read bytes from the connection to `view`.
+		In the ordinary protocol this is a single read from the connection reader.
+		In the compressed protocol, reads compressed packets and converts them back to the ordinary packet stream:
+		inflates deflated payloads, and passes through payloads that travel verbatim.
+		Also adopts the sequence ids from the compressed packet headers to {@link compressedSeqId}.
+	 **/
+	protected async readFromConn<V extends Uint8Array>(view: V): Promise<ReadableStreamReadResult<V>>
+	{	if (!this.compression)
+		{	return await this.reader.read(view);
+		}
+		while (true)
+		{	const inflated = this.#inflated;
+			if (inflated)
+			{	const n = Math.min(inflated.length, view.length);
+				view.set(inflated.subarray(0, n));
+				this.#inflated = n < inflated.length ? inflated.subarray(n) : undefined;
+				return {value: new Uint8Array(view.buffer, view.byteOffset, n) as V, done: false};
+			}
+			if (this.#verbatimRemaining > 0)
+			{	const {value, done} = await this.reader.read(view.subarray(0, Math.min(this.#verbatimRemaining, view.length)) as V);
+				if (done)
+				{	throw new ServerDisconnectedError('Lost connection to server in the middle of a compressed packet');
+				}
+				this.#verbatimRemaining -= value.length;
+				return {value, done: false};
+			}
+			// Read the next compressed packet header
+			if (!await this.#recvFrameExact(COMPRESSED_HEADER_LEN, true))
+			{	return {value: new Uint8Array(view.buffer, view.byteOffset, 0) as V, done: true};
+			}
+			const frameBuffer = this.#frameBuffer!;
+			const payloadLen = frameBuffer[0] | frameBuffer[1]<<8 | frameBuffer[2]<<16;
+			this.compressedSeqId = (frameBuffer[3] + 1) & 0xFF;
+			const uncompressedLen = frameBuffer[4] | frameBuffer[5]<<8 | frameBuffer[6]<<16;
+			if (uncompressedLen == 0)
+			{	// The payload is sent uncompressed, so it can be passed through to the caller without buffering it whole
+				this.#verbatimRemaining = payloadLen;
+			}
+			else
+			{	await this.#recvFrameExact(payloadLen);
+				const data = inflateSync(this.#frameBuffer!.subarray(0, payloadLen));
+				if (data.length != uncompressedLen)
+				{	throw new ServerDisconnectedError(`Corrupted compressed packet: expected ${uncompressedLen} bytes, got ${data.length}`);
+				}
+				this.#inflated = data;
+			}
+		}
+	}
+
+	/**	Read exactly `len` bytes to the beginning of `this.#frameBuffer` (allocating or growing it if needed).
+		If `canEof` and the stream ended cleanly before the first byte, returns false.
+	 **/
+	async #recvFrameExact(len: number, canEof=false)
+	{	let buffer = this.#frameBuffer ?? new Uint8Array(BUFFER_LEN);
+		if (buffer.length < len)
+		{	let newLen = buffer.length;
+			do
+			{	newLen *= 2;
+			} while (newLen < len);
+			buffer = new Uint8Array(newLen);
+		}
+		this.#frameBuffer = buffer;
+		let pos = 0;
+		while (pos < len)
+		{	const {value, done} = await this.reader.read(buffer.subarray(pos, len));
+			if (done)
+			{	if (canEof && pos==0)
+				{	return false;
+				}
+				throw new ServerDisconnectedError('Lost connection to server');
+			}
+			buffer = new Uint8Array(value.buffer);
+			this.#frameBuffer = buffer;
+			if (value.length == 0)
+			{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
+			}
+			pos += value.length;
+		}
+		return true;
+	}
+
 	async #recvAtLeast(nBytes: number, canEof=false)
 	{	debugAssert(nBytes <= this.buffer.length);
 		if (this.bufferStart == this.bufferEnd)
@@ -65,7 +168,7 @@ export class MyProtocolReader
 		}
 		const to = this.bufferStart + nBytes;
 		while (this.bufferEnd < to)
-		{	const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+		{	const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
 			if (done)
 			{	if (canEof && this.bufferEnd==this.bufferStart)
 				{	return false;
@@ -101,7 +204,7 @@ export class MyProtocolReader
 				this.bufferStart = 0;
 			}
 			debugAssert(this.bufferEnd < this.buffer.length);
-			const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+			const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
 			if (done)
 			{	throw new ServerDisconnectedError('Lost connection to server');
 			}
@@ -160,7 +263,7 @@ export class MyProtocolReader
 			{	this.buffer.copyWithin(0, this.bufferStart, this.bufferEnd);
 				this.bufferEnd -= this.bufferStart;
 				this.bufferStart = 0;
-				const {value, done} = await this.reader.read(this.buffer.subarray(this.bufferEnd));
+				const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
@@ -810,7 +913,7 @@ export class MyProtocolReader
 			}
 			const {byteOffset, length} = dest;
 			while (lenInCurPacket>0 && pos<dest.length)
-			{	const {value, done} = await this.reader.read(dest.subarray(pos, pos+lenInCurPacket));
+			{	const {value, done} = await this.readFromConn(dest.subarray(pos, pos+lenInCurPacket));
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
@@ -857,7 +960,7 @@ export class MyProtocolReader
 			{	lenInCurPacket -= this.bufferEnd - this.bufferStart;
 			}
 			while (lenInCurPacket > 0)
-			{	const {value, done} = await this.reader.read(this.buffer);
+			{	const {value, done} = await this.readFromConn(this.buffer);
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}

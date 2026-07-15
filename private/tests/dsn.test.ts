@@ -353,6 +353,29 @@ Deno.test
 );
 
 Deno.test
+(	'compress',
+	() =>
+	{	let dsn = new Dsn('mysql://root@localhost/?compress');
+		assertEquals(dsn.compress, true);
+		assertEquals(dsn+'', 'mysql://root@localhost/?compress');
+		assertEquals(new Dsn(dsn+'').compress, true); // `name` round-trip
+
+		// Copy-constructor
+		const dsn2 = new Dsn(dsn);
+		assertEquals(dsn2.compress, true);
+
+		// Setter
+		dsn.compress = false;
+		assertEquals(dsn.compress, false);
+		assertEquals(dsn+'', 'mysql://root@localhost/');
+		dsn = new Dsn('mysql://root@localhost/');
+		assertEquals(dsn.compress, false);
+		dsn.compress = true;
+		assertEquals(dsn+'', 'mysql://root@localhost/?compress');
+	}
+);
+
+Deno.test
 (	'Pipe path with non-ASCII bytes is URL-decoded',
 	() =>
 	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.

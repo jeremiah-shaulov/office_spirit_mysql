@@ -1,12 +1,17 @@
 import {debugAssert} from './debug_assert.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
-import {MyProtocolReader} from './my_protocol_reader.ts';
+import {MyProtocolReader, COMPRESSED_HEADER_LEN} from './my_protocol_reader.ts';
 import {RdStream} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
+import {deflateBound, deflateInto} from './deflate_into.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
+
+const MAX_COMPRESSED_PAYLOAD_LEN = 0xFFFFFF; // the compressed packet payload length is 3-byte
+const MIN_COMPRESS_LEN = 50; // like libmysql's MIN_COMPRESS_LENGTH: compressing shorter payloads is not worth the overhead, so they're sent uncompressed
+const NO_COMMAND_STARTS = new Array<number>; // no command begins in the bytes being compressed (always empty, never modified)
 
 interface ToSqlBytes
 {	toSqlBytesWithParamsBackslashAndBuffer(putParamsTo: unknown[]|undefined, noBackslashEscapes: boolean, buffer: Uint8Array): Uint8Array;
@@ -43,7 +48,12 @@ const encoder = new TextEncoder;
 	To send a long packet, use `sendWithData()`.
  **/
 export class MyProtocolReaderWriter extends MyProtocolReader
-{	constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
+{	/**	Buffer offsets at which a command begins, for each not yet sent command in `this.buffer`.
+		Only tracked in the compressed protocol - see {@link sendPackets()} for how the commands must be laid out over the compressed packets.
+	 **/
+	#commandStarts = new Array<number>;
+
+	constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	super(reader, decoder, useBuffer);
 	}
 
@@ -65,6 +75,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	{	if (this.bufferEnd == this.bufferStart)
 		{	this.bufferStart = 0;
 			this.bufferEnd = 4; // after header
+			this.#commandStarts.length = 0; // the buffer content restarts from offset 0, so the recorded offsets (if any) don't refer to anything anymore
 		}
 		else
 		{	// continuation (queue another packet after existing not written one)
@@ -74,12 +85,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 		if (resetSequenceId)
 		{	this.sequenceId = 0;
+			if (this.compression)
+			{	// the new packet begins a command, so it must begin its own compressed packet - see `sendPackets()`
+				this.#commandStarts.push(this.bufferStart);
+			}
 		}
 	}
 
 	protected discardPacket()
 	{	debugAssert(this.bufferEnd >= this.bufferStart+4);
 		this.bufferEnd = this.bufferStart;
+		if (this.#commandStarts[this.#commandStarts.length-1] == this.bufferStart)
+		{	this.#commandStarts.pop();
+		}
 	}
 
 	protected writeUint8(value: number)
@@ -283,7 +301,108 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.bufferStart = 0;
 		this.bufferEnd = 0;
 		// send
-		return this.writer.write(this.buffer.subarray(0, n));
+		return this.sendPackets(n);
+	}
+
+	/**	Send `this.buffer[0 .. end)` to the connection. The bytes are packets, each beginning with its 4-byte header
+		(only the last packet is allowed to be cut, when the caller will complete it with {@link sendData()} calls).
+		In the ordinary protocol this is a single write.
+		In the compressed protocol, each command must begin its own compressed packet,
+		with the compressed packet numbering restarted from 0 - like libmysql, that never lets 2 commands share a compressed packet, does.
+		The server (both MySQL and MariaDB) counts the compressed packets it receives within each command read cycle,
+		and can overwrite the tail of a decompressed packet in it's buffer when it writes a response,
+		swallowing the command that shared the compressed packet with the previous command.
+		The command boundaries are recorded by `startWritingNewPacket(resetSequenceId=true)` in `this.#commandStarts`
+		(as offsets, not as slices of `this.buffer`, because the buffer can be reallocated by `ensureRoom()`, or detached and rebound by a BYOB read, before the bytes are sent),
+		and bytes that don't start a command (like `LOCAL INFILE` file data) continue the current compressed packet numbering.
+		All the compressed packets go in 1 write to the connection.
+	 **/
+	protected sendPackets(end: number)
+	{	if (!this.compression)
+		{	return this.writer.write(this.buffer.subarray(0, end));
+		}
+		const out = this.#toCompressedPackets(this.buffer.subarray(0, end), this.#commandStarts);
+		this.#commandStarts.length = 0;
+		return this.writer.write(out);
+	}
+
+	/**	Send raw bytes to the connection - a continuation of the payload of the current packet, whose beginning was sent with {@link sendPackets()}.
+		In the compressed protocol wraps the bytes in compressed packets, continuing the current numbering (no command begins in them).
+		The compressed packets are built in `this.buffer` after the input (or from its beginning, if the input is an external array -
+		safe, because a payload continuation can only be sent after the packets in the buffer were flushed).
+	 **/
+	protected sendData(data: Uint8Array)
+	{	if (!this.compression)
+		{	return this.writer.write(data);
+		}
+		return this.writer.write(this.#toCompressedPackets(data, NO_COMMAND_STARTS));
+	}
+
+	/**	Convert `data` to compressed packets, and return them as a single chunk, ready to be written to the connection in 1 write,
+		so splitting a batch of commands at the command boundaries doesn't cost extra system calls.
+		Each offset in `commandStarts` begins a new compressed packet, with the numbering restarted from 0, and the bytes between the offsets
+		(and the ones before the first offset, that continue the payload of a previously sent packet) go in compressed packets that continue the numbering.
+		A payload is sent zlib-deflated if this makes it shorter, and verbatim otherwise (with 0 in the "uncompressed length" header field).
+		Each payload is deflated directly to its final position in the chunk (see {@link deflateInto()}), so the chunk must have space for the worst case,
+		as if nothing gets shorter: `deflateBound()` of every payload, plus the headers.
+		The chunk is placed to the free space in `this.buffer` after the input (that usually occupies its beginning), and only when the worst case
+		doesn't fit there, a temporary buffer is allocated. `this.buffer` is never grown for this, because several senders size their reads
+		by `this.buffer.length` (like the `LOCAL INFILE` chunk reader, that fills the whole buffer before each send), so growing it
+		for the compressed output would make the next input bigger, and the buffer would keep growing exponentially till the end of the stream.
+	 **/
+	#toCompressedPackets(data: Uint8Array, commandStarts: number[])
+	{	// The worst case: each part takes the 7-byte header + up to `deflateBound()` of its payload + 1 spare byte
+		// (`deflateInto()` requires the spare byte to never continue to an internally allocated buffer).
+		// The variable term of `deflateBound()` (the shifts) is subadditive, so applying it to the whole input covers any splitting,
+		// and its constant term (13), the header and the spare byte are taken per part.
+		const end = data.length;
+		const nParts = commandStarts.length + 1 + (end / MAX_COMPRESSED_PAYLOAD_LEN | 0); // upper bound on the number of parts
+		const worstLen = deflateBound(end) + nParts*(COMPRESSED_HEADER_LEN + 13 + 1);
+		let out = this.buffer;
+		let writeAt = data.buffer===out.buffer ? data.byteOffset + data.length : 0; // after the input, if the input is inside `this.buffer`
+		if (out.length-writeAt < worstLen)
+		{	out = new Uint8Array(worstLen);
+			writeAt = 0;
+		}
+		let outPos = writeAt;
+		let from = 0;
+		let restartSequence = false;
+		for (let i=0, iEnd=commandStarts.length; i<=iEnd; i++)
+		{	const to = i<iEnd ? commandStarts[i] : end; // the part [from .. to) is the bytes of 1 command (or a continuation, if it precedes the first command start)
+			if (to > from)
+			{	if (restartSequence)
+				{	this.compressedSeqId = 0;
+				}
+				for (let pos=from; pos<to; pos+=MAX_COMPRESSED_PAYLOAD_LEN)
+				{	const part = data.subarray(pos, Math.min(pos+MAX_COMPRESSED_PAYLOAD_LEN, to));
+					const dataPos = outPos + COMPRESSED_HEADER_LEN;
+					let dataLen = part.length;
+					let uncompressedLen = 0;
+					if (part.length >= MIN_COMPRESS_LEN)
+					{	const compressedLen = deflateInto(out, dataPos, part);
+						if (compressedLen < part.length)
+						{	dataLen = compressedLen;
+							uncompressedLen = part.length;
+						}
+					}
+					if (uncompressedLen == 0)
+					{	out.set(part, dataPos); // the payload travels verbatim (overwrites the compression attempt, if there was one)
+					}
+					out[outPos++] = dataLen & 0xFF;
+					out[outPos++] = (dataLen >> 8) & 0xFF;
+					out[outPos++] = dataLen >> 16;
+					out[outPos++] = this.compressedSeqId;
+					out[outPos++] = uncompressedLen & 0xFF;
+					out[outPos++] = (uncompressedLen >> 8) & 0xFF;
+					out[outPos++] = uncompressedLen >> 16;
+					outPos = dataPos + dataLen;
+					this.compressedSeqId = (this.compressedSeqId + 1) & 0xFF;
+				}
+				from = to;
+			}
+			restartSequence = true; // each following part begins a command
+		}
+		return out.subarray(writeAt, outPos);
 	}
 
 	/**	Append long data to the end of current packet, and send the packet (or split to several packets and send them).
@@ -312,9 +431,9 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				while (packetSizeRemaining >= 0xFFFFFF)
 				{	// send current packet part + data chunk = 0xFFFFFF
 					this.setHeader(0xFFFFFF);
-					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
+					await this.sendPackets(this.bufferEnd); // send including packets before this.buffer_start
 					const dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
-					await this.writer.write(data.subarray(0, dataChunkLen));
+					await this.sendData(data.subarray(0, dataChunkLen));
 					data = data.subarray(dataChunkLen);
 					this.bufferStart = 0;
 					this.bufferEnd = 4; // after header
@@ -328,18 +447,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	return true;
 					}
 					this.setHeader(packetSizeRemaining);
-					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+					await this.sendPackets(this.bufferEnd);
 				}
 				else
 				{	this.setHeader(packetSizeRemaining);
-					await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.buffer_start
-					if (canWait && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
-					{	this.buffer.set(data);
+					await this.sendPackets(this.bufferEnd); // send including packets before this.buffer_start
+					if (canWait && !this.compression && data.length+MAX_CAN_WAIT_PACKET_PRELUDE_BYTES <= this.buffer.length)
+					{	// (in the compressed protocol don't defer the packet tail, to keep the compressed packet layout simple)
+						this.buffer.set(data);
 						this.bufferStart = data.length;
 						this.bufferEnd = data.length;
 						return true;
 					}
-					await this.writer.write(data);
+					await this.sendData(data);
 				}
 			}
 			catch (e)
@@ -391,7 +511,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					while (packetSizeRemaining >= 0xFFFFFF)
 					{	// send current packet part + data chunk = 0xFFFFFF
 						this.setHeader(0xFFFFFF);
-						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						await this.sendPackets(this.bufferEnd); // send including packets before this.bufferStart
 						let dataChunkLen = 0xFFFFFF - (this.bufferEnd - this.bufferStart - 4);
 						dataLength -= dataChunkLen;
 						while (dataChunkLen > 0)
@@ -419,10 +539,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 								}
 							}
 							if (!logData)
-							{	await this.writer.write(part);
+							{	await this.sendData(part);
 							}
 							else
-							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
+							{	await promiseAllSettledThrow([logData(part), this.sendData(part)]);
 							}
 							dataChunkLen -= part.length;
 						}
@@ -452,25 +572,25 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						}
 						this.setHeader(packetSizeRemaining);
 						if (!logData)
-						{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+						{	await this.sendPackets(this.bufferEnd);
 						}
 						else
-						{	await promiseAllSettledThrow([logData(this.buffer.subarray(from, this.bufferEnd)), this.writer.write(this.buffer.subarray(0, this.bufferEnd))]);
+						{	await promiseAllSettledThrow([logData(this.buffer.subarray(from, this.bufferEnd)), this.sendPackets(this.bufferEnd)]);
 						}
 					}
 					else
 					{	this.setHeader(packetSizeRemaining);
-						await this.writer.write(this.buffer.subarray(0, this.bufferEnd)); // send including packets before this.bufferStart
+						await this.sendPackets(this.bufferEnd); // send including packets before this.bufferStart
 						if (carryEnd > carryStart)
 						{	// the tail of the character that was split at the last packet boundary
 							const part = carry.subarray(carryStart, carryEnd);
 							dataLength -= part.length;
 							carryStart = carryEnd;
 							if (!logData)
-							{	await this.writer.write(part);
+							{	await this.sendData(part);
 							}
 							else
-							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
+							{	await promiseAllSettledThrow([logData(part), this.sendData(part)]);
 							}
 						}
 						while (dataLength > 0)
@@ -479,10 +599,10 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 							dataLength -= written;
 							const part = this.buffer.subarray(0, written);
 							if (!logData)
-							{	await this.writer.write(part);
+							{	await this.sendData(part);
 							}
 							else
-							{	await promiseAllSettledThrow([logData(part), this.writer.write(part)]);
+							{	await promiseAllSettledThrow([logData(part), this.sendData(part)]);
 							}
 						}
 					}
@@ -534,7 +654,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
 			if (this.bufferEnd > this.buffer.length/2)
 			{	try
-				{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+				{	await this.sendPackets(this.bufferEnd);
 				}
 				catch (e)
 				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
@@ -549,11 +669,13 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				}
 				this.buffer = new Uint8Array(value.buffer);
 				try
-				{	if (!logData)
-					{	await this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length));
+				{	// when `bufferEnd > 0` the sent bytes begin with packet headers, and when it's 0, they're a continuation of the current packet payload
+					const promise = this.bufferEnd>0 ? this.sendPackets(this.bufferEnd+value.length) : this.sendData(this.buffer.subarray(0, value.length));
+					if (!logData)
+					{	await promise;
 					}
 					else
-					{	await promiseAllSettledThrow([logData(value), this.writer.write(this.buffer.subarray(0, this.bufferEnd+value.length))]);
+					{	await promiseAllSettledThrow([logData(value), promise]);
 					}
 				}
 				catch (e)

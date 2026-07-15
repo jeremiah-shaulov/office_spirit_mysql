@@ -123,7 +123,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	}
 
 	static async inst(dsn: Dsn, pendingChangeSchema: string, takeCareOfDisconneced: TakeCareOfDisconneced[], useBuffer?: Uint8Array, onLoadFile?: OnLoadFile, sqlLogger?: SafeSqlLogger, logger: Logger=console): Promise<MyProtocol>
-	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes, tls, pipe} = dsn;
+	{	const {addr, initSql, maxColumnLen, username, password, schema, foundRows, ignoreSpace, multiStatements, retryQueryTimes, tls, pipe, compress} = dsn;
 		if (username.length > 256) // must fit packet
 		{	throw new SqlError('Username is too long');
 		}
@@ -147,7 +147,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		protocol.#onLoadFile = onLoadFile;
 		try
 		{	const authPlugin = await protocol.#readHandshake();
-			protocol.#applyClientCapabilities(pendingChangeSchema || schema, foundRows, ignoreSpace, multiStatements || !!initSql, tls && !pipe);
+			protocol.#applyClientCapabilities(pendingChangeSchema || schema, foundRows, ignoreSpace, multiStatements || !!initSql, tls && !pipe, compress);
 			if (tls && !pipe) // TLS applies to TCP connections (Unix-domain socket is local, and cannot be eavesdropped)
 			{	await protocol.#upgradeToTls(conn);
 			}
@@ -161,6 +161,9 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			if (authPlugin2)
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.#readAuthResponse(password, authPlugin2);
+			}
+			if (protocol.capabilityFlags & CapabilityFlags.CLIENT_COMPRESS)
+			{	protocol.#enableCompression();
 			}
 			if (takeCareOfDisconneced.length)
 			{	await protocol.#clearDisconnected(takeCareOfDisconneced);
@@ -258,7 +261,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	/**	Negotiate the client capabilities: leave in `capabilityFlags` (and `#mariadbCapabilityFlags`) only what both the server offered and this client supports.
 		Called after the server handshake packet is read, and before the response (or the TLS upgrade, that must advertise the same flags) is sent.
 	 **/
-	#applyClientCapabilities(schema: string, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean, useTls: boolean)
+	#applyClientCapabilities(schema: string, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean, useTls: boolean, compress: boolean)
 	{	this.capabilityFlags &=
 		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
 			CapabilityFlags.CLIENT_LONG_PASSWORD |
@@ -277,7 +280,8 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			(foundRows ? CapabilityFlags.CLIENT_FOUND_ROWS : 0) |
 			(ignoreSpace ? CapabilityFlags.CLIENT_IGNORE_SPACE : 0) |
 			(multiStatements ? CapabilityFlags.CLIENT_MULTI_STATEMENTS : 0) |
-			(useTls ? CapabilityFlags.CLIENT_SSL : 0)
+			(useTls ? CapabilityFlags.CLIENT_SSL : 0) |
+			(compress ? CapabilityFlags.CLIENT_COMPRESS : 0)
 		);
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_SESSION_TRACK)
 		{	this.schema = schema;
@@ -312,6 +316,17 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		this.reader = tlsConn.readable.getReader({mode: 'byob'});
 		this.writer = tlsConn.writable.getWriter();
 		await tlsConn.handshake(); // do the TLS handshake now, to report possible errors (like invalid server certificate) from here, rather than from a following read or write
+	}
+
+	/**	Switch to the compressed protocol: from now on both sides wrap the ordinary packet stream in compressed packets.
+		Called when `CLIENT_COMPRESS` is negotiated, after the authentication is complete (the handshake and auth exchange travel uncompressed).
+		When both TLS and compression are enabled, the compression runs inside the encrypted channel
+		(`this.reader` and `this.writer` already point to the TLS streams, and the compression is applied to what travels through them).
+	 **/
+	#enableCompression()
+	{	debugAssert(this.bufferStart == this.bufferEnd); // the server sends nothing between the auth OK packet and the response to the next command, so nothing could be over-read to the buffer, and the compressed stream begins at the current read position
+		this.compression = true;
+		this.compressedSeqId = 0;
 	}
 
 	/**	Write client's response to initial server handshake packet.
@@ -1591,7 +1606,7 @@ L:		while (true)
 			else
 			{	if (this.bufferEnd+3 >= this.buffer.length) // if cannot add `nullBits` + partial byte + new_params_bound_flag
 				{	// Flush the buffer
-					await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+					await this.sendPackets(this.bufferEnd);
 					this.bufferStart = 0;
 					this.bufferEnd = 0;
 				}
@@ -1643,7 +1658,7 @@ L:		while (true)
 			}
 			if (this.bufferEnd+2 >= this.buffer.length) // if cannot add the `type`
 			{	// Flush the buffer
-				await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+				await this.sendPackets(this.bufferEnd);
 				this.bufferStart = 0;
 				this.bufferEnd = 0;
 			}
@@ -1654,7 +1669,7 @@ L:		while (true)
 		{	const param = params[i];
 			if (this.bufferEnd+0xFB >= this.buffer.length) // if cannot add the the longest possible value (1-byte lenenc length of blob + less than 0xFB bytes of the blob data)
 			{	// Flush the buffer
-				await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+				await this.sendPackets(this.bufferEnd);
 				this.bufferStart = 0;
 				this.bufferEnd = 0;
 			}
@@ -1749,7 +1764,7 @@ L:		while (true)
 		}
 		if (this.bufferEnd > 0) // if there's packet data remaining
 		{	// Flush the buffer
-			await this.writer.write(this.buffer.subarray(0, this.bufferEnd));
+			await this.sendPackets(this.bufferEnd);
 			this.bufferStart = 0;
 			this.bufferEnd = 0;
 		}
@@ -2124,6 +2139,7 @@ L:		while (true)
 				protocol.serverVersion = this.serverVersion;
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
+				protocol.compression = this.compression; // `COM_RESET_CONNECTION` doesn't stop the compressed protocol (the compressed sequence id starts from 0: the next command restarts it anyway)
 				// `COM_RESET_CONNECTION` doesn't renegotiate the capabilities, so the recycled connection continues to speak the dialect that was negotiated during the handshake, including `MARIADB_CLIENT_EXTENDED_METADATA` (that makes the server send the extended type info in each column definition)
 				protocol.#mariadbCapabilityFlags = this.#mariadbCapabilityFlags;
 				protocol.#maxColumnLen = this.#maxColumnLen;
