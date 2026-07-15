@@ -1,11 +1,11 @@
 import {debugAssert} from './debug_assert.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
-import {MyProtocolReader, COMPRESSED_HEADER_LEN} from './my_protocol_reader.ts';
+import {MyProtocolReader, COMPRESSED_HEADER_LEN, Compression} from './my_protocol_reader.ts';
 import {RdStream} from './deps.ts';
 import {SendWithDataError} from "./errors.ts";
 import {Reader, Seeker} from './deno_ifaces.ts';
 import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
-import {deflateBound, deflateInto} from './deflate_into.ts';
+import {deflateBound, deflateInto, zstdCompressBound, zstdCompressInto} from './deflate_into.ts';
 
 const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
 
@@ -342,22 +342,25 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		so splitting a batch of commands at the command boundaries doesn't cost extra system calls.
 		Each offset in `commandStarts` begins a new compressed packet, with the numbering restarted from 0, and the bytes between the offsets
 		(and the ones before the first offset, that continue the payload of a previously sent packet) go in compressed packets that continue the numbering.
-		A payload is sent zlib-deflated if this makes it shorter, and verbatim otherwise (with 0 in the "uncompressed length" header field).
-		Each payload is deflated directly to its final position in the chunk (see {@link deflateInto()}), so the chunk must have space for the worst case,
-		as if nothing gets shorter: `deflateBound()` of every payload, plus the headers.
+		A payload is sent compressed (with the negotiated algorithm - zlib or zstd) if this makes it shorter, and verbatim otherwise
+		(with 0 in the "uncompressed length" header field).
+		Each payload is compressed directly to its final position in the chunk (see {@link deflateInto()} and {@link zstdCompressInto()}),
+		so the chunk must have space for the worst case, as if nothing gets shorter: the compression bound of every payload, plus the headers.
 		The chunk is placed to the free space in `this.buffer` after the input (that usually occupies its beginning), and only when the worst case
 		doesn't fit there, a temporary buffer is allocated. `this.buffer` is never grown for this, because several senders size their reads
 		by `this.buffer.length` (like the `LOCAL INFILE` chunk reader, that fills the whole buffer before each send), so growing it
 		for the compressed output would make the next input bigger, and the buffer would keep growing exponentially till the end of the stream.
 	 **/
 	#toCompressedPackets(data: Uint8Array, commandStarts: number[])
-	{	// The worst case: each part takes the 7-byte header + up to `deflateBound()` of its payload + 1 spare byte
-		// (`deflateInto()` requires the spare byte to never continue to an internally allocated buffer).
-		// The variable term of `deflateBound()` (the shifts) is subadditive, so applying it to the whole input covers any splitting,
-		// and its constant term (13), the header and the spare byte are taken per part.
+	{	// The worst case: each part takes the 7-byte header + up to the compression bound of its payload + 1 spare byte
+		// (`deflateInto()` and `zstdCompressInto()` require the spare byte to never continue to an internally allocated buffer).
+		// The variable term of the bound (the shifts) is subadditive, so applying it to the whole input covers any splitting,
+		// and its constant term (13 for `deflateBound()`, up to 64 for `zstdCompressBound()`, whose length-dependent last term only shrinks
+		// as the length grows), the header and the spare byte are taken per part.
+		const isZstd = this.compression == Compression.ZSTD;
 		const end = data.length;
 		const nParts = commandStarts.length + 1 + (end / MAX_COMPRESSED_PAYLOAD_LEN | 0); // upper bound on the number of parts
-		const worstLen = deflateBound(end) + nParts*(COMPRESSED_HEADER_LEN + 13 + 1);
+		const worstLen = (isZstd ? zstdCompressBound(end) + nParts*(COMPRESSED_HEADER_LEN + 64 + 1) : deflateBound(end) + nParts*(COMPRESSED_HEADER_LEN + 13 + 1));
 		let out = this.buffer;
 		let writeAt = data.buffer===out.buffer ? data.byteOffset + data.length : 0; // after the input, if the input is inside `this.buffer`
 		if (out.length-writeAt < worstLen)
@@ -366,20 +369,19 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		}
 		let outPos = writeAt;
 		let from = 0;
-		let restartSequence = false;
+		let {compressedSeqId, zstdLevel} = this;
+		let nextSeqId = compressedSeqId;
 		for (let i=0, iEnd=commandStarts.length; i<=iEnd; i++)
 		{	const to = i<iEnd ? commandStarts[i] : end; // the part [from .. to) is the bytes of 1 command (or a continuation, if it precedes the first command start)
 			if (to > from)
-			{	if (restartSequence)
-				{	this.compressedSeqId = 0;
-				}
+			{	compressedSeqId = nextSeqId;
 				for (let pos=from; pos<to; pos+=MAX_COMPRESSED_PAYLOAD_LEN)
 				{	const part = data.subarray(pos, Math.min(pos+MAX_COMPRESSED_PAYLOAD_LEN, to));
 					const dataPos = outPos + COMPRESSED_HEADER_LEN;
 					let dataLen = part.length;
 					let uncompressedLen = 0;
 					if (part.length >= MIN_COMPRESS_LEN)
-					{	const compressedLen = deflateInto(out, dataPos, part);
+					{	const compressedLen = isZstd ? zstdCompressInto(out, dataPos, part, zstdLevel) : deflateInto(out, dataPos, part);
 						if (compressedLen < part.length)
 						{	dataLen = compressedLen;
 							uncompressedLen = part.length;
@@ -391,17 +393,18 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					out[outPos++] = dataLen & 0xFF;
 					out[outPos++] = (dataLen >> 8) & 0xFF;
 					out[outPos++] = dataLen >> 16;
-					out[outPos++] = this.compressedSeqId;
+					out[outPos++] = compressedSeqId;
 					out[outPos++] = uncompressedLen & 0xFF;
 					out[outPos++] = (uncompressedLen >> 8) & 0xFF;
 					out[outPos++] = uncompressedLen >> 16;
 					outPos = dataPos + dataLen;
-					this.compressedSeqId = (this.compressedSeqId + 1) & 0xFF;
+					compressedSeqId = (compressedSeqId + 1) & 0xFF;
 				}
 				from = to;
 			}
-			restartSequence = true; // each following part begins a command
+			nextSeqId = 0; // each following part begins a command
 		}
+		this.compressedSeqId = compressedSeqId;
 		return out.subarray(writeAt, outPos);
 	}
 

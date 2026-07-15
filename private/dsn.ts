@@ -8,6 +8,39 @@ const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(1) 
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
+/**	Value of the {@link Dsn.compress} parameter:
+	- `false` - don't compress;
+	- `true` - compress with the best algorithm that the server and this runtime support: zstd (with the default level 3) is preferred, zlib is the fallback;
+	- `zlib` - only zlib;
+	- `zstd` - only zstd (with the default level 3);
+	- `zstd:N` - only zstd with compression level N (1 - 22, e.g. `zstd:19`).
+ **/
+export type DsnCompress = boolean | 'zlib' | 'zstd' | `zstd:${number}`;
+
+/**	Validate a {@link DsnCompress} coming from a DSN string parameter or from the property setter.
+ **/
+function parseCompress(value: string|boolean|null): DsnCompress
+{	if (typeof(value) != 'string')
+	{	return !!value;
+	}
+	switch (value)
+	{	case '':
+			return true;
+		case 'zlib':
+		case 'zstd':
+			return value;
+		default:
+		{	if (value.startsWith('zstd:'))
+			{	const level = Number(value.slice(5));
+				if (Number.isInteger(level) && level>=1 && level<=22)
+				{	return `zstd:${level}`;
+				}
+			}
+			throw new Error(`Invalid "compress" value: ${value}. Can be "zlib", "zstd" or "zstd:N", where N is the zstd compression level (1 - 22)`);
+		}
+	}
+}
+
 /**	Extracts the base64 body from PEM public key, like "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----", dropping the armor lines and all whitespace.
 	If there's no PEM armor, assumes that the whole string is the base64 body, and only strips whitespace and zero bytes (MySQL server terminates the key with zero byte when sending it during handshake).
  **/
@@ -79,7 +112,7 @@ export class Dsn
 	/** Allow to send the password in clear text through the untrusted connection, if the server requests `mysql_clear_password` authentication */
 	#allowCleartextPasswords: boolean;
 	/** Use the compressed protocol */
-	#compress: boolean;
+	#compress: DsnCompress;
 	/** Connect over TLS */
 	#tls: boolean;
 	/** CA certificate(s) in PEM format, to validate the server certificate against (in addition to the built-in root certificates) */
@@ -356,16 +389,20 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
-	/**	If present, and the server supports the compressed protocol, the packets between the client and the server will be compressed with zlib (deflate).
+	/**	If present, and the server supports the compressed protocol, the packets between the client and the server will be compressed.
 		This reduces the network traffic at the cost of some CPU time, so it pays off on slow or metered links, or when large query results travel the network.
+		There are 2 algorithms: zlib (deflate), that every server supports, and zstd (usually better and faster), that only MySQL 8.0.18+ supports (and this runtime must have zstd in `node:zlib` - Deno 2.7+).
+		The plain `compress` (`true`) negotiates the best of what's supported: zstd if possible, else zlib. `compress=zlib` and `compress=zstd` pin the algorithm
+		(if the server doesn't support the pinned one, the connection is not compressed). `compress=zstd:N` also sets the zstd compression level (1 - 22, default 3),
+		that both sides will use (the level is sent to the server during the handshake).
 		The compression starts after the authentication. When used together with {@link tls}, the packets are compressed before being encrypted.
 		@default false
 	 **/
 	get compress()
 	{	return this.#compress;
 	}
-	set compress(value: boolean)
-	{	this.#compress = value;
+	set compress(value: DsnCompress)
+	{	this.#compress = parseCompress(value);
 		this.#updateNameAndHash();
 	}
 
@@ -553,7 +590,7 @@ export class Dsn
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
 			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
 			this.#allowCleartextPasswords = allowCleartextPasswords != null;
-			this.#compress = compress != null;
+			this.#compress = compress==null ? false : parseCompress(compress);
 			this.#tlsCaCert = tlsCaCert ?? '';
 			this.#tlsHostname = tlsHostname ?? '';
 			this.#tls = tls!=null || !!this.#tlsCaCert || !!this.#tlsHostname;
@@ -588,7 +625,7 @@ export class Dsn
 			(this.#allowPublicKeyRetrieval ? '&allowPublicKeyRetrieval' : '') +
 			(this.#serverPublicKey ? '&serverPublicKey='+encodeURIComponent(this.#serverPublicKey) : '') +
 			(this.#allowCleartextPasswords ? '&allowCleartextPasswords' : '') +
-			(this.#compress ? '&compress' : '') +
+			(this.#compress ? (this.#compress===true ? '&compress' : '&compress='+this.#compress) : '') +
 			(this.#tls ? '&tls' : '') +
 			(this.#tlsCaCert ? '&tlsCaCert='+encodeURIComponent(this.#tlsCaCert) : '') +
 			(this.#tlsHostname ? '&tlsHostname='+encodeURIComponent(this.#tlsHostname) : '')

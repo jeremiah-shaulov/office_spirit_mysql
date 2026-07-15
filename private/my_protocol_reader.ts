@@ -1,10 +1,19 @@
 import {debugAssert} from './debug_assert.ts';
 import {ServerDisconnectedError} from './errors.ts';
+import {zstdDecompress, ZSTD_DEFAULT_LEVEL} from './deflate_into.ts';
 import {inflateSync} from 'node:zlib';
 
 const BUFFER_LEN = 8*1024;
 
 export const COMPRESSED_HEADER_LEN = 7; // 3-byte payload length + 1-byte compressed sequence id + 3-byte uncompressed payload length
+
+/**	The compression algorithm of the compressed protocol. `NONE` is falsy, so `if (this.compression)` tells whether the protocol is compressed at all.
+ **/
+export const enum Compression
+{	NONE = 0,
+	ZLIB = 1,
+	ZSTD = 2,
+}
 
 const STUB = new Uint8Array;
 
@@ -16,12 +25,17 @@ export class MyProtocolReader
 	protected payloadLength = 0;
 	protected packetOffset = 0; // can be negative, if correctNearPacketBoundary() joined 2 packets
 
-	/**	True when the connection was switched to the compressed protocol (`CLIENT_COMPRESS` negotiated, after the authentication).
+	/**	Set when the connection was switched to the compressed protocol (`CLIENT_COMPRESS` or `CLIENT_ZSTD_COMPRESSION_ALGORITHM` negotiated, after the authentication).
 		Then everything sent and received over the connection is wrapped in compressed packets: a 7-byte header
 		(3-byte payload length, 1-byte sequence id, 3-byte uncompressed length) followed by the payload,
-		that is either a zlib-deflated part of the ordinary packet stream, or (if the uncompressed length field is 0) a verbatim part of it.
+		that is either a compressed (with this algorithm) part of the ordinary packet stream, or (if the uncompressed length field is 0) a verbatim part of it.
 	 **/
-	protected compression = false;
+	protected compression = Compression.NONE;
+
+	/**	The zstd compression level, used when {@link compression} is `Compression.ZSTD`: the client compresses its packets with it,
+		and during the handshake it was sent to the server, that uses it to compress the responses.
+	 **/
+	protected zstdLevel = ZSTD_DEFAULT_LEVEL;
 
 	/**	The compressed protocol sequence id. It works like the ordinary packet sequence id, but counts compressed packets, and travels in their headers.
 		The server counts the compressed packets it reads within each command read cycle, so the numbering must restart from 0
@@ -114,7 +128,8 @@ export class MyProtocolReader
 			}
 			else
 			{	await this.#recvFrameExact(payloadLen);
-				const data = inflateSync(this.#frameBuffer!.subarray(0, payloadLen));
+				const compressed = this.#frameBuffer!.subarray(0, payloadLen);
+				const data = this.compression==Compression.ZSTD ? zstdDecompress(compressed) : inflateSync(compressed);
 				if (data.length != uncompressedLen)
 				{	throw new ServerDisconnectedError(`Corrupted compressed packet: expected ${uncompressedLen} bytes, got ${data.length}`);
 				}

@@ -1,8 +1,18 @@
 import {MyProtocolReaderWriter} from '../my_protocol_reader_writer.ts';
+import {Compression} from '../my_protocol_reader.ts';
+import {zstdDecompress, isZstdSupported} from '../deflate_into.ts';
 import {ServerDisconnectedError} from '../errors.ts';
 import {assert} from 'jsr:@std/assert@1.0.19/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 import {inflateSync} from 'node:zlib';
+
+/**	The algorithms to test: zstd only on runtimes that have it in `node:zlib`.
+ **/
+const ALGORITHMS = isZstdSupported() ? [Compression.ZLIB, Compression.ZSTD] : [Compression.ZLIB];
+
+function decompress(algorithm: Compression, data: Uint8Array)
+{	return new Uint8Array(algorithm==Compression.ZSTD ? zstdDecompress(data) : inflateSync(data));
+}
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -90,8 +100,8 @@ function getRandomBytes(len: number)
 /**	Exposes the `protected` machinery for tests.
  **/
 class TestProtocol extends MyProtocolReaderWriter
-{	enableCompression(seqId=0)
-	{	this.compression = true;
+{	enableCompression(seqId=0, algorithm=Compression.ZLIB)
+	{	this.compression = algorithm;
 		this.compressedSeqId = seqId;
 	}
 
@@ -121,59 +131,61 @@ class TestProtocol extends MyProtocolReaderWriter
 	}
 }
 
-function newWriteProtocol(mock: MockWriter)
+function newWriteProtocol(mock: MockWriter, algorithm=Compression.ZLIB)
 {	const protocol = new TestProtocol(mock as Any, undefined as Any, new TextDecoder, new Uint8Array(8*1024));
-	protocol.enableCompression();
+	protocol.enableCompression(0, algorithm);
 	return protocol;
 }
 
-function newReadProtocol(wire: Uint8Array, serveChunkSize=Number.MAX_SAFE_INTEGER)
+function newReadProtocol(wire: Uint8Array, serveChunkSize=Number.MAX_SAFE_INTEGER, algorithm=Compression.ZLIB)
 {	const protocol = new TestProtocol(undefined as Any, new MockByobReader(wire, serveChunkSize) as Any, new TextDecoder, new Uint8Array(8*1024));
-	protocol.enableCompression();
+	protocol.enableCompression(0, algorithm);
 	return protocol;
 }
 
 Deno.test
 (	'Compressed protocol: sendData() frames and compresses',
 	async () =>
-	{	const mock = new MockWriter;
-		const protocol = newWriteProtocol(mock);
+	{	for (const algorithm of ALGORITHMS)
+		{	const mock = new MockWriter;
+			const protocol = newWriteProtocol(mock, algorithm);
 
-		// Short payload (shorter than 50 bytes) is sent verbatim
-		const short = encoder.encode('SELECT 1');
-		await protocol.doSendData(short);
-		assertEquals(mock.packets.length, 1);
-		let packet = mock.packets[0];
-		assertEquals(packet[0] | packet[1]<<8 | packet[2]<<16, short.length); // payload length
-		assertEquals(packet[3], 0); // the first compressed packet of a command is numbered 0
-		assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, 0); // 0 means not compressed
-		assertEquals(packet.subarray(7), short);
+			// Short payload (shorter than 50 bytes) is sent verbatim
+			const short = encoder.encode('SELECT 1');
+			await protocol.doSendData(short);
+			assertEquals(mock.packets.length, 1);
+			let packet = mock.packets[0];
+			assertEquals(packet[0] | packet[1]<<8 | packet[2]<<16, short.length); // payload length
+			assertEquals(packet[3], 0); // the first compressed packet of a command is numbered 0
+			assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, 0); // 0 means not compressed
+			assertEquals(packet.subarray(7), short);
 
-		// Long compressible payload is deflated
-		const long = new Uint8Array(1024).fill('a'.charCodeAt(0));
-		await protocol.doSendData(long);
-		assertEquals(mock.packets.length, 2);
-		packet = mock.packets[1];
-		const payloadLen = packet[0] | packet[1]<<8 | packet[2]<<16;
-		assert(payloadLen < long.length);
-		assertEquals(packet.length, 7+payloadLen);
-		assertEquals(packet[3], 1); // sequence id incremented
-		assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, long.length);
-		assertEquals(new Uint8Array(inflateSync(packet.subarray(7))), long);
+			// Long compressible payload is compressed
+			const long = new Uint8Array(1024).fill('a'.charCodeAt(0));
+			await protocol.doSendData(long);
+			assertEquals(mock.packets.length, 2);
+			packet = mock.packets[1];
+			const payloadLen = packet[0] | packet[1]<<8 | packet[2]<<16;
+			assert(payloadLen < long.length);
+			assertEquals(packet.length, 7+payloadLen);
+			assertEquals(packet[3], 1); // sequence id incremented
+			assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, long.length);
+			assertEquals(decompress(algorithm, packet.subarray(7)), long);
 
-		// Incompressible payload is sent verbatim, not inflated by the zlib overhead
-		const random = getRandomBytes(1024);
-		await protocol.doSendData(random);
-		assertEquals(mock.packets.length, 3);
-		packet = mock.packets[2];
-		assertEquals(packet[3], 2);
-		assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, 0);
-		assertEquals(packet.subarray(7), random);
+			// Incompressible payload is sent verbatim, not inflated by the compression overhead
+			const random = getRandomBytes(1024);
+			await protocol.doSendData(random);
+			assertEquals(mock.packets.length, 3);
+			packet = mock.packets[2];
+			assertEquals(packet[3], 2);
+			assertEquals(packet[4] | packet[5]<<8 | packet[6]<<16, 0);
+			assertEquals(packet.subarray(7), random);
 
-		// The command boundary resets the sequence (the protocol does it in `sendPackets()`)
-		protocol.enableCompression(0);
-		await protocol.doSendData(short);
-		assertEquals(mock.packets[3][3], 0);
+			// The command boundary resets the sequence (the protocol does it in `sendPackets()`)
+			protocol.enableCompression(0, algorithm);
+			await protocol.doSendData(short);
+			assertEquals(mock.packets[3][3], 0);
+		}
 	}
 );
 
@@ -187,34 +199,36 @@ Deno.test
 			encoder.encode('The quick brown fox jumps over the lazy dog. '.repeat(100)), // compressible
 		];
 		const expected = concat(parts);
-		for (const serveChunkSize of [Number.MAX_SAFE_INTEGER, 7, 1]) // how fragmented the compressed packets arrive
-		{	for (const viewSize of [8*1024, 3]) // how big destination views the consumer reads to
-			{	// Write all the parts
-				const mock = new MockWriter;
-				const writeProtocol = newWriteProtocol(mock);
-				for (const p of parts)
-				{	await writeProtocol.doSendData(p);
+		for (const algorithm of ALGORITHMS)
+		{	for (const serveChunkSize of [Number.MAX_SAFE_INTEGER, 7, 1]) // how fragmented the compressed packets arrive
+			{	for (const viewSize of [8*1024, 3]) // how big destination views the consumer reads to
+				{	// Write all the parts
+					const mock = new MockWriter;
+					const writeProtocol = newWriteProtocol(mock, algorithm);
+					for (const p of parts)
+					{	await writeProtocol.doSendData(p);
+					}
+					// Read them back
+					const readProtocol = newReadProtocol(concat(mock.packets), serveChunkSize, algorithm);
+					const result = new Uint8Array(expected.length);
+					let pos = 0;
+					let buffer: Uint8Array = new Uint8Array(viewSize);
+					while (pos < expected.length)
+					{	const {value, done} = await readProtocol.doReadFromConn(buffer);
+						assert(!done, 'Unexpected EOF');
+						assert(value.length > 0);
+						result.set(value, pos);
+						pos += value.length;
+						buffer = new Uint8Array(value.buffer);
+					}
+					assertEquals(result, expected);
+					// Then EOF
+					const {value, done} = await readProtocol.doReadFromConn(buffer);
+					assert(done);
+					assertEquals(value?.length, 0);
+					// The reader adopted the sequence id from the last packet header
+					assertEquals(readProtocol.curCompressedSeqId, writeProtocol.curCompressedSeqId);
 				}
-				// Read them back
-				const readProtocol = newReadProtocol(concat(mock.packets), serveChunkSize);
-				const result = new Uint8Array(expected.length);
-				let pos = 0;
-				let buffer: Uint8Array = new Uint8Array(viewSize);
-				while (pos < expected.length)
-				{	const {value, done} = await readProtocol.doReadFromConn(buffer);
-					assert(!done, 'Unexpected EOF');
-					assert(value.length > 0);
-					result.set(value, pos);
-					pos += value.length;
-					buffer = new Uint8Array(value.buffer);
-				}
-				assertEquals(result, expected);
-				// Then EOF
-				const {value, done} = await readProtocol.doReadFromConn(buffer);
-				assert(done);
-				assertEquals(value?.length, 0);
-				// The reader adopted the sequence id from the last packet header
-				assertEquals(readProtocol.curCompressedSeqId, writeProtocol.curCompressedSeqId);
 			}
 		}
 	}
@@ -223,22 +237,24 @@ Deno.test
 Deno.test
 (	'Compressed protocol: splits chunks longer than 2**24-1 bytes',
 	async () =>
-	{	const mock = new MockWriter;
-		const protocol = newWriteProtocol(mock);
-		const chunk = new Uint8Array(0xFFFFFF + 100);
-		for (let i=0; i<chunk.length; i++)
-		{	chunk[i] = (i >> 10) & 0x7F; // slowly changing, so both fragments (16 MiB - 1 and 100 bytes) are compressible
+	{	for (const algorithm of ALGORITHMS)
+		{	const mock = new MockWriter;
+			const protocol = newWriteProtocol(mock, algorithm);
+			const chunk = new Uint8Array(0xFFFFFF + 100);
+			for (let i=0; i<chunk.length; i++)
+			{	chunk[i] = (i >> 10) & 0x7F; // slowly changing, so both fragments (16 MiB - 1 and 100 bytes) are compressible
+			}
+			await protocol.doSendData(chunk);
+			assertEquals(mock.packets.length, 1); // both compressed packets in 1 write
+			const frames = parseFrames(mock.packets[0]);
+			assertEquals(frames.length, 2);
+			assertEquals(frames[0].seqId, 0);
+			assertEquals(frames[0].uncompressedLen, 0xFFFFFF);
+			assertEquals(frames[1].seqId, 1);
+			assertEquals(frames[1].uncompressedLen, 100);
+			const restored = concat([decompress(algorithm, frames[0].payload), decompress(algorithm, frames[1].payload)]);
+			assertEquals(restored, chunk);
 		}
-		await protocol.doSendData(chunk);
-		assertEquals(mock.packets.length, 1); // both compressed packets in 1 write
-		const frames = parseFrames(mock.packets[0]);
-		assertEquals(frames.length, 2);
-		assertEquals(frames[0].seqId, 0);
-		assertEquals(frames[0].uncompressedLen, 0xFFFFFF);
-		assertEquals(frames[1].seqId, 1);
-		assertEquals(frames[1].uncompressedLen, 100);
-		const restored = concat([new Uint8Array(inflateSync(frames[0].payload)), new Uint8Array(inflateSync(frames[1].payload))]);
-		assertEquals(restored, chunk);
 	}
 );
 

@@ -2,7 +2,9 @@ import {debugAssert} from './debug_assert.ts';
 import {reallocAppend} from './realloc_append.ts';
 import {CapabilityFlags, MariadbCapabilityFlags, MariadbFieldAttr, PacketType, StatusFlags, SessionTrack, Command, Charset, CursorType, MysqlType, ErrorCodes, SetOption} from './constants.ts';
 import {BusyError, CanceledError, CanRetry, ServerDisconnectedError, SqlError} from './errors.ts';
-import {Dsn} from './dsn.ts';
+import {Compression} from './my_protocol_reader.ts';
+import {isZstdSupported} from './deflate_into.ts';
+import {Dsn, DsnCompress} from './dsn.ts';
 import {AuthPlugin} from './auth_plugins.ts';
 import {SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsInternal, type Param} from './resultsets.ts';
@@ -162,7 +164,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			{	await protocol.#writeAuthSwitchResponse(password, authPlugin2);
 				await protocol.#readAuthResponse(password, authPlugin2);
 			}
-			if (protocol.capabilityFlags & CapabilityFlags.CLIENT_COMPRESS)
+			if (protocol.capabilityFlags & (CapabilityFlags.CLIENT_COMPRESS | CapabilityFlags.CLIENT_ZSTD_COMPRESSION_ALGORITHM))
 			{	protocol.#enableCompression();
 			}
 			if (takeCareOfDisconneced.length)
@@ -261,9 +263,32 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	/**	Negotiate the client capabilities: leave in `capabilityFlags` (and `#mariadbCapabilityFlags`) only what both the server offered and this client supports.
 		Called after the server handshake packet is read, and before the response (or the TLS upgrade, that must advertise the same flags) is sent.
 	 **/
-	#applyClientCapabilities(schema: string, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean, useTls: boolean, compress: boolean)
-	{	this.capabilityFlags &=
-		(	CapabilityFlags.CLIENT_PLUGIN_AUTH |
+	#applyClientCapabilities(schema: string, foundRows: boolean, ignoreSpace: boolean, multiStatements: boolean, useTls: boolean, compress: DsnCompress)
+	{	// What compression to offer. zstd is requested by `CLIENT_ZSTD_COMPRESSION_ALGORITHM`, and zlib by `CLIENT_COMPRESS` -
+		// never both at once: the server would pick zlib, and this client prefers zstd (usually better and faster), when it's not pinned by the DSN.
+		let compressFlags = 0;
+		if (compress)
+		{	const wantZlib = compress===true || compress==='zlib'; // else zstd is pinned
+			if (compress !== 'zlib')
+			{	if (!isZstdSupported())
+				{	if (!wantZlib)
+					{	throw new Error(`The "compress=${compress}" DSN parameter requires zstd in node:zlib, that this runtime doesn't have (Deno 2.7+ or Node.js 23.8+ is needed). Use "compress=zlib" or upgrade the runtime`);
+					}
+				}
+				else if (this.capabilityFlags & CapabilityFlags.CLIENT_ZSTD_COMPRESSION_ALGORITHM)
+				{	compressFlags = CapabilityFlags.CLIENT_ZSTD_COMPRESSION_ALGORITHM;
+					if (compress!==true && compress!=='zstd')
+					{	this.zstdLevel = Number(compress.slice(5)); // `zstd:N` - validated by `Dsn`
+					}
+				}
+			}
+			if (!compressFlags && wantZlib)
+			{	compressFlags = CapabilityFlags.CLIENT_COMPRESS; // masked with what the server offered below
+			}
+		}
+		this.capabilityFlags &=
+		(	compressFlags |
+			CapabilityFlags.CLIENT_PLUGIN_AUTH |
 			CapabilityFlags.CLIENT_LONG_PASSWORD |
 			CapabilityFlags.CLIENT_TRANSACTIONS |
 			CapabilityFlags.CLIENT_MULTI_RESULTS |
@@ -280,8 +305,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			(foundRows ? CapabilityFlags.CLIENT_FOUND_ROWS : 0) |
 			(ignoreSpace ? CapabilityFlags.CLIENT_IGNORE_SPACE : 0) |
 			(multiStatements ? CapabilityFlags.CLIENT_MULTI_STATEMENTS : 0) |
-			(useTls ? CapabilityFlags.CLIENT_SSL : 0) |
-			(compress ? CapabilityFlags.CLIENT_COMPRESS : 0)
+			(useTls ? CapabilityFlags.CLIENT_SSL : 0)
 		);
 		if (this.capabilityFlags & CapabilityFlags.CLIENT_SESSION_TRACK)
 		{	this.schema = schema;
@@ -319,13 +343,14 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	}
 
 	/**	Switch to the compressed protocol: from now on both sides wrap the ordinary packet stream in compressed packets.
-		Called when `CLIENT_COMPRESS` is negotiated, after the authentication is complete (the handshake and auth exchange travel uncompressed).
+		Called when `CLIENT_COMPRESS` or `CLIENT_ZSTD_COMPRESSION_ALGORITHM` is negotiated, after the authentication is complete
+		(the handshake and auth exchange travel uncompressed).
 		When both TLS and compression are enabled, the compression runs inside the encrypted channel
 		(`this.reader` and `this.writer` already point to the TLS streams, and the compression is applied to what travels through them).
 	 **/
 	#enableCompression()
 	{	debugAssert(this.bufferStart == this.bufferEnd); // the server sends nothing between the auth OK packet and the response to the next command, so nothing could be over-read to the buffer, and the compressed stream begins at the current read position
-		this.compression = true;
+		this.compression = this.capabilityFlags & CapabilityFlags.CLIENT_ZSTD_COMPRESSION_ALGORITHM ? Compression.ZSTD : Compression.ZLIB;
 		this.compressedSeqId = 0;
 	}
 
@@ -362,6 +387,10 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 			// auth_plugin_name
 			if (this.capabilityFlags & CapabilityFlags.CLIENT_PLUGIN_AUTH)
 			{	this.writeShortNulString(authPlugin.name);
+			}
+			// zstd compression level - the last field of `HandshakeResponse41` (this client doesn't send `CLIENT_CONNECT_ATTRS`, that would go before it); the server will compress its packets with this level
+			if (this.capabilityFlags & CapabilityFlags.CLIENT_ZSTD_COMPRESSION_ALGORITHM)
+			{	this.writeUint8(this.zstdLevel);
 			}
 		}
 		else
@@ -2140,6 +2169,7 @@ L:		while (true)
 				protocol.connectionId = this.connectionId;
 				protocol.capabilityFlags = this.capabilityFlags;
 				protocol.compression = this.compression; // `COM_RESET_CONNECTION` doesn't stop the compressed protocol (the compressed sequence id starts from 0: the next command restarts it anyway)
+				protocol.zstdLevel = this.zstdLevel;
 				// `COM_RESET_CONNECTION` doesn't renegotiate the capabilities, so the recycled connection continues to speak the dialect that was negotiated during the handshake, including `MARIADB_CLIENT_EXTENDED_METADATA` (that makes the server send the extended type info in each column definition)
 				protocol.#mariadbCapabilityFlags = this.#mariadbCapabilityFlags;
 				protocol.#maxColumnLen = this.#maxColumnLen;

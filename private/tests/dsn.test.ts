@@ -1,5 +1,6 @@
 import {Dsn} from '../dsn.ts';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
+import {assertThrows} from 'jsr:@std/assert@1.0.19/throws';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -372,6 +373,28 @@ Deno.test
 		assertEquals(dsn.compress, false);
 		dsn.compress = true;
 		assertEquals(dsn+'', 'mysql://root@localhost/?compress');
+
+		// Pinned algorithm
+		for (const value of ['zlib', 'zstd', 'zstd:19'] as const)
+		{	dsn = new Dsn(`mysql://root@localhost/?compress=${value}`);
+			assertEquals(dsn.compress, value);
+			assertEquals(dsn+'', `mysql://root@localhost/?compress=${value}`);
+			assertEquals(new Dsn(dsn+'').compress, value); // `name` round-trip
+			assertEquals(new Dsn(dsn).compress, value); // copy-constructor
+		}
+		dsn = new Dsn('mysql://root@localhost/');
+		dsn.compress = 'zstd:22';
+		assertEquals(dsn+'', 'mysql://root@localhost/?compress=zstd:22');
+
+		// `compress=` (empty value) is the same as the plain `compress`
+		dsn = new Dsn('mysql://root@localhost/?compress=');
+		assertEquals(dsn.compress, true);
+
+		// Invalid values
+		for (const value of ['gzip', 'ZLIB', 'zstd:0', 'zstd:23', 'zstd:1.5', 'zstd:'])
+		{	assertThrows(() => new Dsn(`mysql://root@localhost/?compress=${value}`), Error, 'Invalid "compress" value');
+			assertThrows(() => {new Dsn('mysql://root@localhost/').compress = value as Any}, Error, 'Invalid "compress" value');
+		}
 	}
 );
 

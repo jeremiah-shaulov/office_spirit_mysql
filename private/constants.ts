@@ -25,6 +25,7 @@ export const enum CapabilityFlags
 	CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS		= 1 << 22,	// Don't close the connection for a connection with expired password.
 	CLIENT_SESSION_TRACK					= 1 << 23,	// Extended OK
 	CLIENT_DEPRECATE_EOF					= 1 << 24,
+	CLIENT_ZSTD_COMPRESSION_ALGORITHM		= 1 << 26,	// Can use zstd in the compression protocol (MySQL 8.0.18+; MariaDB doesn't support it). Mutually exclusive with CLIENT_COMPRESS: if the client advertises both, the server picks zlib
 }
 
 /**	MariaDB has 64-bit capability flags, where the upper 32 bits are MariaDB-specific.
