@@ -5,6 +5,11 @@ const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(
 // The URL `pathname` always starts with `/`, so the first character can't be `%`. Inspect the next character to detect whether the runtime keeps percent-encoded bytes (which we then need to decode ourselves).
 const wantUrlDecodePathname = new URL('http://localhost/ф').pathname.charAt(1) == '%';
 
+const C_CR = '\r'.charCodeAt(0);
+const C_LF = '\n'.charCodeAt(0);
+
+const RE_IGNORE_CHARS = /\s+/g;
+
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
@@ -41,12 +46,33 @@ function parseCompress(value: string|boolean|null): DsnCompress
 	}
 }
 
-/**	Extracts the base64 body from PEM public key, like "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----", dropping the armor lines and all whitespace.
-	If there's no PEM armor, assumes that the whole string is the base64 body, and only strips whitespace and zero bytes (MySQL server terminates the key with zero byte when sending it during handshake).
+/**	Extracts the base64 body from PEM public key, like "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----", dropping the armor lines.
+	If there's no PEM armor, assumes that the whole string is the base64 body.
+	The body is returned as is, so it can still contain the line breaks that PEM wraps it with. `atob()` ignores them, but callers that store the value (like in the DSN string) must strip the whitespace themselves.
+	Trailing zero bytes and line breaks are trimmed, because `atob()` tolerates whitespace, but not zero bytes (MySQL server terminates the key with zero byte when sending it during handshake).
  **/
-export function publicKeyToBase64(publicKey: string)
-{	const m = publicKey.match(/-----BEGIN[^-]*-----([^-]*)-----END[^-]*-----/);
-	return (m ? m[1] : publicKey).replace(/[\s\0]+/g, '');
+export function publicKeyExtractBase64(publicKey: string)
+{	let begin = 0;
+	let end = publicKey.length;
+	let c;
+	while ((c = publicKey.charCodeAt(end-1))===0 || c===C_CR || c===C_LF)
+	{	end--;
+	}
+	if (publicKey.startsWith('-----BEGIN'))
+	{	const from = publicKey.indexOf('\n', 10);
+		if (from >= 0)
+		{	const to = publicKey.lastIndexOf('\n', end-1);
+			if (to >= 0)
+			{	const to2 = publicKey.charCodeAt(to-1)==C_CR ? to-1 : to;
+				begin = from + 1;
+				end = to2;
+			}
+		}
+	}
+	if (begin>0 || end<publicKey.length)
+	{	publicKey = publicKey.slice(begin, end);
+	}
+	return publicKey;
 }
 
 /** Data source name. URL string that specifies how to connect to MySQL server.
@@ -372,7 +398,7 @@ export class Dsn
 	{	return this.#serverPublicKey;
 	}
 	set serverPublicKey(value: string)
-	{	this.#serverPublicKey = publicKeyToBase64(value);
+	{	this.#serverPublicKey = publicKeyExtractBase64(value).replace(RE_IGNORE_CHARS, '');
 		this.#updateNameAndHash();
 	}
 
@@ -588,7 +614,7 @@ export class Dsn
 			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
 			this.#allowPublicKeyRetrieval = allowPublicKeyRetrieval != null;
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
-			this.#serverPublicKey = serverPublicKey ? publicKeyToBase64(serverPublicKey.replaceAll(' ', '+')) : '';
+			this.#serverPublicKey = serverPublicKey ? publicKeyExtractBase64(serverPublicKey.replaceAll(' ', '+')).replace(RE_IGNORE_CHARS, '') : '';
 			this.#allowCleartextPasswords = allowCleartextPasswords != null;
 			this.#compress = compress==null ? false : parseCompress(compress);
 			this.#tlsCaCert = tlsCaCert ?? '';

@@ -1,4 +1,4 @@
-import {Dsn, publicKeyToBase64} from "./dsn.ts";
+import {Dsn, publicKeyExtractBase64} from "./dsn.ts";
 import {MyProtocol} from "./my_protocol.ts";
 import {ed25519Sign} from "./ed25519.ts";
 
@@ -38,14 +38,10 @@ export class AuthPlugin
 	}
 }
 
-async function hash(algorithm: AlgorithmIdentifier, data: Uint8Array<ArrayBuffer>)
-{	return new Uint8Array(await crypto.subtle.digest(algorithm, data));
-}
-
-function appendZeroByte(data: Uint8Array)
-{	const result = new Uint8Array(data.length + 1);
-	result.set(data);
-	return result;
+function encodeAppendZeroByte(str: string)
+{	const data = new Uint8Array(str.length*4 + 1);
+	const {written} = encoder.encodeInto(str, data);
+	return data.subarray(0, written+1);
 }
 
 function xor(a: Uint8Array, b: Uint8Array)
@@ -65,11 +61,11 @@ function strToBytes(str: string)
 }
 
 /**	Encrypts `password + "\0"` XORed with the scramble, using the server RSA public key (RSA-OAEP SHA-1).
-	`publicKeyBase64` is the key in SPKI DER form, base64-encoded (PEM without the armor).
+	`publicKeyBase64` is the key in SPKI DER form, base64-encoded (PEM without the armor). It can contain the line breaks that PEM wraps the body with, because `atob()` ignores them.
 	This is how both `caching_sha2_password` and `sha256_password` protect the password on an unencrypted connection.
  **/
 async function encryptPassword(password: string, scramble: Uint8Array, publicKeyBase64: string)
-{	const stage1 = appendZeroByte(encoder.encode(password));
+{	const stage1 = encodeAppendZeroByte(password);
 	xor(stage1, scramble);
 	const publicKeyObj = await crypto.subtle.importKey('spki', strToBytes(atob(publicKeyBase64)), {name: 'RSA-OAEP', hash: 'SHA-1'}, true, ['encrypt']);
 	return new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
@@ -112,12 +108,12 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 	{	if (!password)
 		{	return new Uint8Array;
 		}
-		const stage1 = await hash('SHA-256', encoder.encode(password));
-		const stage2 = await hash('SHA-256', stage1);
+		const stage1 = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(password)));
+		const stage2 = new Uint8Array(await crypto.subtle.digest('SHA-256', stage1));
 		const buffer = new Uint8Array(stage2.length + this.scramble.length);
 		buffer.set(stage2);
 		buffer.set(this.scramble, stage2.length);
-		const stage3 = await hash('SHA-256', buffer);
+		const stage3 = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
 
 		xor(stage1, stage3);
 
@@ -135,7 +131,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				else if (statusFlag == AuthStatusFlags.FullAuth)
 				{	if (this.isConnectionTrusted)
 					{	// On a secure channel (TLS or Unix-domain socket) the plain password is sent directly (nul-terminated), like the standard clients do
-						await writer.authSendBytesPacket(appendZeroByte(encoder.encode(password)));
+						await writer.authSendBytesPacket(encodeAppendZeroByte(password));
 						this.#state = State.Done;
 						return false;
 					}
@@ -164,7 +160,7 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 				}
 			}
 			case State.Encrypt:
-			{	const publicKey = publicKeyToBase64(decoder.decode(packetData));
+			{	const publicKey = publicKeyExtractBase64(decoder.decode(packetData));
 				await writer.authSendBytesPacket(await encryptPassword(password, this.scramble, publicKey));
 				this.#state = State.Done;
 				return false;
@@ -192,7 +188,7 @@ class AuthPluginSha256Password extends AuthPlugin
 		}
 		if (this.isConnectionTrusted)
 		{	this.#state = State.Done;
-			return appendZeroByte(encoder.encode(password));
+			return encodeAppendZeroByte(password);
 		}
 		if (this.dsn.serverPublicKey)
 		{	this.#state = State.Done;
@@ -215,7 +211,7 @@ class AuthPluginSha256Password extends AuthPlugin
 	override async progress(password: string, _packetType: number, packetData: Uint8Array, writer: MyProtocol)
 	{	switch (this.#state)
 		{	case State.Encrypt:
-			{	const publicKey = publicKeyToBase64(decoder.decode(packetData));
+			{	const publicKey = publicKeyExtractBase64(decoder.decode(packetData));
 				await writer.authSendBytesPacket(await encryptPassword(password, this.scramble, publicKey));
 				this.#state = State.Done;
 				return false;
@@ -243,7 +239,7 @@ class AuthPluginMysqlClearPassword extends AuthPlugin
 				`3) connect through Unix-domain socket.`
 			);
 		}
-		return Promise.resolve(appendZeroByte(encoder.encode(password)));
+		return Promise.resolve(encodeAppendZeroByte(password));
 	}
 }
 
