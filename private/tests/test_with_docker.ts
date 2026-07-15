@@ -47,7 +47,8 @@ export function testWithDocker(tests: Array<(dsnStr: string) => Promise<void>>)
 				await withDocker('mysql:latest', true, false, ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], doRunTests);
 				await withDocker('mysql:8.0', true, true, ['--innodb-idle-flush-pct=0', '--local-infile', '--default-authentication-plugin=mysql_native_password'], doRunTests);
 				await withDocker('mysql:5.7', true, false, ['--max-allowed-packet=67108864', '--local-infile'], doRunTests);
-				await withDocker('mysql:5.6', true, true, ['--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=50331648'], doRunTests);
+				// `--innodb-log-file-size`: MySQL 5.6 refuses to insert a BLOB bigger than 10% of the redo log (that is 2 files of this size), and `testBindBigParam` inserts 16 MiB
+				await withDocker('mysql:5.6', true, true, ['--max-allowed-packet=67108864', '--local-infile', '--innodb-log-file-size=134217728'], doRunTests);
 
 				await withDocker('mariadb:latest', false, true, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile'], doRunTests);
 				await withDocker('mariadb:latest', true, false, ['--innodb-idle-flush-pct=0', '--max-allowed-packet=67108864', '--local-infile', '--default-authentication-plugin=caching_sha2_password'], doRunTests);

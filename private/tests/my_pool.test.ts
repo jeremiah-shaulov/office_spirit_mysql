@@ -56,6 +56,23 @@ testWithDocker
 	]
 );
 
+/**	Tests that create tables need a schema, but the DSN doesn't necessarily select one: the test matrix runs some of the servers
+	without a default database (`withSchema=false` in {@link testWithDocker}), and then the DSN that the tests get has no schema.
+	In this case create the database, and return a DSN that selects it. Other DSNs are returned as they are (as a copy, that the caller can modify).
+	Returns a {@link Dsn} object, not a string, because `Dsn.name` masks the password.
+ **/
+async function dsnWithSchema(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	if (!dsn.schema)
+	{	{	await using pool = new MyPool(dsn);
+			using conn = pool.getConn();
+			await conn.queryVoid("CREATE DATABASE IF NOT EXISTS tests");
+		}
+		dsn.schema = 'tests';
+	}
+	return dsn;
+}
+
 class SqlSelectGenerator
 {	has_put_params_to = false;
 	buffer_size = -1;
@@ -474,15 +491,39 @@ function isJsonColumnDetectable(version: string)
 {	return version.includes('MariaDB') ? parseVersion(version)>=1005 : parseVersion(version)>=507;
 }
 
+/**	The `json` column type appeared in MySQL 5.7 and in MariaDB 10.2 (where it's an alias for LONGTEXT).
+	Older servers reject it as a syntax error, so the tests declare such columns as `text` there.
+	This is not the same as {@link isJsonColumnDetectable()}: MariaDB 10.2 - 10.4 accept the type, but don't report it.
+ **/
+function isJsonTypeSupported(version: string)
+{	return version.includes('MariaDB') ? parseVersion(version)>=1002 : parseVersion(version)>=507;
+}
+
+/**	`COM_RESET_CONNECTION`, that the pool uses to recycle a connection for reuse, appeared in MySQL 5.7 and MariaDB 10.2.
+	On older servers each `getConn()` opens a new connection, so it gets a new connection id.
+ **/
+function isConnectionRecyclable(version: string)
+{	return version.includes('MariaDB') ? parseVersion(version)>=1002 : parseVersion(version)>=507;
+}
+
+/**	`START TRANSACTION READ ONLY`, that {@link MyConn.startTrx()} sends for `{readonly: true}`, appeared in MySQL 5.6 and MariaDB 10.0.
+	Older servers reject it as a syntax error.
+ **/
+function isReadonlyTrxSupported(version: string)
+{	return version.includes('MariaDB') ? parseVersion(version)>=1000 : parseVersion(version)>=506;
+}
+
 async function testSerializeRows(dsnStr: string)
-{	for (const storeResultsetIfBigger of [0, 12, 30, 100, 10000])
-	{	const dsn = new Dsn(dsnStr);
+{	const dsnWithDb = await dsnWithSchema(dsnStr);
+	for (const storeResultsetIfBigger of [0, 12, 30, 100, 10000])
+	{	const dsn = new Dsn(dsnWithDb);
 		dsn.storeResultsetIfBigger = storeResultsetIfBigger;
 		await using pool = new MyPool(dsn);
 		using session = pool.getSession();
 		using conn = session.conn();
 
-		const jsonParsed = isJsonColumnDetectable(String(await conn.queryCol('SELECT VERSION()').first()));
+		const version = String(await conn.queryCol('SELECT VERSION()').first());
+		const jsonParsed = isJsonColumnDetectable(version);
 		const data2: ColumnValue = jsonParsed ? 123 : '123';
 		const data3: ColumnValue = jsonParsed ? [1, 2, 3] : '[1,2,3]';
 
@@ -491,7 +532,7 @@ async function testSerializeRows(dsnStr: string)
 		(	`	CREATE TEMPORARY TABLE t_log
 				(	id integer PRIMARY KEY AUTO_INCREMENT,
 					message text,
-					data json,
+					data ${isJsonTypeSupported(version) ? 'json' : 'text'},
 					deci decimal(10,2),
 					en enum('one', 'two', 'three')
 				)
@@ -1377,18 +1418,21 @@ async function testTrx(dsnStr: string)
 				await conn.rollback();
 				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 
-				// readonly
-				await conn.startTrx({readonly: true});
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
 				let error: Any;
-				try
-				{	await conn.query("INSERT INTO t_log SET a = 123");
+
+				// readonly (old servers have no `START TRANSACTION READ ONLY`)
+				if (isReadonlyTrxSupported(String(await conn.queryCol('SELECT VERSION()').first())))
+				{	await conn.startTrx({readonly: true});
+					assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					try
+					{	await conn.query("INSERT INTO t_log SET a = 123");
+					}
+					catch (e)
+					{	error = e;
+					}
+					assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
+					await conn.rollback();
 				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
-				await conn.rollback();
 
 				// xa when regular trx active (must commit)
 				await conn.startTrx();
@@ -1699,23 +1743,25 @@ async function testGetTrx(dsnStr: string)
 			assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 2);
 			await conn.query("DELETE FROM t_log");
 
-			// getTrx({readonly: true})
-			{	await using trx = await conn.getTrx({readonly: true});
-				assert(trx instanceof Trx);
-				assertEquals(conn.inTrx, true);
-				// `startTrx()` is lazy, so a query is needed to actually send `START TRANSACTION READ ONLY` and update the status flags
-				assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
-				assertEquals(conn.inTrxReadonly, true);
-				let error: Any;
-				try
-				{	await conn.query("INSERT INTO t_log SET a = 1");
+			// getTrx({readonly: true}) (old servers have no `START TRANSACTION READ ONLY`)
+			if (isReadonlyTrxSupported(String(await conn.queryCol('SELECT VERSION()').first())))
+			{	{	await using trx = await conn.getTrx({readonly: true});
+					assert(trx instanceof Trx);
+					assertEquals(conn.inTrx, true);
+					// `startTrx()` is lazy, so a query is needed to actually send `START TRANSACTION READ ONLY` and update the status flags
+					assertEquals(await conn.queryCol("SELECT Count(*) FROM t_log").first(), 0);
+					assertEquals(conn.inTrxReadonly, true);
+					let error: Any;
+					try
+					{	await conn.query("INSERT INTO t_log SET a = 1");
+					}
+					catch (e)
+					{	error = e;
+					}
+					assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
 				}
-				catch (e)
-				{	error = e;
-				}
-				assertEquals(error?.errorCode, ErrorCodes.ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION);
+				assertEquals(conn.inTrx, false);
 			}
-			assertEquals(conn.inTrx, false);
 			assertEquals(conn.inTrxReadonly, false);
 
 			// getTrx({xaId1}) + prepareCommit() + commit()
@@ -1918,7 +1964,8 @@ async function testLoadBigDump(dsnStr: string)
 		[8*1024 + 100, true, true, true],
 		[2**24 + 8*1024 + 100, false, false, true],
 	];
-	pool.forConn
+	const createTLog = "CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)";
+	await pool.forConn
 	(	async conn =>
 		{	// Create and use db
 			await conn.query("DROP DATABASE IF EXISTS test1");
@@ -1926,7 +1973,7 @@ async function testLoadBigDump(dsnStr: string)
 			await conn.query("USE test1");
 
 			// CREATE TABLE
-			await conn.query("CREATE TEMPORARY TABLE t_log (id integer PRIMARY KEY AUTO_INCREMENT, message longtext)");
+			await conn.query(createTLog);
 
 			for (const dumpType of [DumpType.String, DumpType.Uint8Array, DumpType.Stream])
 			{	for (const [SIZE, isReadableStream, isSeekable, useBinarySelect] of CASES)
@@ -1939,8 +1986,13 @@ async function testLoadBigDump(dsnStr: string)
 							sizeRounded <<= 1;
 						}
 						await conn.queryVoid("SET GLOBAL max_allowed_packet = ?", [sizeRounded]);
-						conn.end();
+						conn.end(); // the new `max_allowed_packet` only applies to connections established after it was set
 						assert(Number(await conn.queryCol("SELECT @@max_allowed_packet").first()) >= wantSize);
+						// The reconnected session lost the temporary table (they don't outlive their connection), and it can also have no database selected:
+						// the driver reselects it only on servers that report schema changes (see `conn.schema`), and this branch is reachable on old servers,
+						// that have a small `max_allowed_packet` (and that also don't report schema changes)
+						await conn.query("USE test1");
+						await conn.query(createTLog);
 					}
 
 					const filename = await Deno.makeTempFile();
@@ -2149,6 +2201,11 @@ async function testMultiStatements(dsnStr: string)
 {	const dsn = new Dsn(dsnStr);
 	await using pool = new MyPool(dsn);
 
+	let recyclable;
+	{	using conn = pool.getConn();
+		recyclable = isConnectionRecyclable(String(await conn.queryCol('SELECT VERSION()').first()));
+	}
+
 	for (let i=0; i<4; i++)
 	{	let cid;
 		for (let j=0; j<2; j++)
@@ -2164,8 +2221,9 @@ async function testMultiStatements(dsnStr: string)
 				row = await (i%2==0 ? conn.query(q) : conn.queries(q)).first();
 				assertEquals(row?.['@a'], 1);
 				assertEquals(row?.['@b'], 2);
-				if (j == 1)
-				{	assertEquals(row?.cid, cid);
+				if (j==1 && recyclable)
+				{	// the same connection must be reused, so it's id must not change (on servers that cannot be recycled each `getConn()` opens a new connection)
+					assertEquals(row?.cid, cid);
 				}
 				cid = row?.cid;
 			}
@@ -2181,6 +2239,21 @@ async function testBindBigParam(dsnStr: string)
 	dsn.maxColumnLen = maxColumnLen;
 	await using pool = new MyPool(dsn);
 	using conn = pool.getConn();
+
+	// Old servers cap the parameters sent with `COM_STMT_SEND_LONG_DATA` at `max_long_data_size`, that they take from `max_allowed_packet` at startup.
+	// Unlike `max_allowed_packet`, it's read only, so a server that started with a small one cannot accept the big parameters that this test sends.
+	// (Newer servers removed this variable, and then the query below fails.)
+	let maxLongDataSize;
+	try
+	{	maxLongDataSize = Number(await conn.queryCol('SELECT @@max_long_data_size').first());
+	}
+	catch
+	{	// the server doesn't have this variable, so only `max_allowed_packet` applies, and the test raises it below
+	}
+	if (maxLongDataSize!=undefined && maxLongDataSize<maxColumnLen+100)
+	{	console.log(`\tskipped: this server accepts at most ${maxLongDataSize} bytes in a prepared statement parameter (read-only max_long_data_size), and the test sends ${maxColumnLen}`);
+		return;
+	}
 
 	// CREATE DATABASE
 	await conn.query("DROP DATABASE IF EXISTS test1");
@@ -2223,7 +2296,7 @@ async function testBindBigParam(dsnStr: string)
 }
 
 async function testBigintUnsignedBinaryParam(dsnStr: string)
-{	await using pool = new MyPool(dsnStr);
+{	await using pool = new MyPool(await dsnWithSchema(dsnStr));
 	using conn = pool.getConn();
 
 	await conn.queryVoid('DROP TABLE IF EXISTS t_test_bigu');
@@ -2250,6 +2323,10 @@ async function testCachingSha2LongPassword(dsnStr: string)
 	const version = String(await conn.queryCol('SELECT VERSION()').first());
 	if (version.includes('MariaDB'))
 	{	console.log(`\tskipped: 'caching_sha2_password' is a MySQL plugin (server is ${version})`);
+		return;
+	}
+	if (parseVersion(version) < 800)
+	{	console.log(`\tskipped: 'caching_sha2_password' appeared in MySQL 8.0 (server is ${version})`);
 		return;
 	}
 
@@ -2302,7 +2379,8 @@ async function testCachingSha2LongPassword(dsnStr: string)
 		}
 	}
 	finally
-	{	await conn.queryVoid(`DROP USER '${userName}'@'%'`);
+	{	// `IF EXISTS`, because if the user was not created, the failing `DROP USER` would replace the error that explains why
+		await conn.queryVoid(`DROP USER IF EXISTS '${userName}'@'%'`);
 	}
 }
 
@@ -2474,7 +2552,8 @@ async function testAuthParsec(dsnStr: string)
 // `mysql_clear_password` is not integration-tested here: the server side only requests it for externally checked accounts (PAM, LDAP), that need extra infrastructure. It's unit-tested in auth_plugins.test.ts.
 
 async function testJsonColumnType(dsnStr: string)
-{	await using pool = new MyPool(dsnStr);
+{	const dsnWithDb = await dsnWithSchema(dsnStr);
+	await using pool = new MyPool(dsnWithDb);
 	using conn = pool.getConn();
 
 	const version = String(await conn.queryCol('SELECT VERSION()').first());
@@ -2498,7 +2577,7 @@ async function testJsonColumnType(dsnStr: string)
 			assertEquals(row?.not_data, '{"a":[1,2]}', `${binary ? 'binary' : 'text'} protocol: LONGTEXT stays a string`);
 		}
 		// `jsonAsString` must keep the JSON column unparsed. MySQL stores JSON in binary form, and prints it back with it's own spacing, so compare the meaning, not the exact text.
-		const dsn2 = new Dsn(dsnStr);
+		const dsn2 = new Dsn(dsnWithDb);
 		dsn2.jsonAsString = true;
 		await using pool2 = new MyPool(dsn2);
 		using conn2 = pool2.getConn();
@@ -2512,7 +2591,7 @@ async function testJsonColumnType(dsnStr: string)
 }
 
 async function testStoreFractionalTime(dsnStr: string)
-{	const dsn = new Dsn(dsnStr);
+{	const dsn = await dsnWithSchema(dsnStr);
 	dsn.storeResultsetIfBigger = 0; // force buffered() to disk
 	await using pool = new MyPool(dsn);
 	using conn = pool.getConn();
@@ -2567,7 +2646,7 @@ async function testBufferedDiscardReleasesFile(dsnStr: string)
 }
 
 async function testDatetimeBinaryProtocolFormat(dsnStr: string)
-{	const dsn = new Dsn(dsnStr);
+{	const dsn = await dsnWithSchema(dsnStr);
 	dsn.datesAsString = true;
 	await using pool = new MyPool(dsn);
 	using conn = pool.getConn();
@@ -2589,7 +2668,7 @@ async function testDatetimeBinaryProtocolFormat(dsnStr: string)
 }
 
 async function testBitBinaryProtocol(dsnStr: string)
-{	await using pool = new MyPool(dsnStr);
+{	await using pool = new MyPool(await dsnWithSchema(dsnStr));
 	using conn = pool.getConn();
 
 	await conn.queryVoid("DROP TABLE IF EXISTS t_test_bit");
@@ -2740,14 +2819,15 @@ async function testForceImmediateDisconnectCleanupWhenSaturated(dsnStr: string)
 	// slots busy) at the moment it runs. Previously the entry was silently dropped, so the prepared
 	// XA kept holding locks forever.
 	const XID = 'osm_issue9_dangling_xa';
-	const dsn = new Dsn(dsnStr);
+	const dsnWithDb = await dsnWithSchema(dsnStr);
+	const dsn = new Dsn(dsnWithDb);
 	dsn.maxConns = 1;
 	dsn.connectionTimeout = 30_000;
 	dsn.reconnectInterval = 0;
 	await using pool = new MyPool(dsn);
 	// Separate pool for out-of-band checks. It never competes for the target pool's single slot, and
 	// (importantly) it has its own deferred-cleanup queue, so its connections don't clean up the target's.
-	const monDsn = new Dsn(dsnStr);
+	const monDsn = new Dsn(dsnWithDb);
 	monDsn.maxConns = 4;
 	await using monPool = new MyPool(monDsn);
 
