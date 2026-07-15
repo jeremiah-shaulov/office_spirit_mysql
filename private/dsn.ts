@@ -373,7 +373,9 @@ export class Dsn
 		this.#updateNameAndHash();
 	}
 
-	/**	If the server requests `caching_sha2_password` full authentication or `sha256_password` authentication over unencrypted TCP connection, this library needs the server RSA public key to encrypt the password.
+	/**	If the server uses `caching_sha2_password` or `sha256_password` authentication over unencrypted TCP connection, this library can need the server RSA public key to encrypt the password.
+		`sha256_password` always needs it, and `caching_sha2_password` needs it when the server asks for the full authentication - that happens when the password is not in the server side cache, like on the first connection after the server restart.
+		The client cannot see the state of that cache, so such connection is refused before the authentication starts, rather than only when the server happens to ask for the key.
 		If this parameter is present, the key will be requested from the server itself, through the untrusted connection.
 		This is vulnerable to man-in-the-middle attacks, where the attacker can substitute the key, and decrypt the password.
 		To avoid the risk, enable {@link tls}, or pin the trusted key in {@link serverPublicKey}, or connect through Unix-domain socket.

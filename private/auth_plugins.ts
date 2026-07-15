@@ -71,6 +71,20 @@ async function encryptPassword(password: string, scramble: Uint8Array, publicKey
 	return new Uint8Array(await crypto.subtle.encrypt({name: 'RSA-OAEP'}, publicKeyObj, stage1));
 }
 
+/**	Both `caching_sha2_password` and `sha256_password` protect the password with the server RSA public key when the transport is not trusted.
+	This throws when there's no way to obtain that key: it's not pinned in the DSN, and retrieving it from the server is not allowed.
+	`problem` tells which plugin needs the key, and why, and `statusVarName` is the status variable that holds the key on the server side.
+ **/
+function throwNoPublicKey(problem: string, statusVarName: string): never
+{	throw new Error
+	(	`${problem}, but the connection is not secure (TCP without TLS). Options: `+
+		`1) add 'tls' parameter to the DSN to encrypt the connection; `+
+		`2) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
+		`3) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE '${statusVarName}'); `+
+		`4) connect through Unix-domain socket.`
+	);
+}
+
 class AuthPluginMysqlNativePassword extends AuthPlugin
 {	override async quickAuth(password: string)
 	{	if (!password)
@@ -104,10 +118,25 @@ const REQUEST_PUBLIC_KEY = 2;
 class AuthPluginCachingSha2Password extends AuthPlugin
 {	#state = State.Initial;
 
+	/**	Throws if the server can ask for the RSA public key, but there's no way to obtain it.
+		Only the full-auth path needs the key, and whether the server takes that path depends on the state of it's password cache, that the client cannot see:
+		the key is only asked for when the password is not cached yet (like on the first connection after the server restart).
+		So the check is eager - otherwise the connection would keep working for as long as the cache stays warm, and then start failing with no change on the client side.
+	 **/
+	#assertCanGetPublicKey()
+	{	if (!this.isConnectionTrusted && !this.dsn.serverPublicKey && !this.dsn.allowPublicKeyRetrieval)
+		{	throwNoPublicKey
+			(	`The server requested 'caching_sha2_password' authentication, that requires the server RSA public key when the password is not cached on the server side (like on the first connection after the server restart)`,
+				'Caching_sha2_password_rsa_public_key'
+			);
+		}
+	}
+
 	override async quickAuth(password: string)
 	{	if (!password)
 		{	return new Uint8Array;
 		}
+		this.#assertCanGetPublicKey();
 		const stage1 = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(password)));
 		const stage2 = new Uint8Array(await crypto.subtle.digest('SHA-256', stage1));
 		const buffer = new Uint8Array(stage2.length + this.scramble.length);
@@ -141,16 +170,9 @@ class AuthPluginCachingSha2Password extends AuthPlugin
 						this.#state = State.Done;
 						return false;
 					}
-					if (!this.isConnectionTrusted && !this.dsn.allowPublicKeyRetrieval)
-					{	// Requesting the key through untrusted TCP connection allows an active MITM to substitute the key, and to decrypt the password
-						throw new Error
-						(	`The server requested 'caching_sha2_password' full authentication, that requires the server RSA public key, but the connection is not secure (TCP without TLS). Options: `+
-							`1) add 'tls' parameter to the DSN to encrypt the connection; `+
-							`2) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
-							`3) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'); `+
-							`4) connect through Unix-domain socket.`
-						);
-					}
+					// Requesting the key through untrusted TCP connection allows an active MITM to substitute the key, and to decrypt the password.
+					// `quickAuth()` always runs before this, so it has thrown already - except for the empty password, that it lets through without the check, and then this is the only guard.
+					this.#assertCanGetPublicKey();
 					await writer.authSendUint8Packet(REQUEST_PUBLIC_KEY);
 					this.#state = State.Encrypt;
 					return false;
@@ -195,12 +217,9 @@ class AuthPluginSha256Password extends AuthPlugin
 			return await encryptPassword(password, this.scramble, this.dsn.serverPublicKey);
 		}
 		if (!this.dsn.allowPublicKeyRetrieval)
-		{	throw new Error
-			(	`The server requested 'sha256_password' authentication, that requires the server RSA public key, but the connection is not secure (TCP without TLS). Options: `+
-				`1) add 'tls' parameter to the DSN to encrypt the connection; `+
-				`2) add 'allowPublicKeyRetrieval' parameter to the DSN to retrieve the key from the server (vulnerable to man-in-the-middle attacks); `+
-				`3) pin the trusted key in 'serverPublicKey' DSN parameter (you can get the key by executing: SHOW STATUS LIKE 'Rsa_public_key'); `+
-				`4) connect through Unix-domain socket.`
+		{	throwNoPublicKey
+			(	`The server requested 'sha256_password' authentication, that requires the server RSA public key`,
+				'Rsa_public_key'
 			);
 		}
 		// Request the public key from the server (the server will send it, and `progress()` will do the encryption)

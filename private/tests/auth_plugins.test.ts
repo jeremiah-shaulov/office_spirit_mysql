@@ -129,6 +129,39 @@ Deno.test
 );
 
 Deno.test
+(	'caching_sha2_password requires the public key eagerly',
+	async () =>
+	{	const scramble = randomScramble(20);
+		const password = 'pwd @אя';
+		const {publicKey} = await crypto.subtle.generateKey({name: 'RSA-OAEP', hash: 'SHA-1', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1])}, true, ['encrypt', 'decrypt']);
+		const publicKeyDer = new Uint8Array(await crypto.subtle.exportKey('spki', publicKey));
+		const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${btoa(String.fromCharCode(...publicKeyDer))}\n-----END PUBLIC KEY-----\n\0`; // MySQL terminates the key with a nul byte
+
+		// Refused through untrusted TCP without opt-in already at `quickAuth()`, before any packet is sent.
+		// Only the full auth path needs the key, and the server takes that path or not depending on it's password cache, that the client cannot see.
+		// Deferring the check to that path would let the connection work for as long as the cache stays warm, and then start failing with no change on the client side.
+		{	const plugin = AuthPlugin.inst('caching_sha2_password', scramble, new Dsn(TCP_DSN));
+			const error = await getError(() => plugin.quickAuth(password));
+			assert(error.includes('allowPublicKeyRetrieval'), error);
+			assert(error.includes("SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'"), error);
+		}
+
+		// Accepted when the key can be retrieved, or is not needed at all (trusted transport): the token is the 32-byte scrambled hash
+		for (const dsnStr of [TCP_DSN+'?allowPublicKeyRetrieval', PIPE_DSN, TCP_DSN+'?tls'])
+		{	const plugin = AuthPlugin.inst('caching_sha2_password', scramble, new Dsn(dsnStr));
+			assertEquals((await plugin.quickAuth(password)).length, 32, dsnStr);
+		}
+
+		// Accepted with the pinned trusted key
+		{	const dsn = new Dsn(TCP_DSN);
+			dsn.serverPublicKey = publicKeyPem;
+			const plugin = AuthPlugin.inst('caching_sha2_password', scramble, dsn);
+			assertEquals((await plugin.quickAuth(password)).length, 32);
+		}
+	}
+);
+
+Deno.test
 (	'sha256_password',
 	async () =>
 	{	const scramble = randomScramble(20);
