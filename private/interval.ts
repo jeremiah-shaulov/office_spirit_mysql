@@ -11,7 +11,7 @@ const enum IntervalState
 type DelayMsec = number | (() => number);
 
 export class Interval
-{	#hTimer: number|undefined;
+{	#hTimer: ReturnType<typeof setTimeout>|undefined;
 	#state = IntervalState.Inactive;
 	#onEnd: VoidFunction|undefined;
 
