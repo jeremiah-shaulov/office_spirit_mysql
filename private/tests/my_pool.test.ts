@@ -2099,7 +2099,7 @@ async function testLoadFile(dsnStr: string)
 				}
 			);
 		}
-		pool.forConn
+		await pool.forConn
 		(	async conn =>
 			{	// Create and use db
 				await conn.query("DROP DATABASE IF EXISTS test1");
