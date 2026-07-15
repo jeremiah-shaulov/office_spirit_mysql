@@ -9,19 +9,23 @@
 [totalBytesInPacket](#-totalbytesinpacket-number),
 [decoder](#-decoder-textdecoder)
 - method [recycleBuffer](#-recyclebuffer-uint8arrayarraybufferlike)
-- 7 protected properties:
+- 10 protected properties:
 [buffer](#-protected-buffer-uint8array),
 [bufferStart](#-protected-bufferstart-number),
 [bufferEnd](#-protected-bufferend-number),
 [sequenceId](#-protected-sequenceid-number),
 [payloadLength](#-protected-payloadlength-number),
 [packetOffset](#-protected-packetoffset-number),
+[compression](#-protected-compression-compression),
+[zstdLevel](#-protected-zstdlevel-number),
+[compressedSeqId](#-protected-compressedseqid-number),
 [reader](#-protected-reader-readablestreambyobreader)
-- 49 protected methods:
+- 50 protected methods:
 [isAtEndOfPacket](#-protected-isatendofpacket-boolean),
 [gotoEndOfPacket](#-protected-gotoendofpacket-boolean),
 [gotoEndOfPacketAsync](#-protected-gotoendofpacketasync-promisevoid),
 [unput](#-protected-unputbyte-number-void),
+[readFromConn](#-protected-readfromconnv-extends-uint8arrayview-v-promisereadablestreamreadresultv),
 [readPacketHeader](#-protected-readpacketheader-boolean),
 [readPacketHeaderAsync](#-protected-readpacketheaderasync-promisevoid),
 [readUint8](#-protected-readuint8-number),
@@ -109,6 +113,32 @@
 
 
 
+#### 📄 `protected` compression: [Compression](../enum.Compression/README.md)
+
+> Set when the connection was switched to the compressed protocol (`CLIENT_COMPRESS` or `CLIENT_ZSTD_COMPRESSION_ALGORITHM` negotiated, after the authentication).
+> Then everything sent and received over the connection is wrapped in compressed packets: a 7-byte header
+> (3-byte payload length, 1-byte sequence id, 3-byte uncompressed length) followed by the payload,
+> that is either a compressed (with this algorithm) part of the ordinary packet stream, or (if the uncompressed length field is 0) a verbatim part of it.
+
+
+
+#### 📄 `protected` zstdLevel: `number`
+
+> The zstd compression level, used when [compression](../class.MyProtocolReader/README.md#-protected-compression-compression) is `Compression.ZSTD`: the client compresses its packets with it,
+> and during the handshake it was sent to the server, that uses it to compress the responses.
+
+
+
+#### 📄 `protected` compressedSeqId: `number`
+
+> The compressed protocol sequence id. It works like the ordinary packet sequence id, but counts compressed packets, and travels in their headers.
+> The server counts the compressed packets it reads within each command read cycle, so the numbering must restart from 0
+> when a compressed packet begins a new command (`MyProtocolReaderWriter.sendPackets()` takes care of this),
+> and continue from the last received number + 1 when the client writes in the middle of a command
+> (like the `LOCAL INFILE` file data) - [readFromConn()](../class.MyProtocolReader/README.md#-protected-readfromconnv-extends-uint8arrayview-v-promisereadablestreamreadresultv) adopts the numbers it receives for this.
+
+
+
 #### 📄 `protected` reader: ReadableStreamBYOBReader
 
 
@@ -128,6 +158,16 @@
 #### ⚙ `protected` unput(byte: `number`): `void`
 
 > Immediately after readUint8() or readUint8Async(), it's possible to put the just read byte back, so you will read it again.
+
+
+
+#### ⚙ `protected` readFromConn\<V `extends` Uint8Array>(view: V): Promise\<ReadableStreamReadResult\<V>>
+
+> Read bytes from the connection to `view`.
+> In the ordinary protocol this is a single read from the connection reader.
+> In the compressed protocol, reads compressed packets and converts them back to the ordinary packet stream:
+> inflates deflated payloads, and passes through payloads that travel verbatim.
+> Also adopts the sequence ids from the compressed packet headers to [compressedSeqId](../class.MyProtocolReader/README.md#-protected-compressedseqid-number).
 
 
 

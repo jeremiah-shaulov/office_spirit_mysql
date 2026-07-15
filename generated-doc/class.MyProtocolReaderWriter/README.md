@@ -30,7 +30,7 @@ To send a long packet, use `sendWithData()`.
 - [constructor](#-constructorwriter-writablestreamdefaultwriteruint8array-reader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
 - method [setHeader](#-setheaderpayloadlength-number-void)
 - protected property [writer](#-protected-writer-writablestreamdefaultwriteruint8array)
-- 24 protected methods:
+- 26 protected methods:
 [ensureRoom](#-protected-ensureroomroom-number-void),
 [startWritingNewPacket](#-protected-startwritingnewpacketresetsequenceid-booleanfalse-void),
 [discardPacket](#-protected-discardpacket-void),
@@ -54,8 +54,10 @@ To send a long packet, use `sendWithData()`.
 [writeShortNulString](#-protected-writeshortnulstringvalue-string-void),
 [writeReadChunk](#-protected-writereadchunkvalue-reader-promisenumber),
 [send](#-protected-send-promisevoid),
+[sendPackets](#-protected-sendpacketsend-number-promisevoid),
+[sendData](#-protected-senddatadata-uint8array-promisevoid),
 [sendWithData](#-protected-sendwithdatadata-sqlsource-nobackslashescapes-boolean-logdata-data-uint8array--promiseunknown-canwait-booleanfalse-putparamsto-unknown-promiseboolean)
-- 59 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
+- 63 inherited members from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 #### 🔧 `constructor`(writer: WritableStreamDefaultWriter\<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)
@@ -159,6 +161,32 @@ To send a long packet, use `sendWithData()`.
 
 
 #### ⚙ `protected` send(): Promise\<`void`>
+
+
+
+#### ⚙ `protected` sendPackets(end: `number`): Promise\<`void`>
+
+> Send `this.buffer[0 .. end)` to the connection. The bytes are packets, each beginning with its 4-byte header
+> (only the last packet is allowed to be cut, when the caller will complete it with [sendData()](../class.MyProtocolReaderWriter/README.md#-protected-senddatadata-uint8array-promisevoid) calls).
+> In the ordinary protocol this is a single write.
+> In the compressed protocol, each command must begin its own compressed packet,
+> with the compressed packet numbering restarted from 0 - like libmysql, that never lets 2 commands share a compressed packet, does.
+> The server (both MySQL and MariaDB) counts the compressed packets it receives within each command read cycle,
+> and can overwrite the tail of a decompressed packet in it's buffer when it writes a response,
+> swallowing the command that shared the compressed packet with the previous command.
+> The command boundaries are recorded by `startWritingNewPacket(resetSequenceId=true)` in `this.#commandStarts`
+> (as offsets, not as slices of `this.buffer`, because the buffer can be reallocated by `ensureRoom()`, or detached and rebound by a BYOB read, before the bytes are sent),
+> and bytes that don't start a command (like `LOCAL INFILE` file data) continue the current compressed packet numbering.
+> All the compressed packets go in 1 write to the connection.
+
+
+
+#### ⚙ `protected` sendData(data: Uint8Array): Promise\<`void`>
+
+> Send raw bytes to the connection - a continuation of the payload of the current packet, whose beginning was sent with [sendPackets()](../class.MyProtocolReaderWriter/README.md#-protected-sendpacketsend-number-promisevoid).
+> In the compressed protocol wraps the bytes in compressed packets, continuing the current numbering (no command begins in them).
+> The compressed packets are built in `this.buffer` after the input (or from its beginning, if the input is an external array -
+> safe, because a payload continuation can only be sent after the packets in the buffer were flushed).
 
 
 

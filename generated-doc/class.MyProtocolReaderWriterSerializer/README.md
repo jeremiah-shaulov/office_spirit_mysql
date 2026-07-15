@@ -11,7 +11,7 @@
 [serializeEnd](#-serializeend-promisevoid),
 [deserializeRowBinary](#-deserializerowbinaryrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem---number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number),
 [deserializeRowText](#-deserializerowtextrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem---number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number)
-- 26 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 59 from [MyProtocolReader](../class.MyProtocolReader/README.md)
+- 28 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 63 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 #### 🔧 `constructor`(writer: WritableStreamDefaultWriter\<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array | `undefined`)

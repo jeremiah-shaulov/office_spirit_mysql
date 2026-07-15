@@ -32,7 +32,7 @@
 [nextResultset](#-nextresultsetignoreterminated-booleanfalse-promiseboolean),
 [end](#-endrollbackpreparedxaid-string-recycleconnection-booleanfalse-withdisposesqllogger-booleanfalse-promiseuint8arrayarraybufferlike--myprotocol),
 [forceImmediateDisconnect](#-forceimmediatedisconnect-boolean)
-- 5 inherited members from [MyProtocolReaderWriterSerializer](../class.MyProtocolReaderWriterSerializer/README.md), 26 from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 59 from [MyProtocolReader](../class.MyProtocolReader/README.md)
+- 5 inherited members from [MyProtocolReaderWriterSerializer](../class.MyProtocolReaderWriterSerializer/README.md), 28 from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 63 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
 ## Static members
