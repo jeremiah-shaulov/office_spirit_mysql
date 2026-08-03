@@ -667,10 +667,12 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			// 7. Pipe
 			while (true)
 			{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd+canSend));
+				if (value) // `value` is only absent when the read failed before it could hand the buffer back
+				{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw`: the BYOB read detached the buffer, and hands it back in `value` - also on EOF
+				}
 				if (done)
 				{	throw new Error(`Unexpected end of stream`);
 				}
-				this.buffer = new Uint8Array(value.buffer);
 				try
 				{	// when `bufferEnd > 0` the sent bytes begin with packet headers, and when it's 0, they're a continuation of the current packet payload
 					const promise = this.bufferEnd>0 ? this.sendPackets(this.bufferEnd+value.length) : this.sendData(this.buffer.subarray(0, value.length));

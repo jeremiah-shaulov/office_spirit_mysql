@@ -107,7 +107,11 @@ export class MyProtocolReader
 				return {value: new Uint8Array(view.buffer, view.byteOffset, n) as V, done: false};
 			}
 			if (this.#verbatimRemaining > 0)
-			{	const {value, done} = await this.reader.read(view.subarray(0, Math.min(this.#verbatimRemaining, view.length)) as V);
+			{	const isOwnBuffer = view.buffer === this.buffer.buffer; // `view` is usually a slice of `this.buffer`, but not always (`readBytesToBuffer()` reads to the caller's array)
+				const {value, done} = await this.reader.read(view.subarray(0, Math.min(this.#verbatimRemaining, view.length)) as V);
+				if (value && isOwnBuffer)
+				{	this.buffer = new Uint8Array(value.buffer); // take the buffer back before the `throw` below (see the comment in `#recvFrameExact()`)
+				}
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server in the middle of a compressed packet');
 				}
@@ -154,14 +158,17 @@ export class MyProtocolReader
 		let pos = 0;
 		while (pos < len)
 		{	const {value, done} = await this.reader.read(buffer.subarray(pos, len));
+			// Take the buffer back before any `throw`: the BYOB read detached it, and `value` is the only reference to it - also when the read reports EOF (then `value` is a zero-length view over the intact buffer). Throwing without rebinding would leave the buffer detached forever, and every later use of it would die with "Cannot perform Construct on a detached ArrayBuffer".
+			if (value) // `value` is only absent when the read failed before it could hand the buffer back
+			{	buffer = new Uint8Array(value.buffer);
+				this.#frameBuffer = buffer;
+			}
 			if (done)
 			{	if (canEof && pos==0)
 				{	return false;
 				}
 				throw new ServerDisconnectedError('Lost connection to server');
 			}
-			buffer = new Uint8Array(value.buffer);
-			this.#frameBuffer = buffer;
 			if (value.length == 0)
 			{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
 			}
@@ -184,13 +191,15 @@ export class MyProtocolReader
 		const to = this.bufferStart + nBytes;
 		while (this.bufferEnd < to)
 		{	const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
+			if (value) // `value` is only absent when the read failed before it could hand the buffer back
+			{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw` (see the comment in `#recvFrameExact()`)
+			}
 			if (done)
 			{	if (canEof && this.bufferEnd==this.bufferStart)
 				{	return false;
 				}
 				throw new ServerDisconnectedError('Lost connection to server');
 			}
-			this.buffer = new Uint8Array(value.buffer);
 			if (value.length == 0)
 			{	// A well-behaved byte source never fulfils a BYOB read with `{value: empty, done: false}`. If it does, looping would spin the event loop without I/O.
 				throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
@@ -220,10 +229,12 @@ export class MyProtocolReader
 			}
 			debugAssert(this.bufferEnd < this.buffer.length);
 			const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
+			if (value) // `value` is only absent when the read failed before it could hand the buffer back
+			{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw` (see the comment in `#recvFrameExact()`)
+			}
 			if (done)
 			{	throw new ServerDisconnectedError('Lost connection to server');
 			}
-			this.buffer = new Uint8Array(value.buffer);
 			if (value.length == 0)
 			{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
 			}
@@ -279,10 +290,12 @@ export class MyProtocolReader
 				this.bufferEnd -= this.bufferStart;
 				this.bufferStart = 0;
 				const {value, done} = await this.readFromConn(this.buffer.subarray(this.bufferEnd));
+				if (value) // `value` is only absent when the read failed before it could hand the buffer back
+				{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw` (see the comment in `#recvFrameExact()`)
+				}
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
-				this.buffer = new Uint8Array(value.buffer);
 				if (value.length == 0)
 				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
 				}
@@ -929,13 +942,15 @@ export class MyProtocolReader
 			const {byteOffset, length} = dest;
 			while (lenInCurPacket>0 && pos<dest.length)
 			{	const {value, done} = await this.readFromConn(dest.subarray(pos, pos+lenInCurPacket));
+				if (value) // `value` is only absent when the read failed before it could hand the buffer back
+				{	dest = new Uint8Array(value.buffer, byteOffset, length); // rebind before any `throw` (see the comment in `#recvFrameExact()`)
+				}
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
 				if (value.length == 0)
 				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
 				}
-				dest = new Uint8Array(value.buffer, byteOffset, length);
 				pos += value.length;
 				this.packetOffset += value.length;
 				this.bufferStart = 0;
@@ -976,10 +991,12 @@ export class MyProtocolReader
 			}
 			while (lenInCurPacket > 0)
 			{	const {value, done} = await this.readFromConn(this.buffer);
+				if (value) // `value` is only absent when the read failed before it could hand the buffer back
+				{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw` (see the comment in `#recvFrameExact()`)
+				}
 				if (done)
 				{	throw new ServerDisconnectedError('Lost connection to server');
 				}
-				this.buffer = new Uint8Array(value.buffer);
 				if (value.length == 0)
 				{	throw new ServerDisconnectedError('Reader returned 0 bytes without EOF');
 				}
