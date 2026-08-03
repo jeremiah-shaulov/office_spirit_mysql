@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPoolOptions} from "https://deno.land/x/office_spirit_mysql@v0.28.0/mod.ts"
+import {MyPoolOptions} from "jsr:@shaulov/office-spirit-mysql@0.28.1"
 ```
 
 ## This interface has
