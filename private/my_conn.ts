@@ -1,14 +1,14 @@
 import {debugAssert} from './debug_assert.ts';
 import {ErrorCodes, SetOption, StatusFlags} from './constants.ts';
-import {MyProtocol, RowType, MultiStatements} from './my_protocol.ts';
-import {SqlSource} from './my_protocol_reader_writer.ts';
+import {type MyProtocol, RowType, MultiStatements} from './my_protocol.ts';
+import type {SqlSource} from './my_protocol_reader_writer.ts';
 import {BusyError, CanceledError, ServerDisconnectedError, SqlError} from './errors.ts';
-import {Resultsets, ResultsetsInternal, ResultsetsPromise, type Param, type Params, type ColumnValue} from './resultsets.ts';
-import {Dsn} from './dsn.ts';
-import {SqlLogger, SafeSqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritable} from "./sql_log_to_writable.ts";
-import {Reader} from './deno_ifaces.ts';
-import {Pool} from './my_pool.ts';
+import {type Resultsets, type ResultsetsInternal, ResultsetsPromise, type Param, type Params, type ColumnValue} from './resultsets.ts';
+import type {Dsn} from './dsn.ts';
+import {type SqlLogger, SafeSqlLogger} from './sql_logger.ts';
+import {SqlLogToWritable} from './sql_log_to_writable.ts';
+import type {Reader} from './deno_ifaces.ts';
+import type {Pool} from './my_pool.ts';
 
 export type GetConnFromPoolFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
 export type ReturnConnToPoolFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;

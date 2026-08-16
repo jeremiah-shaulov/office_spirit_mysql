@@ -1,6 +1,6 @@
-import {Dsn, publicKeyExtractBase64} from "./dsn.ts";
-import {MyProtocol} from "./my_protocol.ts";
-import {ed25519Sign} from "./ed25519.ts";
+import {type Dsn, publicKeyExtractBase64} from './dsn.ts';
+import type {MyProtocol} from './my_protocol.ts';
+import {ed25519Sign} from './ed25519.ts';
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;

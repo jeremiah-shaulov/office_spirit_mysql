@@ -1,4 +1,4 @@
-import {Logger} from "./my_protocol.ts";
+import type {Logger} from './my_protocol.ts';
 
 const enum IntervalState
 {	Terminated,

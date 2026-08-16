@@ -1,6 +1,6 @@
 import {MysqlType, Charset, ColumnFlags, CHARSET_NAMES} from './constants.ts';
 import {CanceledError} from './errors.ts';
-import {MyProtocol, RowType} from './my_protocol.ts';
+import {type MyProtocol, RowType} from './my_protocol.ts';
 import {MyProtocolReaderWriterSerializer} from './my_protocol_reader_writer_serializer.ts';
 import {RdStream, WrStream} from './deps.ts';
 

@@ -2,8 +2,8 @@ import {debugAssert} from './debug_assert.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
 import {MyProtocolReader, COMPRESSED_HEADER_LEN, Compression} from './my_protocol_reader.ts';
 import {RdStream} from './deps.ts';
-import {SendWithDataError} from "./errors.ts";
-import {Reader, Seeker} from './deno_ifaces.ts';
+import {SendWithDataError} from './errors.ts';
+import type {Reader, Seeker} from './deno_ifaces.ts';
 import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 import {deflateBound, deflateInto, zstdCompressBound, zstdCompressInto} from './deflate_into.ts';
 

@@ -1,9 +1,9 @@
 import {Dsn} from './dsn.ts';
-import {DisconnectStatus, MyConn, MyConnInternal, Trx, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
-import {Pool} from "./my_pool.ts";
-import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritable} from "./sql_log_to_writable.ts";
-import {XaIdGen} from "./xa_id_gen.ts";
+import {type DisconnectStatus, type MyConn, MyConnInternal, Trx, SAVEPOINT_ENUM_SESSION_FROM} from './my_conn.ts';
+import type {Pool} from './my_pool.ts';
+import type {SqlLogger} from './sql_logger.ts';
+import {SqlLogToWritable} from './sql_log_to_writable.ts';
+import {XaIdGen} from './xa_id_gen.ts';
 
 const xaIdGen = new XaIdGen;
 

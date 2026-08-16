@@ -1,10 +1,10 @@
-import {debugAssert} from "./debug_assert.ts";
-import {reallocAppend} from "./realloc_append.ts";
-import {Dsn} from "./dsn.ts";
-import {SqlLogger} from "./sql_logger.ts";
-import {Writer} from "./deno_ifaces.ts";
-import {WrStream} from "./deps.ts";
-import {Logger} from "./my_protocol.ts";
+import {debugAssert} from './debug_assert.ts';
+import {reallocAppend} from './realloc_append.ts';
+import type {Dsn} from './dsn.ts';
+import type {SqlLogger} from './sql_logger.ts';
+import type {Writer} from './deno_ifaces.ts';
+import {WrStream} from './deps.ts';
+import type {Logger} from './my_protocol.ts';
 
 const MAX_BUFFER_SIZE = 1*1024*1024;
 

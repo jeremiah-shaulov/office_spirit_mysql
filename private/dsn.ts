@@ -1,4 +1,4 @@
-import {crc32} from "./deps.ts";
+import {crc32} from './deps.ts';
 
 const wantUrlDecodeUsername = new URL('http://ф@localhost/').username.charAt(0) == '%';
 const wantUrlDecodePassword = new URL('http://u:ф@localhost/').password.charAt(0) == '%';

@@ -1,4 +1,4 @@
-import {Column, type ColumnValue} from './resultsets.ts';
+import type {Column, ColumnValue} from './resultsets.ts';
 import {ColumnFlags, MysqlType, Charset} from './constants.ts';
 import {MyProtocolReaderWriter} from './my_protocol_reader_writer.ts';
 import {RowType} from './my_protocol.ts';

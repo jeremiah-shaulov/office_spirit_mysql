@@ -1,11 +1,11 @@
 import {debugAssert} from './debug_assert.ts';
 import {Dsn} from './dsn.ts';
-import {ServerDisconnectedError} from "./errors.ts";
-import {DEFAULT_MAX_CONNS, MyConn, MyConnInternal, OnBeforeCommit} from './my_conn.ts';
-import {MyProtocol, OnLoadFile, Logger, TakeCareOfDisconneced} from './my_protocol.ts';
-import {MySession} from "./my_session.ts";
-import {XaIdGen} from "./xa_id_gen.ts";
-import {SafeSqlLogger} from "./sql_logger.ts";
+import {ServerDisconnectedError} from './errors.ts';
+import {DEFAULT_MAX_CONNS, type MyConn, MyConnInternal, type OnBeforeCommit} from './my_conn.ts';
+import {MyProtocol, type OnLoadFile, type Logger, type TakeCareOfDisconneced} from './my_protocol.ts';
+import {MySession} from './my_session.ts';
+import {XaIdGen} from './xa_id_gen.ts';
+import type {SafeSqlLogger} from './sql_logger.ts';
 import {Interval} from './interval.ts';
 import {HealthStatus, TRACK_HEALH_STATUS_FOR_PERIOD_SEC} from './health_status.ts';
 import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';

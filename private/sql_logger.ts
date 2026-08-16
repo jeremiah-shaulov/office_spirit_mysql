@@ -1,6 +1,6 @@
-import {Resultsets} from "./resultsets.ts";
-import {Logger} from "./my_protocol.ts";
-import {Dsn} from "./dsn.ts";
+import type {Resultsets} from './resultsets.ts';
+import type {Logger} from './my_protocol.ts';
+import type {Dsn} from './dsn.ts';
 
 /**	@category SQL Logging
  **/

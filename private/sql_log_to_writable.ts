@@ -1,12 +1,12 @@
-import {debugAssert} from "./debug_assert.ts";
-import {Resultsets} from "./resultsets.ts";
-import {Dsn} from "./dsn.ts";
-import {SqlLogger} from "./sql_logger.ts";
-import {SqlLogToWritableBase} from "./sql_log_to_writable_base.ts";
-import {SqlWordsList} from "./sql_words_list.ts";
+import {debugAssert} from './debug_assert.ts';
+import {Resultsets} from './resultsets.ts';
+import type {Dsn} from './dsn.ts';
+import type {SqlLogger} from './sql_logger.ts';
+import {SqlLogToWritableBase} from './sql_log_to_writable_base.ts';
+import {SqlWordsList} from './sql_words_list.ts';
 import {Colors} from './deps.ts';
-import {Writer} from "./deno_ifaces.ts";
-import {Logger} from "./my_protocol.ts";
+import type {Writer} from './deno_ifaces.ts';
+import type {Logger} from './my_protocol.ts';
 
 const DEFAULT_QUERY_MAX_BYTES = 10_000;
 const DEFAULT_PARAM_MAX_BYTES = 3_000;

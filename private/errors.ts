@@ -1,4 +1,4 @@
-import {ErrorCodes} from "./constants.ts";
+import {ErrorCodes} from './constants.ts';
 
 export const SUSPECT_PACKET_ERROR_IF_PACKET_SIZE = 1*1024*1024;
 
