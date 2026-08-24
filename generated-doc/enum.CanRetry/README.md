@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {CanRetry} from "jsr:@shaulov/office-spirit-mysql@0.28.1"
+import {CanRetry} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 ```
 
 How fatal is the SQL error. Maybe just the same query can be retried second time, and there's chance that it'll succeed.

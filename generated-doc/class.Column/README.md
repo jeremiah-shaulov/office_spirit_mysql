@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Column} from "jsr:@shaulov/office-spirit-mysql@0.28.1"
+import {Column} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 ```
 
 Array of such objects is found on `Resultsets.columns`.

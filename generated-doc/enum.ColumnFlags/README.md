@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ColumnFlags} from "jsr:@shaulov/office-spirit-mysql@0.28.1"
+import {ColumnFlags} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 ```
 
 #### NOT\_NULL = <mark>1</mark>

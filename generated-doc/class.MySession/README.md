@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MySession} from "jsr:@shaulov/office-spirit-mysql@0.28.1"
+import {MySession} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 ```
 
 ## This class has
