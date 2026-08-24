@@ -53,6 +53,21 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	 **/
 	#commandStarts = new Array<number>;
 
+	/**	True when `[0 .. bufferEnd)` holds bytes that are still to be written to the connection, and that must
+		not be prepended with a packet header: the deferred payload tail of a packet whose header (declaring
+		these bytes) is already on the wire - see the `canWait` deferral in {@link sendWithData()} - or complete
+		already-headered packets that {@link discardPacket()} left queued. `bufferStart`/`bufferEnd` alone can't
+		encode this state, because they're shared with the reader, and "both equal and nonzero" is also what a
+		drained read cycle leaves behind. Before this flag existed, `startWritingNewPacket()` treated the state
+		as an empty buffer and restarted from offset 0 - overwriting the pending bytes. The server, promised a
+		payload that never arrives, then read the next packet's header and payload as that payload, and the
+		connection desynced: `BrokenPipe` on a later send, or "Got packets out of order" when reading the next
+		response. Diagnosed 2026-08-24 on a bulk INSERT whose `COM_STMT_SEND_LONG_DATA` parameters were two
+		~3 KB blobs (queued whole), a third that overflowed the 8 KB buffer (flushed, tail deferred), and a
+		fourth - whose packet start wiped the deferred tail.
+	 **/
+	#havePendingWriteBytes = false;
+
 	constructor(protected writer: WritableStreamDefaultWriter<Uint8Array>, reader: ReadableStreamBYOBReader, decoder: TextDecoder, useBuffer: Uint8Array|undefined)
 	{	super(reader, decoder, useBuffer);
 	}
@@ -72,7 +87,15 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 	}
 
 	protected startWritingNewPacket(resetSequenceId=false)
-	{	if (this.bufferEnd == this.bufferStart)
+	{	if (this.#havePendingWriteBytes)
+		{	// `[0 .. bufferEnd)` is bytes that are still to be sent, and that must not be prepended with a packet
+			// header - see the comment on the flag. The new packet begins after them, and they all go out together
+			// on the next flush.
+			this.#havePendingWriteBytes = false;
+			this.bufferStart = this.bufferEnd;
+			this.bufferEnd += 4; // after header
+		}
+		else if (this.bufferEnd == this.bufferStart)
 		{	this.bufferStart = 0;
 			this.bufferEnd = 4; // after header
 			this.#commandStarts.length = 0; // the buffer content restarts from offset 0, so the recorded offsets (if any) don't refer to anything anymore
@@ -97,6 +120,11 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 		this.bufferEnd = this.bufferStart;
 		if (this.#commandStarts[this.#commandStarts.length-1] == this.bufferStart)
 		{	this.#commandStarts.pop();
+		}
+		if (this.bufferStart > 0)
+		{	// complete packets are queued before the discarded one - the next packet must begin after them,
+			// not restart the buffer over them (see the comment on the flag)
+			this.#havePendingWriteBytes = true;
 		}
 	}
 
@@ -460,6 +488,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 						this.buffer.set(data);
 						this.bufferStart = data.length;
 						this.bufferEnd = data.length;
+						this.#havePendingWriteBytes = true; // the tail's packet header is already sent - see the comment on the flag
 						return true;
 					}
 					await this.sendData(data);

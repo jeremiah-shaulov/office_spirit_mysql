@@ -9,6 +9,8 @@ const encoder = new TextEncoder;
 const BUFFER_LEN = 8*1024; // must equal the `BUFFER_LEN` in `my_protocol_reader.ts`
 const CONTINUATION = 0xFFFFFF; // a MySQL packet with this payload length means "more packets follow"
 const COM_QUERY = 3;
+const COM_STMT_EXECUTE = 0x17;
+const COM_STMT_SEND_LONG_DATA = 0x18;
 
 /**	Collects everything written "to the wire", so a test can reassemble the MySQL packet stream.
 	Doubles as a watchdog: when `sendWithData()` used to spin on a multi-byte UTF-8 character
@@ -38,6 +40,24 @@ class TestWriter extends MyProtocolReaderWriter
 	{	this.startWritingNewPacket(true);
 		this.writeUint8(command);
 		await this.sendWithData(sql, false);
+	}
+
+	/**	The wire sequence of `#sendComStmtExecute()` for blob parameters: one `COM_STMT_SEND_LONG_DATA`
+		command per blob, each sent with `canWait=true` (so small ones queue in the send buffer), then one
+		final short command packet, like the `COM_STMT_EXECUTE` that follows the parameters.
+	 **/
+	async sendLongDataSequence(stmtId: number, blobs: Uint8Array[])
+	{	for (let i=0; i<blobs.length; i++)
+		{	this.startWritingNewPacket(true);
+			this.writeUint8(COM_STMT_SEND_LONG_DATA);
+			this.writeUint32(stmtId);
+			this.writeUint16(i);
+			await this.sendWithData(blobs[i], false, undefined, true);
+		}
+		this.startWritingNewPacket(true);
+		this.writeUint8(COM_STMT_EXECUTE);
+		this.writeUint32(stmtId);
+		await this.send();
 	}
 
 	get collected()
@@ -146,5 +166,63 @@ Deno.test
 		const {read, written} = encoder.encodeInto('€', new Uint8Array(2));
 		assertEquals(read, 0);
 		assertEquals(written, 0);
+	}
+);
+
+/**	Parse a stream of complete command packets (each restarts the sequence id at 0, as
+	`COM_STMT_SEND_LONG_DATA` and the following `COM_STMT_EXECUTE` do) and return their payloads.
+ **/
+function splitCommandPackets(wire: Uint8Array)
+{	const payloads: Uint8Array[] = [];
+	let pos = 0;
+	while (pos < wire.length)
+	{	assert(pos+4 <= wire.length, 'truncated packet header');
+		const len = wire[pos] | (wire[pos+1] << 8) | (wire[pos+2] << 16);
+		assertEquals(wire[pos+3], 0, 'command packet must have sequence id 0');
+		assert(len < CONTINUATION, 'unexpected continuation packet');
+		pos += 4;
+		assert(pos+len <= wire.length, 'truncated packet body');
+		payloads.push(wire.subarray(pos, pos+len));
+		pos += len;
+	}
+	return payloads;
+}
+
+Deno.test
+(	'Queued COM_STMT_SEND_LONG_DATA packets survive a deferred payload tail',
+	async () =>
+	{	// Blob sizes that drive the send buffer through every state transition. The production shape
+		// (3186, 3186, 3192, 3186, 208149 - the `st_uploaded_media_362` batch of 2026-08-24): two blobs
+		// queue whole, the third overflows the 8 KiB buffer - its packet header goes out declaring the
+		// full payload, and the payload itself stays behind as a deferred tail. Starting the fourth
+		// blob's packet used to restart the buffer from offset 0, overwriting that tail: the server
+		// then read the fourth packet's bytes as the third's payload and the connection desynced
+		// ("Got packets out of order" / BrokenPipe). The second shape defers on the second blob.
+		const shapes =
+		[	[3186, 3186, 3192, 3186, 208149],
+			[7000, 3000, 5000],
+			[300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 8000, 100],
+		];
+		const stmtId = 1;
+		for (const shape of shapes)
+		{	const blobs = shape.map((size, i) => new Uint8Array(size).map((_, j) => (i*31 + j) & 0xFF));
+			const conn = new TestWriter(new CollectingWriter as Any, undefined as Any, new TextDecoder, new Uint8Array(BUFFER_LEN));
+			await conn.sendLongDataSequence(stmtId, blobs);
+			const payloads = splitCommandPackets(concat(conn.collected.chunks));
+			assertEquals(payloads.length, blobs.length+1, `shape ${shape.join(',')}: packet count`);
+			for (let i=0; i<blobs.length; i++)
+			{	const expected = new Uint8Array(7 + blobs[i].length);
+				expected[0] = COM_STMT_SEND_LONG_DATA;
+				new DataView(expected.buffer).setUint32(1, stmtId, true);
+				new DataView(expected.buffer).setUint16(5, i, true);
+				expected.set(blobs[i], 7);
+				const actual = payloads[i];
+				assertEquals(actual.length, expected.length, `shape ${shape.join(',')}: packet ${i} length`);
+				assert(actual.every((byte, j) => byte === expected[j]), `shape ${shape.join(',')}: packet ${i} bytes differ`);
+			}
+			const last = payloads[blobs.length];
+			assertEquals(last.length, 5, `shape ${shape.join(',')}: final packet length`);
+			assertEquals(last[0], COM_STMT_EXECUTE);
+		}
 	}
 );
