@@ -679,7 +679,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			{	// 5. Calc packet size
 				const alreadyFilled = this.bufferEnd - this.bufferStart - 4;
 				const packetSize = alreadyFilled + dataLength;
-				let canSend = Math.min(packetSize, 0xFFFFFF);
+				let lastPacketWasMaxSize = packetSize >= 0xFFFFFF;
+				let canSend = lastPacketWasMaxSize ? 0xFFFFFF : packetSize;
 				let packetSizeRemaining = packetSize - canSend;
 				this.setHeader(canSend);
 				canSend -= alreadyFilled;
@@ -724,7 +725,8 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 					{	if (packetSizeRemaining == 0)
 						{	break;
 						}
-						canSend = Math.min(packetSizeRemaining, 0xFFFFFF);
+						lastPacketWasMaxSize = packetSizeRemaining >= 0xFFFFFF;
+						canSend = lastPacketWasMaxSize ? 0xFFFFFF : packetSizeRemaining;
 						packetSizeRemaining -= canSend;
 						this.setHeader(canSend);
 						this.bufferEnd = 4;
@@ -733,7 +735,7 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 				// 8. If the last packet was exactly 0xFFFFFF bytes long (the payload is an exact multiple of 0xFFFFFF),
 				// the server expects it to continue in the following packet, so an empty packet must terminate the sequence -
 				// like the after-loop sends of the Uint8Array and string branches above do.
-				if (packetSize % 0xFFFFFF == 0)
+				if (lastPacketWasMaxSize)
 				{	this.bufferStart = 0;
 					this.bufferEnd = 4;
 					this.setHeader(0);
