@@ -693,9 +693,8 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 		}
 	}
 
-	async #readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false)
+	async #readQueryResponse(resultsets: ResultsetsInternal<unknown>, mode: ReadPacketMode, skipColumns=false, isPrepareResponse=false)
 	{	debugAssert(mode==ReadPacketMode.REGULAR || mode==ReadPacketMode.ROWS_OR_PREPARED_STMT);
-		debugAssert(resultsets.stmtId < 0);
 L:		while (true)
 		{	const type = await this.#readPacket(mode);
 			let nColumns: number|bigint = 0;
@@ -707,7 +706,18 @@ L:		while (true)
 					break;
 				}
 				case PACKET_NOT_READ_BIT:
-				{	resultsets.isPreparedStmt = true;
+				{	if (!isPrepareResponse)
+					{	// Not a COM_STMT_PREPARE response: `nextResultset()` / `#doDiscard()` is reading what follows an
+						// intermediate resultset of a prepared statement, and a 0x00 first byte there is the statement-level
+						// final OK (possibly with `SERVER_MORE_RESULTS_EXISTS` set for yet another resultset), not a
+						// prepare-OK. Parsing it with the prepare-OK layout used to clobber `stmtId` with the OK's
+						// affected-rows bytes, and then hang awaiting bytes beyond the packet.
+						await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+						this.#initResultsets(resultsets);
+						nColumns = 0;
+						break;
+					}
+					resultsets.isPreparedStmt = true;
 					resultsets.stmtId = this.readUint32() ?? await this.readUint32Async();
 					nColumns = this.readUint16() ?? await this.readUint16Async();
 					nPlaceholders = this.readUint16() ?? await this.readUint16Async();
@@ -1453,7 +1463,7 @@ L:		while (true)
 			{	await sqlLoggerQuery.start();
 			}
 			const resultsets = new ResultsetsInternal<Row>(rowType, maxColumnLen, jsonAsString, datesAsString, correctDates);
-			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns);
+			await this.#readQueryResponse(resultsets, ReadPacketMode.ROWS_OR_PREPARED_STMT, skipColumns, true);
 			resultsets.protocol = this;
 			this.#setState(ProtocolState.IDLE);
 			if (sqlLoggerQuery)
