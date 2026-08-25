@@ -1492,7 +1492,16 @@ L:		while (true)
 	}
 
 	async #sendComStmtExecute(stmtId: number, nPlaceholders: number, params: Param[], sqlLoggerQuery: SafeSqlLoggerQuery|undefined, correctDates: boolean)
-	{	const bitmaskAndTypesSize = (nPlaceholders >> 3) + (nPlaceholders&7 ? 1 : 0) + (nPlaceholders << 1); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (0 or 1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
+	{	// Validate the params before anything is sent: a throw from the middle of this function would leave sent
+		// `COM_STMT_SEND_LONG_DATA` commands with no `COM_STMT_EXECUTE` to follow, and partially written packets
+		// in the buffer. Thrown as SqlError, so the connection (still in sync) is not destroyed.
+		for (let i=0; i<nPlaceholders; i++)
+		{	const param = params[i];
+			if (typeof(param)=='bigint' && (param < -0x8000_0000_0000_0000n || param > 0xFFFF_FFFF_FFFF_FFFFn))
+			{	throw new SqlError(`Parameter ${i} is out of the range of MySQL BIGINT: ${param} (DataView.setBigUint64() would silently wrap it modulo 2**64)`);
+			}
+		}
+		const bitmaskAndTypesSize = (nPlaceholders >> 3) + (nPlaceholders&7 ? 1 : 0) + (nPlaceholders << 1); // 1 bit per each placeholder (nPlaceholders/8 bytes) + partial byte (0 or 1 byte) + 2-byte type per each placeholder (nPlaceholders*2 bytes)
 		let payloadLength = 11 + bitmaskAndTypesSize; // COM_STMT_EXECUTE (1-byte) + stmt_id (4-byte) + NO_CURSOR (1-byte) + iteration_count (4-byte) + new_params_bound_flag (1-byte) = 11
 		const emptyBlobs = new Array<number>;
 		for (let i=0; i<nPlaceholders; i++)
