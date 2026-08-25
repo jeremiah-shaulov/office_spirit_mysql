@@ -742,6 +742,12 @@ L:		while (true)
 						{	while (true)
 							{	this.startWritingNewPacket();
 								const n = await this.writeReadChunk(reader);
+								if (n === 0)
+								{	// an empty packet would tell the server "end of the file data", so a 0-byte read
+									// without EOF must not send one - retry the read
+									this.discardPacket();
+									continue;
+								}
 								await this.send();
 								if (n == null)
 								{	break;
@@ -770,6 +776,12 @@ L:		while (true)
 									break;
 								}
 								buffer = new Uint8Array(value.buffer);
+								if (value.length == 0)
+								{	// an empty packet would tell the server "end of the file data", so a 0-byte read
+									// without EOF must not send one - retry the read
+									this.discardPacket();
+									continue;
+								}
 								this.writeShortBytes(value);
 								await this.send();
 							}
