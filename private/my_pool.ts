@@ -332,12 +332,12 @@ export class Pool
 				{	protocol = await this.#protocolsFactory.newConn(dsn, pendingChangeSchema, this.#takeCareOfDisconneced, this.options.onLoadFile, sqlLogger, this.options.logger);
 					conns.nConnecting--;
 					this.#nBusyAll--;
-					healthStatus.log(true, now);
+					healthStatus.log(true); // use a fresh timestamp: the connect attempt could be slow, and `HealthStatus.log()` drops events older than the current second
 				}
 				catch (e)
 				{	conns.nConnecting--;
 					this.#decNBusyAll(maxConns, haveSlotsCallbacks);
-					healthStatus.log(false, now);
+					healthStatus.log(false);
 					throw e;
 				}
 			}
