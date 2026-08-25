@@ -19,10 +19,14 @@ type Any = any;
 	- `zlib` - only zlib;
 	- `zstd` - only zstd (with the default level 3);
 	- `zstd:N` - only zstd with compression level N (1 - 22, e.g. `zstd:19`).
+
+	In the DSN string the bare `compress` and `compress=true` (or `compress=1`) mean `true`, and `compress=false` (or `compress=0`) means `false`.
  **/
 export type DsnCompress = boolean | 'zlib' | 'zstd' | `zstd:${number}`;
 
 /**	Validate a {@link DsnCompress} coming from a DSN string parameter or from the property setter.
+	The parameter is documented as boolean or string, so the boolean-ish string values are accepted too:
+	`true` and `1` mean the same as the bare `compress` (the best supported algorithm), `false` and `0` disable the compression.
  **/
 function parseCompress(value: string|boolean|null): DsnCompress
 {	if (typeof(value) != 'string')
@@ -30,7 +34,12 @@ function parseCompress(value: string|boolean|null): DsnCompress
 	}
 	switch (value)
 	{	case '':
+		case 'true':
+		case '1':
 			return true;
+		case 'false':
+		case '0':
+			return false;
 		case 'zlib':
 		case 'zstd':
 			return value;
@@ -41,7 +50,7 @@ function parseCompress(value: string|boolean|null): DsnCompress
 				{	return `zstd:${level}`;
 				}
 			}
-			throw new Error(`Invalid "compress" value: ${value}. Can be "zlib", "zstd" or "zstd:N", where N is the zstd compression level (1 - 22)`);
+			throw new Error(`Invalid "compress" value: ${value}. Can be "true", "false", "zlib", "zstd" or "zstd:N", where N is the zstd compression level (1 - 22)`);
 		}
 	}
 }

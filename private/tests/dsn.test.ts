@@ -390,6 +390,20 @@ Deno.test
 		dsn = new Dsn('mysql://root@localhost/?compress=');
 		assertEquals(dsn.compress, true);
 
+		// The docs call the parameter boolean, so the boolean-ish values are accepted: 'true'/'1' mean the same as the plain `compress`, 'false'/'0' disable
+		for (const value of ['true', '1'])
+		{	dsn = new Dsn(`mysql://root@localhost/?compress=${value}`);
+			assertEquals(dsn.compress, true);
+			assertEquals(dsn+'', 'mysql://root@localhost/?compress');
+			assertEquals(new Dsn(dsn+'').compress, true); // `name` round-trip
+		}
+		for (const value of ['false', '0'])
+		{	dsn = new Dsn(`mysql://root@localhost/?compress=${value}`);
+			assertEquals(dsn.compress, false);
+			assertEquals(dsn+'', 'mysql://root@localhost/');
+			assertEquals(new Dsn(dsn+'').compress, false); // `name` round-trip
+		}
+
 		// Invalid values
 		for (const value of ['gzip', 'ZLIB', 'zstd:0', 'zstd:23', 'zstd:1.5', 'zstd:'])
 		{	assertThrows(() => new Dsn(`mysql://root@localhost/?compress=${value}`), Error, 'Invalid "compress" value');
