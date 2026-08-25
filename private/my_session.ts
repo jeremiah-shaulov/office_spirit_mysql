@@ -211,12 +211,12 @@ export class MySession
 	 **/
 	async commit(andChain=false)
 	{	const trxOptions = this.#trxOptions;
-		this.#trxOptions = undefined;
-		this.#savepointEnum = 0;
 		if (this.#connsArr.length)
-		{	// 1. Call onBeforeCommit
+		{	// 1. Call onBeforeCommit, only when some transaction is actually active.
+			// In particular, the restart that `rollback(0)` does after a failed chained commit calls `startTrx()` that calls me again on already rolled back conns, and this must not trigger `onBeforeCommit` again.
+			// Don't clear `this.#trxOptions` yet: the failure paths below call `this.rollback()`, that needs it to detect the XA restart (`andChain` on XA).
 			const {onBeforeCommit} = this.#pool.options;
-			if (onBeforeCommit)
+			if (onBeforeCommit && (trxOptions!=undefined || this.#connsArr.some(conn => conn.inTrx)))
 			{	try
 				{	await onBeforeCommit(this.conns);
 				}
@@ -241,6 +241,8 @@ export class MySession
 			{	await this.#doAll(promises, true, andChain);
 			}
 			// 3. Commit
+			this.#trxOptions = undefined;
+			this.#savepointEnum = 0;
 			promises.length = 0;
 			for (const conn of this.#connsArr)
 			{	promises[promises.length] = conn.commit();
@@ -250,6 +252,10 @@ export class MySession
 			if (andChain)
 			{	await this.startTrx({readonly: trxOptions?.readonly, xa: !!trxOptions?.xaId1});
 			}
+		}
+		else
+		{	this.#trxOptions = undefined;
+			this.#savepointEnum = 0;
 		}
 	}
 
