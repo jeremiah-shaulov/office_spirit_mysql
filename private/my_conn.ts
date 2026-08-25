@@ -213,12 +213,12 @@ export class MyConn
 		const isXaPrepared = this.#isXaPrepared;
 		const curXaId = this.#curXaId;
 		this.#isConnecting = false;
-		this.#savepointEnum = 0;
 		this.#isXaPrepared = false;
 		this.#preparedStmtsForParams.length = 0;
 		this.#protocol = undefined;
 		if (!noResetPending)
 		{	this.pendingTrxSql.length = 0;
+			this.#savepointEnum = 0; // when `noResetPending`, the kept `pendingTrxSql` can contain 'SAVEPOINT pN' entries, so the counter must survive too, or the next savepoint would duplicate an existing ID
 			this.#curXaId = '';
 			this.#curXaIdAppendConn = false;
 		}
