@@ -17,7 +17,7 @@
 [dsn](#-dsn-dsn),
 [logger](#-logger-logger)
 - 15 methods:
-[getTimezoneMsecOffsetFromSystem](#-gettimezonemsecoffsetfromsystem-number),
+[getTimezoneMsecOffsetFromSystem](#-gettimezonemsecoffsetfromsystematmsec-number-number),
 [authSendUint8Packet](#-authsenduint8packetvalue-number-promisevoid),
 [authSendBytesPacket](#-authsendbytespacketvalue-uint8array-promisevoid),
 [use](#-useschema-string-void),
@@ -79,7 +79,10 @@
 
 
 
-#### ⚙ getTimezoneMsecOffsetFromSystem(): `number`
+#### ⚙ getTimezoneMsecOffsetFromSystem(atMsec: `number`): `number`
+
+> The offset (msec) of the MySQL session time zone from the system time zone, both taken at the `atMsec` instant.
+> Both sides can change with DST, so the offset is a function of the value date, not a connection constant.
 
 
 

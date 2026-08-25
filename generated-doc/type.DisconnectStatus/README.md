@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {DisconnectStatus} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
+import {DisconnectStatus} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
 ```
 
 Object that [MyConn.forceImmediateDisconnect()](../class.MyConn/README.md#-forceimmediatedisconnectnorollbackcurxa-booleanfalse-nokillcurquery-booleanfalse-disconnectstatus) returns.

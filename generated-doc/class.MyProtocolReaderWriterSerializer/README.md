@@ -7,10 +7,10 @@
 - [constructor](#-constructorwriter-writablestreamdefaultwriteruint8array-reader-readablestreambyobreader-decoder-textdecoder-usebuffer-uint8array--undefined)
 - 5 methods:
 [serializeBegin](#-serializebegin-void),
-[serializeRowBinary](#-serializerowbinaryrow-columnvalue-columns-column-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem---number-promisevoid),
+[serializeRowBinary](#-serializerowbinaryrow-columnvalue-columns-column-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem-atmsec-number--number-promisevoid),
 [serializeEnd](#-serializeend-promisevoid),
-[deserializeRowBinary](#-deserializerowbinaryrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem---number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number),
-[deserializeRowText](#-deserializerowtextrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem---number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number)
+[deserializeRowBinary](#-deserializerowbinaryrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem-atmsec-number--number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number),
+[deserializeRowText](#-deserializerowtextrowtype-rowtype-columns-column-jsonasstring-boolean-datesasstring-boolean-tz-gettimezonemsecoffsetfromsystem-atmsec-number--number-maxcolumnlen-number-isforserialize-booleanfalse-promiserow-any-lastcolumnreaderlen-number)
 - 28 inherited members from [MyProtocolReaderWriter](../class.MyProtocolReaderWriter/README.md), 63 from [MyProtocolReader](../class.MyProtocolReader/README.md)
 
 
@@ -22,7 +22,7 @@
 
 
 
-#### ⚙ serializeRowBinary(row: [ColumnValue](../type.ColumnValue/README.md)\[], columns: [Column](../class.Column/README.md)\[], datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: () => `number`}): Promise\<`void`>
+#### ⚙ serializeRowBinary(row: [ColumnValue](../type.ColumnValue/README.md)\[], columns: [Column](../class.Column/README.md)\[], datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: (atMsec: `number`) => `number`}): Promise\<`void`>
 
 > Serialize a row, so it can be stored to a file.
 > This uses the same format as Mysql binary protocol, so the `deserializeRowBinary()` counterpart method
@@ -36,14 +36,14 @@
 
 
 
-#### ⚙ deserializeRowBinary(rowType: [RowType](../enum.RowType/README.md), columns: [Column](../class.Column/README.md)\[], jsonAsString: `boolean`, datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: () => `number`}, maxColumnLen: `number`, isForSerialize: `boolean`=false): Promise\<\{row: `any`, lastColumnReaderLen: `number`}>
+#### ⚙ deserializeRowBinary(rowType: [RowType](../enum.RowType/README.md), columns: [Column](../class.Column/README.md)\[], jsonAsString: `boolean`, datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: (atMsec: `number`) => `number`}, maxColumnLen: `number`, isForSerialize: `boolean`=false): Promise\<\{row: `any`, lastColumnReaderLen: `number`}>
 
 > Reads a row from the MySQL server, or from another readable stream (like file), and deserializes it into a Javascript object.
 > It deals with the MySQL binary protocol.
 
 
 
-#### ⚙ deserializeRowText(rowType: [RowType](../enum.RowType/README.md), columns: [Column](../class.Column/README.md)\[], jsonAsString: `boolean`, datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: () => `number`}, maxColumnLen: `number`, isForSerialize: `boolean`=false): Promise\<\{row: `any`, lastColumnReaderLen: `number`}>
+#### ⚙ deserializeRowText(rowType: [RowType](../enum.RowType/README.md), columns: [Column](../class.Column/README.md)\[], jsonAsString: `boolean`, datesAsString: `boolean`, tz: \{getTimezoneMsecOffsetFromSystem: (atMsec: `number`) => `number`}, maxColumnLen: `number`, isForSerialize: `boolean`=false): Promise\<\{row: `any`, lastColumnReaderLen: `number`}>
 
 > Reads a row from the MySQL server when using text protocol, and deserializes it into a Javascript object.
 

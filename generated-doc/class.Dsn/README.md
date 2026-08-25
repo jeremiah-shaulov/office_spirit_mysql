@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Dsn} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
+import {Dsn} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
 ```
 
 Data source name. URL string that specifies how to connect to MySQL server.

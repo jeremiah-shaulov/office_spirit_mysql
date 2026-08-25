@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyConn} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
+import {MyConn} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
 ```
 
 ## This class has
@@ -55,7 +55,9 @@ import {MyConn} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 [rollback](#-rollbacktopointid-number-promisevoid),
 [commit](#-commitandchain-booleanfalse-promisevoid),
 [setSqlLogger](#-setsqlloggersqllogger-sqllogger--true-void)
-- protected property [pendingTrxSql](#-protected-pendingtrxsql-string)
+- 2 protected properties:
+[ownedBySession](#-protected-ownedbysession-boolean),
+[pendingTrxSql](#-protected-pendingtrxsql-string)
 - [7 deprecated symbols](#-deprecated-executesql-sqlsource-params-params-queryoptions-queryoptionsvoid-promiseresultsetsvoid)
 
 
@@ -327,6 +329,10 @@ import {MyConn} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
 
 
 #### ⚙ setSqlLogger(sqlLogger?: [SqlLogger](../interface.SqlLogger/README.md) | `true`): `void`
+
+
+
+#### 📄 `protected` ownedBySession: `boolean`
 
 
 

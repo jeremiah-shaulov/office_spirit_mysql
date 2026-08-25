@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ServerDisconnectedError} from "jsr:@shaulov/office-spirit-mysql@0.28.2"
+import {ServerDisconnectedError} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
 ```
 
 Server didn't respond properly.
