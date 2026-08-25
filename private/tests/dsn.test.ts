@@ -1,4 +1,5 @@
 import {Dsn} from '../dsn.ts';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 import {assertThrows} from 'jsr:@std/assert@1.0.19/throws';
 
@@ -409,6 +410,44 @@ Deno.test
 		{	assertThrows(() => new Dsn(`mysql://root@localhost/?compress=${value}`), Error, 'Invalid "compress" value');
 			assertThrows(() => {new Dsn('mysql://root@localhost/').compress = value as Any}, Error, 'Invalid "compress" value');
 		}
+	}
+);
+
+Deno.test
+(	'Hashes include the real credentials',
+	() =>
+	{	// Same DSN except password: the redacted name is equal, but the pool keys (hash, hashNoSchema) must differ -
+		// otherwise the pool would hand an authenticated idle connection to a wrong-password DSN
+		const a = new Dsn('mysql://user:rightpass@localhost/db');
+		const b = new Dsn('mysql://user:WRONGpass@localhost/db');
+		assertEquals(a.name, b.name);
+		assert(a.hash != b.hash);
+		assert(a.hashNoSchema != b.hashNoSchema);
+
+		// Identical DSNs: equal hashes
+		const c = new Dsn('mysql://user:rightpass@localhost/db');
+		assertEquals(a.hash, c.hash);
+		assertEquals(a.hashNoSchema, c.hashNoSchema);
+
+		// Copy-constructor keeps the hashes
+		const d = new Dsn(a);
+		assertEquals(a.hash, d.hash);
+		assertEquals(a.hashNoSchema, d.hashNoSchema);
+
+		// Username "user:hidden" with empty password renders the same redacted name as username "user" with some password, but the hashes must differ
+		const e = new Dsn('mysql://root@localhost/db');
+		e.username = 'user:hidden';
+		const f = new Dsn('mysql://root@localhost/db');
+		f.username = 'user';
+		f.password = 'x';
+		assertEquals(e.name, f.name);
+		assert(e.hash != f.hash);
+		assert(e.hashNoSchema != f.hashNoSchema);
+
+		// Same DSN except schema: hash differs, hashNoSchema is equal (the pool uses it to reuse a connection on the same host with a different schema)
+		const g = new Dsn('mysql://user:rightpass@localhost/db2');
+		assert(a.hash != g.hash);
+		assertEquals(a.hashNoSchema, g.hashNoSchema);
 	}
 );
 

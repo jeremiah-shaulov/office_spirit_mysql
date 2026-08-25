@@ -684,9 +684,14 @@ export class Dsn
 		);
 		const name1 = (!params ? '' : '?'+params.slice(1)) + (!this.#initSql ? '' : '#'+encodeURIComponent(this.#initSql));
 		const name = name0 + this.#schema + name1;
+		// The name redacts the password ("user:hidden@"), so two DSNs that differ only in password get the same name.
+		// The connections pool keys authenticated connections on the hashes, so they must include the real credentials.
+		// The username is included too, because the redacted name is ambiguous: username "user:hidden" with empty password renders the same as username "user" with some password.
+		// The credentials are length-prefixed to keep the concatenation unambiguous.
+		const credentials = '\n'+this.#username.length+'\n'+this.#username+'\n'+this.#password.length+'\n'+this.#password;
 		this.#name = name;
-		this.#hash = crc32(name);
-		this.#hashNoSchema = crc32(name0 + name1);
+		this.#hash = crc32(name + credentials);
+		this.#hashNoSchema = crc32(name0 + name1 + credentials);
 	}
 
 	toString()

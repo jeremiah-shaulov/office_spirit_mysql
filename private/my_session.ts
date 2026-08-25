@@ -67,9 +67,9 @@ export class MySession
 		{	dsn = new Dsn(dsn);
 		}
 		if (!fresh)
-		{	const dsnStr = dsn.name;
+		{	const {name, hash, password} = dsn; // `name` redacts the password, so also compare `hash` (it includes the credentials) and the password itself, so that DSNs that differ only in password don't match
 			for (const conn of this.#connsArr)
-			{	if (conn.dsn.name == dsnStr)
+			{	if (conn.dsn.name==name && conn.dsn.hash==hash && conn.dsn.password==password)
 				{	return conn;
 				}
 			}
