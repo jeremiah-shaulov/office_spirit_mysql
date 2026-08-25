@@ -357,7 +357,14 @@ function dataToDate(value: Uint8Array, timezoneMsecOffsetFromSystem: number)
 			}
 		}
 	}
+	if (year==0 && month==0 && day==0)
+	{	// Zero date, like '0000-00-00' or '0000-00-00 00:00:00'. Return the same sentinel that the binary protocol returns.
+		return new Date(0);
+	}
 	let date = new Date(year, month-1, day, hour, minute, second, frac*1000);
+	if (year < 100)
+	{	date.setFullYear(year); // `new Date(year, ...)` maps years 0-99 to 1900-1999
+	}
 	if (timezoneMsecOffsetFromSystem != 0)
 	{	date = new Date(date.getTime() - timezoneMsecOffsetFromSystem);
 	}

@@ -355,7 +355,11 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 								}
 							}
 							if (!datesAsString)
-							{	value = new Date(year, month-1, day, hour, minute, second, micro/1000);
+							{	const date = new Date(year, month-1, day, hour, minute, second, micro/1000);
+								if (year < 100)
+								{	date.setFullYear(year); // `new Date(year, ...)` maps years 0-99 to 1900-1999
+								}
+								value = date;
 								const timezoneMsecOffsetFromSystem = tz.getTimezoneMsecOffsetFromSystem();
 								if (timezoneMsecOffsetFromSystem != 0)
 								{	value = new Date(value.getTime() - timezoneMsecOffsetFromSystem);

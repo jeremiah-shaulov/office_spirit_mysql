@@ -1,5 +1,6 @@
 import {convColumnValue} from '../conv_column_value.ts';
 import {MysqlType, Charset} from '../constants.ts';
+import {assert} from 'jsr:@std/assert@1.0.19/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.19/equals';
 
 const decoder = new TextDecoder;
@@ -47,5 +48,34 @@ Deno.test
 		assertEquals(convColumnValue(encoder.encode('-1.25E-2'), MysqlType.MYSQL_TYPE_DOUBLE, Charset.BINARY, decoder, false, false, false, tz), -0.0125);
 		assertEquals(convColumnValue(encoder.encode('314.159'), MysqlType.MYSQL_TYPE_FLOAT, Charset.BINARY, decoder, false, false, false, tz), 314.159);
 		assertEquals(convColumnValue(encoder.encode('0'), MysqlType.MYSQL_TYPE_DOUBLE, Charset.BINARY, decoder, false, false, false, tz), 0);
+	}
+);
+
+Deno.test
+(	'DATE with year below 100, and zero dates',
+	() =>
+	{	// `new Date(year, ...)` maps years 0-99 to 1900-1999, so '0050-01-01' came back as 1950-01-01
+		const d = convColumnValue(encoder.encode('0050-01-01'), MysqlType.MYSQL_TYPE_DATE, Charset.BINARY, decoder, false, false, false, tz);
+		assert(d instanceof Date);
+		assertEquals(d.getFullYear(), 50);
+		assertEquals(d.getMonth(), 0);
+		assertEquals(d.getDate(), 1);
+		// Zero dates must return the same sentinel that the binary protocol returns: `new Date(0)`
+		const zeroDate = convColumnValue(encoder.encode('0000-00-00'), MysqlType.MYSQL_TYPE_DATE, Charset.BINARY, decoder, false, false, false, tz);
+		assert(zeroDate instanceof Date);
+		assertEquals(zeroDate.getTime(), 0);
+		const zeroDatetime = convColumnValue(encoder.encode('0000-00-00 00:00:00'), MysqlType.MYSQL_TYPE_DATETIME, Charset.BINARY, decoder, false, false, false, tz);
+		assert(zeroDatetime instanceof Date);
+		assertEquals(zeroDatetime.getTime(), 0);
+		// A full datetime with fraction, in year 1
+		const dt = convColumnValue(encoder.encode('0001-02-03 04:05:06.5'), MysqlType.MYSQL_TYPE_DATETIME, Charset.BINARY, decoder, false, false, false, tz);
+		assert(dt instanceof Date);
+		assertEquals(dt.getFullYear(), 1);
+		assertEquals(dt.getMonth(), 1);
+		assertEquals(dt.getDate(), 3);
+		assertEquals(dt.getHours(), 4);
+		assertEquals(dt.getMinutes(), 5);
+		assertEquals(dt.getSeconds(), 6);
+		assertEquals(dt.getMilliseconds(), 500);
 	}
 );
