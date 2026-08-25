@@ -68,6 +68,40 @@ class TestWriter extends MyProtocolReaderWriter
 		await this.sendWithData(data, false);
 	}
 
+	/**	One `COM_STMT_SEND_LONG_DATA` sent with `canWait=true` (so it can defer in the send buffer), followed by
+		the exact write sequence of `#sendComStmtExecute()` for 1 long-data placeholder: the 10-byte prelude,
+		partial null-bitmap byte and `new_params_bound_flag` (all written with no room check), then the 2-byte type
+		behind the same flush check that `my_protocol.ts` uses. The prelude after a deferral is what
+		`MAX_CAN_WAIT_PACKET_PRELUDE_BYTES` must reserve room for.
+	 **/
+	async sendLongDataThenExecute(stmtId: number, blob: Uint8Array)
+	{	this.startWritingNewPacket(true);
+		this.writeUint8(COM_STMT_SEND_LONG_DATA);
+		this.writeUint32(stmtId);
+		this.writeUint16(0);
+		await this.sendWithData(blob, false, undefined, true);
+		const payloadLength = 14; // command (1) + stmt_id (4) + flags (1) + iteration_count (4) + null-bitmap (1) + new_params_bound_flag (1) + type (2)
+		this.startWritingNewPacket(true);
+		this.setHeader(payloadLength);
+		this.writeUint8(COM_STMT_EXECUTE);
+		this.writeUint32(stmtId);
+		this.writeUint8(0); // NO_CURSOR
+		this.writeUint32(1); // iteration_count
+		this.writeUint8(0); // partial null-bitmap byte
+		this.writeUint8(1); // new_params_bound_flag
+		if (this.bufferEnd+2 >= this.buffer.length) // the flush check of the types loop in `#sendComStmtExecute()`
+		{	await this.sendPackets(this.bufferEnd);
+			this.bufferStart = 0;
+			this.bufferEnd = 0;
+		}
+		this.writeUint16(0xFE); // MYSQL_TYPE_STRING
+		if (this.bufferEnd > 0)
+		{	await this.sendPackets(this.bufferEnd);
+			this.bufferStart = 0;
+			this.bufferEnd = 0;
+		}
+	}
+
 	get collected()
 	{	return this.writer as unknown as CollectingWriter;
 	}
@@ -262,6 +296,30 @@ Deno.test
 			assertEquals(payload[0], COM_QUERY);
 			assertEquals(payload[1], 0, `dataLength ${dataLength}: first data byte`);
 			assertEquals(payload[dataLength], (dataLength-1) % 251, `dataLength ${dataLength}: last data byte`);
+		}
+	}
+);
+
+Deno.test
+(	'COM_STMT_EXECUTE prelude survives a canWait deferral at every buffer fill level',
+	async () =>
+	{	// The deferral in `sendWithData()` must reserve room for the 16 unchecked bytes that
+		// `#sendComStmtExecute()` writes after it (packet header + 10-byte prelude + partial null-bitmap byte +
+		// new_params_bound_flag). With the old 12-byte reserve, blob sizes 8168-8169 threw RangeError mid-send,
+		// and 8166-8167 silently dropped 1-2 payload bytes past the Uint8Array end.
+		const stmtId = 1;
+		for (let blobLen=8150; blobLen<=8180; blobLen++)
+		{	const blob = new Uint8Array(blobLen).map((v, i) => i & 0xFF);
+			const conn = new TestWriter(new CollectingWriter as Any, undefined as Any, new TextDecoder, new Uint8Array(BUFFER_LEN));
+			await conn.sendLongDataThenExecute(stmtId, blob);
+			const payloads = splitCommandPackets(concat(conn.collected.chunks));
+			assertEquals(payloads.length, 2, `blob ${blobLen}: packet count`);
+			assertEquals(payloads[0].length, 7+blobLen, `blob ${blobLen}: long-data packet length`);
+			assertEquals(payloads[0][0], COM_STMT_SEND_LONG_DATA, `blob ${blobLen}: long-data command`);
+			assert(payloads[0].subarray(7).every((byte, i) => byte === (i & 0xFF)), `blob ${blobLen}: blob bytes differ`);
+			assertEquals(payloads[1].length, 14, `blob ${blobLen}: execute packet length`);
+			assertEquals(payloads[1][0], COM_STMT_EXECUTE, `blob ${blobLen}: execute command`);
+			assertEquals(payloads[1][12], 0xFE, `blob ${blobLen}: the type at the end of the execute payload`);
 		}
 	}
 );

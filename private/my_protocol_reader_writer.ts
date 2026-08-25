@@ -7,7 +7,12 @@ import type {Reader, Seeker} from './deno_ifaces.ts';
 import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 import {deflateBound, deflateInto, zstdCompressBound, zstdCompressInto} from './deflate_into.ts';
 
-const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 12; // >= packet header (4-byte) + COM_STMT_SEND_LONG_DATA (1-byte) + stmt_id (4-byte) + n_param (2-byte)
+/**	>= the longest packet prelude that can follow a `canWait` deferral before the next buffer-room check:
+	COM_STMT_SEND_LONG_DATA needs 11 bytes (packet header (4-byte) + command (1-byte) + stmt_id (4-byte) + n_param (2-byte)),
+	and COM_STMT_EXECUTE needs 16 (packet header (4-byte) + command (1-byte) + stmt_id (4-byte) + flags (1-byte) + iteration_count (4-byte) +
+	partial null-bitmap byte + new_params_bound_flag - `#sendComStmtExecute()` checks the room only from the types loop on)
+ **/
+const MAX_CAN_WAIT_PACKET_PRELUDE_BYTES = 16;
 
 const MAX_COMPRESSED_PAYLOAD_LEN = 0xFFFFFF; // the compressed packet payload length is 3-byte
 const MIN_COMPRESS_LEN = 50; // like libmysql's MIN_COMPRESS_LENGTH: compressing shorter payloads is not worth the overhead, so they're sent uncompressed
