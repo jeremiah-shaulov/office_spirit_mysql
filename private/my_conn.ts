@@ -590,6 +590,9 @@ export class MyConn
 			const {pendingTrxSql} = this;
 			for (let i=pendingTrxSql.length-1; i>=0; i--)
 			{	const sql = pendingTrxSql[i];
+				if (sql.startsWith(isOfSession ? 'SAVEPOINT p' : 'SAVEPOINT s'))
+				{	continue; // a savepoint of the other kind is not a barrier - it can be set after the point that i'm rolling back to (and rolling back destroys it, like the server does)
+				}
 				if (!sql.startsWith(isOfSession ? 'SAVEPOINT s' : 'SAVEPOINT p'))
 				{	break;
 				}
