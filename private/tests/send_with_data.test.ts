@@ -60,6 +60,14 @@ class TestWriter extends MyProtocolReaderWriter
 		await this.send();
 	}
 
+	/**	Send 1 command packet whose payload continues with data from an arbitrary `SqlSource` (e.g. a Reader with size).
+	 **/
+	async sendSourcePacket(command: number, data: Any)
+	{	this.startWritingNewPacket(true);
+		this.writeUint8(command);
+		await this.sendWithData(data, false);
+	}
+
 	get collected()
 	{	return this.writer as unknown as CollectingWriter;
 	}
@@ -223,6 +231,37 @@ Deno.test
 			const last = payloads[blobs.length];
 			assertEquals(last.length, 5, `shape ${shape.join(',')}: final packet length`);
 			assertEquals(last[0], COM_STMT_EXECUTE);
+		}
+	}
+);
+
+Deno.test
+(	'Stream-sourced payload that is an exact multiple of 0xFFFFFF gets the terminating empty packet',
+	async () =>
+	{	// With the 1-byte COM_QUERY prelude, dataLength = 0xFFFFFF-1 makes the packet size an exact multiple of
+		// 0xFFFFFF: the server then expects the payload to continue in the following packet, so an empty packet
+		// must terminate the sequence. The Reader branch of `sendWithData()` used to just stop, and
+		// `reassemblePayload()` fails on the missing terminator. 0xFFFFFF is the not-a-multiple control.
+		for (const dataLength of [0xFFFFFF - 1, 0xFFFFFF])
+		{	const conn = new TestWriter(new CollectingWriter as Any, undefined as Any, new TextDecoder, new Uint8Array(BUFFER_LEN));
+			let readPos = 0;
+			const source =
+			{	size: dataLength,
+				read(view: Uint8Array)
+				{	const n = Math.min(view.length, dataLength - readPos);
+					for (let i=0; i<n; i++)
+					{	view[i] = (readPos + i) % 251;
+					}
+					readPos += n;
+					return Promise.resolve(n==0 ? null : n);
+				},
+			};
+			await conn.sendSourcePacket(COM_QUERY, source);
+			const payload = reassemblePayload(concat(conn.collected.chunks));
+			assertEquals(payload.length, 1+dataLength, `dataLength ${dataLength}: payload length`);
+			assertEquals(payload[0], COM_QUERY);
+			assertEquals(payload[1], 0, `dataLength ${dataLength}: first data byte`);
+			assertEquals(payload[dataLength], (dataLength-1) % 251, `dataLength ${dataLength}: last data byte`);
 		}
 	}
 );

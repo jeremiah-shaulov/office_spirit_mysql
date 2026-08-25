@@ -675,59 +675,78 @@ export class MyProtocolReaderWriter extends MyProtocolReader
 			}
 			// 4. Get reader
 			const reader = readable.getReader({mode: 'byob'});
-			// 5. Calc packet size
-			const alreadyFilled = this.bufferEnd - this.bufferStart - 4;
-			const packetSize = alreadyFilled + dataLength;
-			let canSend = Math.min(packetSize, 0xFFFFFF);
-			let packetSizeRemaining = packetSize - canSend;
-			this.setHeader(canSend);
-			canSend -= alreadyFilled;
-			this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
-			// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
-			if (this.bufferEnd > this.buffer.length/2)
-			{	try
-				{	await this.sendPackets(this.bufferEnd);
+			try
+			{	// 5. Calc packet size
+				const alreadyFilled = this.bufferEnd - this.bufferStart - 4;
+				const packetSize = alreadyFilled + dataLength;
+				let canSend = Math.min(packetSize, 0xFFFFFF);
+				let packetSizeRemaining = packetSize - canSend;
+				this.setHeader(canSend);
+				canSend -= alreadyFilled;
+				this.bufferStart = 0; // `setHeader()` will set the header to the beginning of `this.buffer`
+				// 6. If at least half buffer is used, send it's contents. Because later i'll read from the reader to the end of buffer.
+				if (this.bufferEnd > this.buffer.length/2)
+				{	try
+					{	await this.sendPackets(this.bufferEnd);
+					}
+					catch (e)
+					{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
+					}
+					this.bufferEnd = 0;
 				}
-				catch (e)
-				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
-				}
-				this.bufferEnd = 0;
-			}
-			// 7. Pipe
-			while (true)
-			{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd+canSend));
-				if (value) // `value` is only absent when the read failed before it could hand the buffer back
-				{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw`: the BYOB read detached the buffer, and hands it back in `value` - also on EOF
-				}
-				if (done)
-				{	throw new Error(`Unexpected end of stream`);
-				}
-				try
-				{	// when `bufferEnd > 0` the sent bytes begin with packet headers, and when it's 0, they're a continuation of the current packet payload
-					const promise = this.bufferEnd>0 ? this.sendPackets(this.bufferEnd+value.length) : this.sendData(this.buffer.subarray(0, value.length));
-					if (!logData)
-					{	await promise;
+				// 7. Pipe
+				while (true)
+				{	const {value, done} = await reader.read(this.buffer.subarray(this.bufferEnd, this.bufferEnd+canSend));
+					if (value) // `value` is only absent when the read failed before it could hand the buffer back
+					{	this.buffer = new Uint8Array(value.buffer); // rebind before any `throw`: the BYOB read detached the buffer, and hands it back in `value` - also on EOF
+					}
+					if (done)
+					{	throw new Error(`Unexpected end of stream`);
+					}
+					try
+					{	// when `bufferEnd > 0` the sent bytes begin with packet headers, and when it's 0, they're a continuation of the current packet payload
+						const promise = this.bufferEnd>0 ? this.sendPackets(this.bufferEnd+value.length) : this.sendData(this.buffer.subarray(0, value.length));
+						if (!logData)
+						{	await promise;
+						}
+						else
+						{	await promiseAllSettledThrow([logData(value), promise]);
+						}
+					}
+					catch (e)
+					{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
+					}
+					canSend -= value.length;
+					if (canSend > 0)
+					{	this.bufferEnd = 0;
 					}
 					else
-					{	await promiseAllSettledThrow([logData(value), promise]);
+					{	if (packetSizeRemaining == 0)
+						{	break;
+						}
+						canSend = Math.min(packetSizeRemaining, 0xFFFFFF);
+						packetSizeRemaining -= canSend;
+						this.setHeader(canSend);
+						this.bufferEnd = 4;
 					}
 				}
-				catch (e)
-				{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
-				}
-				canSend -= value.length;
-				if (canSend > 0)
-				{	this.bufferEnd = 0;
-				}
-				else
-				{	if (packetSizeRemaining == 0)
-					{	break;
-					}
-					canSend = Math.min(packetSizeRemaining, 0xFFFFFF);
-					packetSizeRemaining -= canSend;
-					this.setHeader(canSend);
+				// 8. If the last packet was exactly 0xFFFFFF bytes long (the payload is an exact multiple of 0xFFFFFF),
+				// the server expects it to continue in the following packet, so an empty packet must terminate the sequence -
+				// like the after-loop sends of the Uint8Array and string branches above do.
+				if (packetSize % 0xFFFFFF == 0)
+				{	this.bufferStart = 0;
 					this.bufferEnd = 4;
+					this.setHeader(0);
+					try
+					{	await this.sendPackets(this.bufferEnd);
+					}
+					catch (e)
+					{	throw new SendWithDataError(e instanceof Error ? e.message : e+'', packetSize);
+					}
 				}
+			}
+			finally
+			{	reader.releaseLock();
 			}
 		}
 		// prepare for reader
