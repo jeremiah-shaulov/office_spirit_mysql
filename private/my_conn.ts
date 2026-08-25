@@ -716,14 +716,13 @@ L:		while (true)
 			const {pendingTrxSql} = this;
 
 			if (pendingTrxSql.length)
-			{	for (let i=0; i<pendingTrxSql.length; i++)
+			{	let newXaId = '';
+				for (let i=0; i<pendingTrxSql.length; i++)
 				{	let sql = pendingTrxSql[i];
 					if (!sql)
-					{	if (this.#curXaIdAppendConn)
-						{	this.#curXaId += protocol.connectionId;
-							this.#curXaIdAppendConn = false;
-						}
-						sql = `XA START '${this.#curXaId}'`;
+					{	// Derive the XA ID locally, and commit it to `this.#curXaId` only after the replay is acknowledged: if this `XA START` fails on a dead connection, the transparent retry must embed the ID of the new (live) connection
+						newXaId = this.#curXaIdAppendConn ? this.#curXaId + protocol.connectionId : this.#curXaId;
+						sql = `XA START '${newXaId}'`;
 					}
 					if (!await protocol.sendComQuery(sql, RowType.VOID, nRetriesRemaining-->0))
 					{	this.#doEnd(false, true, false, false);
@@ -731,6 +730,10 @@ L:		while (true)
 					}
 				}
 				pendingTrxSql.length = 0;
+				if (newXaId)
+				{	this.#curXaId = newXaId;
+					this.#curXaIdAppendConn = false;
+				}
 			}
 
 			if (!params)
