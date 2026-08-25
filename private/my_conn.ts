@@ -181,9 +181,8 @@ export class MyConn
 			}
 			this.#isConnecting = true;
 			try
-			{	const pendingChangeSchema = this.#pendingChangeSchema;
-				this.#pendingChangeSchema = '';
-				const protocol = await this.#pool.getProtocol(this.dsn, pendingChangeSchema, this.#sqlLogger);
+			{	// Deliver `this.#pendingChangeSchema` to the new protocol, but don't clear it here: if the connection dies before a query succeeds on it, the transparent retry must deliver the schema again (it's cleared when a query succeeds)
+				const protocol = await this.#pool.getProtocol(this.dsn, this.#pendingChangeSchema, this.#sqlLogger);
 				if (!this.#isConnecting) // end() called
 				{	this.#pool.returnProtocol(protocol, '', false);
 					throw new CanceledError(`Operation cancelled: end() called during connection process`);
@@ -224,7 +223,9 @@ export class MyConn
 			this.#curXaIdAppendConn = false;
 		}
 		if (protocol)
-		{	this.#pendingChangeSchema = protocol.schema;
+		{	if (!this.#pendingChangeSchema)
+			{	this.#pendingChangeSchema = protocol.schema; // adopt the protocol's schema only when the user didn't set a pending schema change that was not yet applied
+			}
 			const preparedXaId = isXaPrepared ? curXaId : '';
 			if (!forceImmediateDisconnect)
 			{	const promise = this.#pool.returnProtocol(protocol, preparedXaId, withDisposeSqlLogger);
@@ -287,12 +288,8 @@ export class MyConn
 		If there's no such schema, the exception will be thrown on the next query.
 	 **/
 	use(schema: string)
-	{	if (this.#protocol)
-		{	this.#protocol.use(schema);
-		}
-		else
-		{	this.#pendingChangeSchema = schema;
-		}
+	{	this.#pendingChangeSchema = schema; // remember the request also on this object, so it survives disconnection and transparent reconnection (it's cleared when a query succeeds)
+		this.#protocol?.use(schema);
 	}
 
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
@@ -740,7 +737,8 @@ L:		while (true)
 			{	// Text protocol query
 				const resultsets = await protocol.sendComQuery<Row>(sql, rowType, nRetriesRemaining-->0, multiStatements, false, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
-				{	return resultsets;
+				{	this.#pendingChangeSchema = ''; // the pending schema change (if any) is now applied, and `protocol.schema` tracks it
+					return resultsets;
 				}
 			}
 			else if (params === true)
@@ -750,7 +748,8 @@ L:		while (true)
 				}
 				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, undefined, rowType, nRetriesRemaining-->0, false, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
-				{	return resultsets;
+				{	this.#pendingChangeSchema = '';
+					return resultsets;
 				}
 			}
 			else if (Array.isArray(params))
@@ -760,7 +759,8 @@ L:		while (true)
 				}
 				const resultsets = await protocol.sendComStmtPrepare<Row>(sql, params.length==0 ? params : undefined, rowType, nRetriesRemaining-->0, true, maxColumnLen, jsonAsString, datesAsString, correctDates);
 				if (resultsets)
-				{	try
+				{	this.#pendingChangeSchema = '';
+					try
 					{	await resultsets.exec(params);
 					}
 					finally
@@ -780,7 +780,8 @@ L:		while (true)
 						await protocol.sendThreeQueries<Row>(stmtId, values, query1, false, sql, rowType, letReturnUndefined, multiStatements, maxColumnLen, retryLockWaitTimeout, retryQueryTimes, jsonAsString, datesAsString, correctDates)
 					);
 					if (resultsets)
-					{	return resultsets;
+					{	this.#pendingChangeSchema = '';
+						return resultsets;
 					}
 				}
 			}
