@@ -275,3 +275,37 @@ Deno.test
 		}
 	}
 );
+
+Deno.test
+(	'sha256_password encrypts the password with RSA-OAEP (SHA-1)',
+	async () =>
+	{	// OAEP is what every GA server decrypts with - including MySQL 5.6/5.7, whose
+		// `sha256_password_authenticate()` also uses RSA_PKCS1_OAEP_PADDING (verified against the 5.7
+		// sources, and by authenticating against live 5.6.51 and 5.7.44 servers over untrusted TCP).
+		const {generateKeyPairSync, privateDecrypt, constants} = await import('node:crypto');
+		const {publicKey, privateKey} = generateKeyPairSync('rsa', {modulusLength: 2048});
+		const publicKeyBase64 = publicKey.export({type: 'spki', format: 'der'}).toString('base64');
+		const scramble = randomScramble(20);
+		const password = 'Test password 123';
+		const expected = xorWithScramble(new Uint8Array([...encoder.encode(password), 0]), scramble);
+
+		// The pinned-key path
+		const dsn = new Dsn(TCP_DSN);
+		dsn.serverPublicKey = publicKeyBase64;
+		{	const plugin = AuthPlugin.inst('sha256_password', scramble, dsn);
+			const enc = await plugin.quickAuth(password);
+			const dec = privateDecrypt({key: privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1'}, enc);
+			assertEquals(new Uint8Array(dec), expected);
+		}
+		// The retrieved-key path (progress() after requesting the key from the server)
+		{	const plugin = AuthPlugin.inst('sha256_password', scramble, new Dsn(TCP_DSN+'?allowPublicKeyRetrieval'));
+			const request = await plugin.quickAuth(password);
+			assertEquals(request, Uint8Array.of(1)); // requests the public key
+			const writer = new FakeWriter;
+			const pem = '-----BEGIN PUBLIC KEY-----\n'+publicKeyBase64+'\n-----END PUBLIC KEY-----\n';
+			assertEquals(await plugin.progress(password, 1, encoder.encode(pem), writer as Any), false);
+			const dec = privateDecrypt({key: privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1'}, writer.sent[0]);
+			assertEquals(new Uint8Array(dec), expected);
+		}
+	}
+);

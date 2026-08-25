@@ -63,6 +63,11 @@ function strToBytes(str: string)
 /**	Encrypts `password + "\0"` XORed with the scramble, using the server RSA public key (RSA-OAEP SHA-1).
 	`publicKeyBase64` is the key in SPKI DER form, base64-encoded (PEM without the armor). It can contain the line breaks that PEM wraps the body with, because `atob()` ignores them.
 	This is how both `caching_sha2_password` and `sha256_password` protect the password on an unencrypted connection.
+
+	Compatibility: OAEP is the right padding for every GA server. `sha256_password_authenticate()` decrypts with
+	`RSA_PKCS1_OAEP_PADDING` in the MySQL 5.7 sources too (and authentication was verified against live MySQL 5.6.51
+	and 5.7.44 servers over untrusted TCP). Only the pre-GA 8.0.1 - 8.0.4 release candidates of `caching_sha2_password`
+	used PKCS#1 v1.5 - those are not supported.
  **/
 async function encryptPassword(password: string, scramble: Uint8Array, publicKeyBase64: string)
 {	const stage1 = encodeAppendZeroByte(password);
