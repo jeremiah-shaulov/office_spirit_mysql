@@ -129,7 +129,9 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 								minute = parseInt(str.slice(14, 16));
 								second = parseInt(str.slice(17, 19));
 								if (str.length > 20)
-								{	micro = parseInt(str.slice(20));
+								{	// The fraction can have 1 to 6 digits (e.g. '.10' means 100000 microseconds), so scale it to microseconds
+									const fracStr = str.slice(20, 26);
+									micro = parseInt(fracStr) * 10 ** (6 - fracStr.length);
 								}
 							}
 						}
