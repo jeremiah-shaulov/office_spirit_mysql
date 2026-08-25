@@ -334,9 +334,9 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 	override nextResultset()
 	{	const {storedResultsets} = this;
 		if (storedResultsets)
-		{	// In stored mode iterating a resultset (`Symbol.asyncIterator`) already advances to the next one,
-			// so here we only report whether another stored resultset remains to be read.
-			return Promise.resolve(storedResultsets.hasMore);
+		{	// In stored mode: skip the rows that remain unread in the current stored resultset, and advance to the next one, like the live protocol does.
+			// (Iterating a resultset to the end has already advanced, and then this only reports whether another stored resultset remains to be read.)
+			return storedResultsets.nextResultset();
 		}
 		if (!this.hasMoreInternal)
 		{	return Promise.resolve(false);
@@ -469,11 +469,18 @@ export class ResultsetsInternal<Row> extends Resultsets<Row>
 }
 
 class StoredResultsets<Row>
-{	nResultset = 0;
-	nRow = 0;
+{	nResultset = 0; // index of the current resultset in `resultsetsInfo`
+	nRow = 0; // for rows stored in memory: the cursor in `storedRows`
+	nRowInCurrent = 0; // how many rows of the current resultset are already read (or skipped)
+	readingStarted = false; // for rows stored on disk: true after the store was switched from writing to reading
+	advancedByIteration = false; // true when iterating the current resultset to the end (`Symbol.asyncIterator`) advanced to the next one, and `nextResultset()` was not yet called to acknowledge this
 
 	get hasMore()
-	{	return this.nResultset < this.resultsetsInfo.length;
+	{	const {resultsetsInfo, nResultset} = this;
+		if (nResultset >= resultsetsInfo.length)
+		{	return false;
+		}
+		return this.advancedByIteration || nResultset<resultsetsInfo.length-1 || this.nRowInCurrent<resultsetsInfo[nResultset].nRows;
 	}
 
 	constructor
@@ -532,9 +539,12 @@ class StoredResultsets<Row>
 		}
 	}
 
-	nextResultset()
+	/**	Copies the information of the current resultset to the parent `Resultsets` object
+		(like reading a resultset header does in the live protocol), and returns it.
+	 **/
+	loadResultsetInfo()
 	{	const {resultsets, resultsetsInfo} = this;
-		const r = resultsetsInfo[this.nResultset++];
+		const r = resultsetsInfo[this.nResultset];
 		resultsets.columns = r.columns;
 		resultsets.lastInsertId = r.lastInsertId;
 		resultsets.affectedRows = r.affectedRows;
@@ -548,6 +558,67 @@ class StoredResultsets<Row>
 		return r;
 	}
 
+	/**	For rows stored on disk: switches the store from writing to reading, if not yet done -
+		flushes what remains buffered to the file, and rewinds the file to the beginning.
+	 **/
+	async beginReading(file: Deno.FsFile, serializer: MyProtocolReaderWriterSerializer)
+	{	if (!this.readingStarted)
+		{	this.readingStarted = true;
+			await serializer.serializeEnd();
+			await file.seek(0, Deno.SeekMode.Start);
+		}
+	}
+
+	/**	Reads and discards the rows that remain unread in the current resultset - like the live protocol does
+		when `nextResultset()` is called before all the rows are read, or when the iteration is abandoned.
+	 **/
+	async skipCurrentResultset()
+	{	const {resultsetsInfo, file, serializer} = this;
+		const {nRows, columns} = resultsetsInfo[this.nResultset];
+		const nRemaining = nRows - this.nRowInCurrent;
+		if (nRemaining > 0)
+		{	if (file && serializer)
+			{	await this.beginReading(file, serializer);
+				const {jsonAsString, datesAsString, tz} = this;
+				for (let i=0; i<nRemaining; i++)
+				{	await serializer.deserializeRowBinary(RowType.VOID, columns, jsonAsString, datesAsString, tz, Number.MAX_SAFE_INTEGER);
+				}
+			}
+			else
+			{	this.nRow += nRemaining;
+			}
+			this.nRowInCurrent = nRows;
+		}
+	}
+
+	/**	Skips the rows that remain unread in the current resultset, and advances to the next one,
+		mirroring what `nextResultset()` does in the live protocol.
+		Returns true if there was a next resultset to advance to, and false if the current one was the last
+		(then the associated resources, like the temporary file, are released).
+		If iterating the current resultset to the end has already advanced to the next one
+		(see `advancedByIteration`), only acknowledges this, without skipping the new current resultset.
+	 **/
+	async nextResultset()
+	{	const {resultsetsInfo} = this;
+		if (this.advancedByIteration)
+		{	this.advancedByIteration = false;
+		}
+		else
+		{	if (this.nResultset >= resultsetsInfo.length)
+			{	return false;
+			}
+			await this.skipCurrentResultset();
+			this.nResultset++;
+			this.nRowInCurrent = 0;
+		}
+		if (this.nResultset < resultsetsInfo.length)
+		{	this.loadResultsetInfo();
+			return true;
+		}
+		await this[Symbol.asyncDispose]();
+		return false;
+	}
+
 	/**	Marks all remaining resultsets as read, and releases the associated resources (like the temporary file, if the rows were stored on disk).
 	 **/
 	async discard()
@@ -556,74 +627,88 @@ class StoredResultsets<Row>
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Row>
-	{	const {rowType, jsonAsString, datesAsString, tz, decoder, storedRows, file, serializer} = this;
+	{	const {rowType, jsonAsString, datesAsString, tz, decoder, storedRows, file, serializer, resultsetsInfo} = this;
+		if (this.nResultset >= resultsetsInfo.length)
+		{	return;
+		}
+		this.advancedByIteration = false;
+		const {nRows, columns} = this.loadResultsetInfo();
 		if (file && serializer)
-		{	if (this.nResultset == 0)
-			{	await serializer.serializeEnd();
-				await file.seek(0, Deno.SeekMode.Start);
-			}
+		{	await this.beginReading(file, serializer);
 			try
-			{	const {nRows, columns} = this.nextResultset();
-				for (let i=0; i<nRows; i++)
+			{	while (this.nRowInCurrent < nRows)
 				{	const {row} = await serializer.deserializeRowBinary(rowType, columns, jsonAsString, datesAsString, tz, Number.MAX_SAFE_INTEGER);
+					this.nRowInCurrent++;
 					yield row;
 				}
 			}
 			finally
-			{	if (this.nResultset == this.resultsetsInfo.length)
+			{	// Like in the live protocol, leaving the iteration discards the rows that remain unread in the current resultset. Then advance to the next resultset.
+				await this.skipCurrentResultset();
+				this.nResultset++;
+				this.nRowInCurrent = 0;
+				this.advancedByIteration = true;
+				if (this.nResultset == resultsetsInfo.length)
 				{	await this[Symbol.asyncDispose]();
 				}
 			}
 		}
 		else
-		{	const {nRows, columns} = this.nextResultset();
-			const begin = this.nRow;
-			const end = begin + nRows;
-			this.nRow = end;
-			for (let r=begin; r<end; r++)
-			{	const rowArr = storedRows[r];
-				const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
-				for (let i=0; i<columns.length; i++)
-				{	const {typeId, charsetId, name} = columns[i];
-					let value = rowArr[i];
-					switch (typeId)
-					{	case MysqlType.MYSQL_TYPE_VARCHAR:
-						case MysqlType.MYSQL_TYPE_ENUM:
-						case MysqlType.MYSQL_TYPE_SET:
-						case MysqlType.MYSQL_TYPE_VAR_STRING:
-						case MysqlType.MYSQL_TYPE_STRING:
-						case MysqlType.MYSQL_TYPE_TINY_BLOB:
-						case MysqlType.MYSQL_TYPE_MEDIUM_BLOB:
-						case MysqlType.MYSQL_TYPE_LONG_BLOB:
-						case MysqlType.MYSQL_TYPE_BLOB:
-						case MysqlType.MYSQL_TYPE_GEOMETRY:
-							if (charsetId!=Charset.BINARY && value instanceof Uint8Array)
-							{	value = decoder.decode(value);
-							}
-							break;
-						case MysqlType.MYSQL_TYPE_DECIMAL:
-						case MysqlType.MYSQL_TYPE_NEWDECIMAL:
-							if (value instanceof Uint8Array)
-							{	value = decoder.decode(value);
-							}
-							break;
-						case MysqlType.MYSQL_TYPE_JSON:
-							if (value instanceof Uint8Array)
-							{	value = jsonAsString ? decoder.decode(value) : JSON.parse(decoder.decode(value));
-							}
+		{	try
+			{	while (this.nRowInCurrent < nRows)
+				{	const rowArr = storedRows[this.nRow];
+					this.nRow++;
+					this.nRowInCurrent++;
+					const row: Any = rowType==RowType.OBJECT ? {} : rowType==RowType.MAP ? new Map : rowArr;
+					for (let i=0; i<columns.length; i++)
+					{	const {typeId, charsetId, name} = columns[i];
+						let value = rowArr[i];
+						switch (typeId)
+						{	case MysqlType.MYSQL_TYPE_VARCHAR:
+							case MysqlType.MYSQL_TYPE_ENUM:
+							case MysqlType.MYSQL_TYPE_SET:
+							case MysqlType.MYSQL_TYPE_VAR_STRING:
+							case MysqlType.MYSQL_TYPE_STRING:
+							case MysqlType.MYSQL_TYPE_TINY_BLOB:
+							case MysqlType.MYSQL_TYPE_MEDIUM_BLOB:
+							case MysqlType.MYSQL_TYPE_LONG_BLOB:
+							case MysqlType.MYSQL_TYPE_BLOB:
+							case MysqlType.MYSQL_TYPE_GEOMETRY:
+								if (charsetId!=Charset.BINARY && value instanceof Uint8Array)
+								{	value = decoder.decode(value);
+								}
+								break;
+							case MysqlType.MYSQL_TYPE_DECIMAL:
+							case MysqlType.MYSQL_TYPE_NEWDECIMAL:
+								if (value instanceof Uint8Array)
+								{	value = decoder.decode(value);
+								}
+								break;
+							case MysqlType.MYSQL_TYPE_JSON:
+								if (value instanceof Uint8Array)
+								{	value = jsonAsString ? decoder.decode(value) : JSON.parse(decoder.decode(value));
+								}
+						}
+						switch (rowType)
+						{	case RowType.OBJECT:
+								row[name] = value;
+								break;
+							case RowType.MAP:
+								row.set(name, value);
+								break;
+							case RowType.ARRAY:
+								rowArr[i] = value;
+						}
 					}
-					switch (rowType)
-					{	case RowType.OBJECT:
-							row[name] = value;
-							break;
-						case RowType.MAP:
-							row.set(name, value);
-							break;
-						case RowType.ARRAY:
-							rowArr[i] = value;
-					}
+					yield row;
 				}
-				yield row;
+			}
+			finally
+			{	// Like in the live protocol, leaving the iteration discards the rows that remain unread in the current resultset. Then advance to the next resultset.
+				await this.skipCurrentResultset();
+				this.nResultset++;
+				this.nRowInCurrent = 0;
+				this.advancedByIteration = true;
 			}
 		}
 	}
