@@ -109,16 +109,18 @@ export class SqlLogToWritable extends SqlLogToWritableBase implements SqlLogger
 			// 2. Count bytes
 			curDataLen += data.length;
 			// 3. Count lines
-			if (curNFullLines < maxLines)
-			{	for (let i=0, iEnd=data.length; i<iEnd; i++)
-				{	const c = data[i];
-					if (c==C_CR || c==C_LF)
-					{	if (++curNFullLines >= maxLines)
-						{	return data.subarray(0, i);
-						}
-						if (c==C_CR && data[i+1]===C_LF)
-						{	i++;
-						}
+			if (curNFullLines >= maxLines)
+			{	// The line limit was already reached by a previous chunk: the bytes are counted above (they feed the "…(N bytes)" marker), but nothing more must be written
+				return data.subarray(0, 0);
+			}
+			for (let i=0, iEnd=data.length; i<iEnd; i++)
+			{	const c = data[i];
+				if (c==C_CR || c==C_LF)
+				{	if (++curNFullLines >= maxLines)
+					{	return data.subarray(0, i);
+					}
+					if (c==C_CR && data[i+1]===C_LF)
+					{	i++;
 					}
 				}
 			}
