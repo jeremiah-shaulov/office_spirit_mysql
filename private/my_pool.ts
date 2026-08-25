@@ -88,9 +88,13 @@ class OptionsManager
 			{	this.maxConnsWaitQueue = maxConnsWaitQueue>=0 ? maxConnsWaitQueue : DEFAULT_MAX_CONNS_WAIT_QUEUE;
 			}
 			// onLoadFile
-			this.onLoadFile = onLoadFile;
+			if (onLoadFile || 'onLoadFile' in options)
+			{	this.onLoadFile = onLoadFile;
+			}
 			// onBeforeCommit
-			this.onBeforeCommit = onBeforeCommit;
+			if (onBeforeCommit || 'onBeforeCommit' in options)
+			{	this.onBeforeCommit = onBeforeCommit;
+			}
 			// managedXaDsns
 			if (typeof(managedXaDsns) == 'string')
 			{	this.managedXaDsns.length = 0;
@@ -117,7 +121,9 @@ class OptionsManager
 			{	this.xaCheckEach = xaCheckEach>0 ? xaCheckEach : DEFAULT_DANGLING_XA_CHECK_EACH_MSEC;
 			}
 			// logger
-			this.logger = logger ?? console;
+			if (logger || 'logger' in options)
+			{	this.logger = logger ?? console;
+			}
 		}
 		const {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, logger} = this;
 		return {dsn, maxConnsWaitQueue, onLoadFile, onBeforeCommit, managedXaDsns, xaCheckEach, logger};
