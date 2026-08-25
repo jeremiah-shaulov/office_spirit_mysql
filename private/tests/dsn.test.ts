@@ -413,6 +413,24 @@ Deno.test
 );
 
 Deno.test
+(	'Explicit port that matches a URL scheme default',
+	() =>
+	{	// The DSN is parsed as 'http'+rest, and WHATWG URL elides the scheme default port, so an explicit ':80' must not be replaced with 3306
+		assertEquals(new Dsn('mysql://root@localhost:80/db').port, 80);
+		// ...and the default port of the fallback re-parse scheme (ftp, 21) must survive too
+		assertEquals(new Dsn('mysql://root@localhost:21/db').port, 21);
+		assertEquals(new Dsn('mysql://root@localhost/db').port, 3306);
+		// IPv6-bracketed host
+		assertEquals(new Dsn('mysql://root@[::1]:80/db').port, 80);
+		assertEquals(new Dsn('mysql://root@[::1]/db').port, 3306);
+		// `name` round-trip
+		const dsn = new Dsn('mysql://root:pw@localhost:80/db');
+		assertEquals(dsn+'', 'mysql://root:hidden@localhost:80/db');
+		assertEquals(new Dsn(dsn+'').port, 80);
+	}
+);
+
+Deno.test
 (	'Pipe path with non-ASCII bytes is URL-decoded',
 	() =>
 	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.

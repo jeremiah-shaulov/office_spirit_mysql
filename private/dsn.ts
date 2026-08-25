@@ -578,7 +578,13 @@ export class Dsn
 			{	hostname = hostname.slice(1, -1);
 			}
 			this.#hostname = hostname;
-			this.#port = !url.port ? 3306 : Number(url.port) || 3306;
+			let {port} = url;
+			if (!port)
+			{	// WHATWG URL elides the scheme default port, so after parsing with `http` an explicit `:80` comes out as empty `url.port`.
+				// Re-parse with a scheme whose default port differs (`ftp`, default 21): a port that one scheme elides, the other reports.
+				port = new URL('ftp'+dsn.slice(5)).port;
+			}
+			this.#port = !port ? 3306 : Number(port) || 3306;
 			this.#username = wantUrlDecodeUsername ? decodeURIComponent(username) : username;
 			this.#password = wantUrlDecodePassword ? decodeURIComponent(password) : password;
 			pathname = wantUrlDecodePathname ? decodeURIComponent(pathname) : pathname;
