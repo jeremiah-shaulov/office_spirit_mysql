@@ -1860,22 +1860,24 @@ L:		while (true)
 				this.#curResultsets = resultsets;
 				this.#setState(ProtocolState.HAS_MORE_ROWS);
 			}
-			else if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
-			{	resultsets.protocol = this;
-				resultsets.hasMoreInternal = true;
+			else
+			{	// Parse the OK body before branching: `this.statusFlags` still holds the flags of the previous response
+				// until the continuation is read, and a stale `SERVER_MORE_RESULTS_EXISTS` bit (e.g. latched by a failed
+				// multi-statement batch, whose ERR packet doesn't update the flags) used to force HAS_MORE_RESULTSETS
+				// for a response with no more resultsets - a permanent hang on the following read.
 				if (!this.isAtEndOfPacket())
 				{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
 					this.#initResultsets(resultsets);
 				}
-				this.#curResultsets = resultsets;
-				this.#setState(ProtocolState.HAS_MORE_RESULTSETS);
-			}
-			else
-			{	if (!this.isAtEndOfPacket())
-				{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
-					this.#initResultsets(resultsets);
+				if (this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)
+				{	resultsets.protocol = this;
+					resultsets.hasMoreInternal = true;
+					this.#curResultsets = resultsets;
+					this.#setState(ProtocolState.HAS_MORE_RESULTSETS);
 				}
-				this.#setState(ProtocolState.IDLE);
+				else
+				{	this.#setState(ProtocolState.IDLE);
+				}
 			}
 			if (sqlLoggerQuery)
 			{	await sqlLoggerQuery.end(resultsets, -1);
