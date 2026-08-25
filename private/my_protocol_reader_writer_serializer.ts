@@ -189,17 +189,20 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 					default:
 					{	const v = value instanceof Uint8Array ? value : typeof(value)=='string' ? encoder.encode(value) : this.buffer.subarray(0, 0);
 						this.writeLenencInt(v.length);
-						if (this.bufferEnd+v.length <= this.buffer.length)
-						{	this.buffer.set(v, this.bufferEnd);
-							this.bufferEnd += v.length;
-						}
-						else if (i < nColumns-1)
+						if (i<nColumns-1 || this.bufferEnd+v.length<=this.buffer.length)
 						{	this.ensureRoom(v.length);
 							this.buffer.set(v, this.bufferEnd);
 							this.bufferEnd += v.length;
+							if (this.bufferEnd-this.bufferStart-4 >= 0xFFFFFF)
+							{	await this.#sendCompleteParts();
+							}
 						}
 						else
-						{	await this.sendWithData(v, false);
+						{	if (this.bufferEnd-this.bufferStart-4 >= 0xFFFFFF)
+							{	// `sendWithData()` can only append to a packet whose buffered part is shorter than 0xFFFFFF
+								await this.#sendCompleteParts();
+							}
+							await this.sendWithData(v, false);
 							this.startWritingNewPacket();
 						}
 					}
@@ -207,9 +210,29 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 			}
 		}
 		// 3. Maybe flush
+		if (this.bufferEnd-this.bufferStart-4 >= 0xFFFFFF)
+		{	await this.#sendCompleteParts();
+		}
 		if (this.bufferEnd-4 >= this.buffer.length/2)
 		{	await this.send();
 			this.startWritingNewPacket();
+		}
+	}
+
+	/**	The length field in a packet header is 3-byte, so a packet payload longer than 0xFFFFFF bytes cannot be framed as one packet.
+		When the payload of the packet being written has accumulated to 0xFFFFFF bytes or more, this method sends the complete
+		0xFFFFFF-byte parts, each framed as a packet of exactly 0xFFFFFF bytes, and leaves the remainder in the buffer
+		as the beginning of the packet that will continue the payload.
+		The reader counterpart (`MyProtocolReader`) joins a packet of exactly 0xFFFFFF bytes with the packet that follows it,
+		so the split points can fall anywhere in the row data.
+	 **/
+	async #sendCompleteParts()
+	{	while (this.bufferEnd-this.bufferStart-4 >= 0xFFFFFF)
+		{	debugAssert(this.bufferStart == 0); // `serializeRowBinary()` always starts the packet at the buffer beginning
+			this.setHeader(0xFFFFFF);
+			await this.sendPackets(4 + 0xFFFFFF);
+			this.buffer.copyWithin(4, 4+0xFFFFFF, this.bufferEnd);
+			this.bufferEnd -= 0xFFFFFF;
 		}
 	}
 
