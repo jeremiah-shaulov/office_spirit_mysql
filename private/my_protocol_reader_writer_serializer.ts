@@ -28,6 +28,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 		let nullMask = 0;
 		let nullBit = 4; // starts from bit offset 1 << 2, according to protocol definition
 		const nColumns = row.length;
+		this.ensureRoom((nColumns + 2 + 7) >> 3); // the null mask occupies 2 + nColumns bits
 		for (let i=0; i<nColumns; i++)
 		{	const value = row[i];
 			if (value == null)
@@ -50,6 +51,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 		{	const value = row[i];
 			if (value != null)
 			{	const {typeId, flags} = columns[i];
+				this.ensureRoom(13); // the longest fixed-size value is MYSQL_TYPE_TIME with microseconds (13 bytes), and this also covers the lenenc length of a string value (up to 9 bytes)
 				switch (typeId)
 				{	case MysqlType.MYSQL_TYPE_TINY:
 						if (flags & ColumnFlags.UNSIGNED)
