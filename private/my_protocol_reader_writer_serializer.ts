@@ -163,8 +163,9 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 							if (isNegative)
 							{	num = -num;
 							}
-							const micro = Math.trunc(num * 1_000_000) % 1_000_000;
-							num = Math.trunc(num);
+							const totalMicro = Math.round(num * 1_000_000); // round, because the float sum of seconds and microseconds can fall a fraction of a microsecond below the true value
+							const micro = totalMicro % 1_000_000;
+							num = (totalMicro - micro) / 1_000_000;
 							const seconds = num % 60;
 							num = Math.trunc(num / 60);
 							const minutes = num % 60;
