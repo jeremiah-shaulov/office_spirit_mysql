@@ -74,7 +74,7 @@ export class MySession
 				}
 			}
 		}
-		const conn = new MyConnInternal(dsn, this.#pool);
+		const conn = new MyConnInternal(dsn, this.#pool, true);
 		if (this.#trxOptions)
 		{	conn.startTrx(this.#trxOptions);
 		}

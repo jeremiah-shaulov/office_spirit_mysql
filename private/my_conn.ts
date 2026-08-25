@@ -107,6 +107,7 @@ export class MyConn
 	#curXaIdAppendConn = false;
 	#isXaPrepared = false;
 	#pendingChangeSchema = '';
+	protected ownedBySession = false; // for session-owned conns, `onBeforeCommit` is invoked once at the session level (see `MySession.commit()`), so the conn-level invocation is skipped
 	protected pendingTrxSql = new Array<string>; // empty string means XA START (because full XA ID was not known)
 	#preparedStmtsForParams = new Array<number>;
 	#isDisposed = false;
@@ -562,7 +563,7 @@ export class MyConn
 		const curXaId = this.#curXaId;
 		if (protocol && (protocol.statusFlags & StatusFlags.SERVER_STATUS_IN_TRANS) && curXaId && !this.#isXaPrepared)
 		{	const {onBeforeCommit} = this.#pool.options;
-			if (onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+			if (onBeforeCommit && !this.ownedBySession) // when this MyConn belongs to MySession, the session invokes `onBeforeCommit` once for all it's conns
 			{	await onBeforeCommit([this]);
 			}
 			await protocol.sendThreeQueries(-1, undefined, `XA END '${curXaId}'`, false, `XA PREPARE '${curXaId}'`);
@@ -661,7 +662,7 @@ export class MyConn
 			}
 			else
 			{	const {onBeforeCommit} = this.#pool.options;
-				if (onBeforeCommit) // when this MyConn belongs to MySession, the `onBeforeCommit` is not set
+				if (onBeforeCommit && !this.ownedBySession) // when this MyConn belongs to MySession, the session invokes `onBeforeCommit` once for all it's conns
 				{	await onBeforeCommit([this]);
 				}
 				sql = andChain ? `COMMIT AND CHAIN` : `COMMIT`;
@@ -920,7 +921,12 @@ L:		while (true)
 	Methods that don't exist on MyConn are for internal use.
  **/
 export class MyConnInternal extends MyConn
-{	sessionSavepoint(pointId: number)
+{	constructor(dsn: Dsn, pool: Pool, ownedBySession=false)
+	{	super(dsn, pool);
+		this.ownedBySession = ownedBySession;
+	}
+
+	sessionSavepoint(pointId: number)
 	{	this.pendingTrxSql.push(`SAVEPOINT s${pointId}`);
 	}
 }
