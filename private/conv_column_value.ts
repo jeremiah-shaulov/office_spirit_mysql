@@ -27,7 +27,7 @@ const POW10_BIG = [1n, 10n, 100n, 1000n, 10000n, 100000n, 1000000n, 10000000n, 1
 /**	Convert column value fetched through text protocol.
 	All values come stringified, and i need to convert them according to column type.
  **/
-export function convColumnValue(value: Uint8Array, type: MysqlType, charsetId: Charset, decoder: TextDecoder, jsonAsString: boolean, datesAsString: boolean, isForSerialize: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}): ColumnValue
+export function convColumnValue(value: Uint8Array, type: MysqlType, charsetId: Charset, decoder: TextDecoder, jsonAsString: boolean, datesAsString: boolean, isForSerialize: boolean, tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number}): ColumnValue
 {	switch (type)
 	{	case MysqlType.MYSQL_TYPE_NULL:
 			return null;
@@ -85,7 +85,7 @@ export function convColumnValue(value: Uint8Array, type: MysqlType, charsetId: C
 			if (datesAsString)
 			{	return decoder.decode(value);
 			}
-			return dataToDate(value, tz.getTimezoneMsecOffsetFromSystem());
+			return dataToDate(value, tz);
 
 		case MysqlType.MYSQL_TYPE_TIME:
 			return dataToTime(value);
@@ -322,7 +322,7 @@ function dataToTime(value: Uint8Array)
 	return isNegative ? -seconds : seconds;
 }
 
-function dataToDate(value: Uint8Array, timezoneMsecOffsetFromSystem: number)
+function dataToDate(value: Uint8Array, tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number})
 {	let pos = value.indexOf(C_MINUS, 1);
 	const year = dataToInt(value.subarray(0, pos));
 	pos++;
@@ -365,8 +365,13 @@ function dataToDate(value: Uint8Array, timezoneMsecOffsetFromSystem: number)
 	if (year < 100)
 	{	date.setFullYear(year); // `new Date(year, ...)` maps years 0-99 to 1900-1999
 	}
-	if (timezoneMsecOffsetFromSystem != 0)
-	{	date = new Date(date.getTime() - timezoneMsecOffsetFromSystem);
+	const tentative = date.getTime();
+	const offset1 = tz.getTimezoneMsecOffsetFromSystem(tentative);
+	if (offset1 != 0)
+	{	// The wall-clock fields denote an instant in the MySQL session zone, so the right offset is the one
+		// at the denoted instant, not at the tentative system-zone reading - hence the second pass
+		const offset2 = tz.getTimezoneMsecOffsetFromSystem(tentative - offset1);
+		date = new Date(tentative - offset2);
 	}
 	return date;
 }

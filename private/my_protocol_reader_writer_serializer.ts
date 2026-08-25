@@ -23,7 +23,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 		This uses the same format as Mysql binary protocol, so the `deserializeRowBinary()` counterpart method
 		can be used for 2 purposes: deserializing the row back into Javascript object, and reading the row from the MySQL server.
 	 **/
-	async serializeRowBinary(row: ColumnValue[], columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number})
+	async serializeRowBinary(row: ColumnValue[], columns: Column[], datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number})
 	{	// 1. Write the null mask
 		let nullMask = 0;
 		let nullBit = 4; // starts from bit offset 1 << 2, according to protocol definition
@@ -105,12 +105,14 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 						let micro = 0;
 						if (!datesAsString)
 						{	let date = value instanceof Date ? value : new Date(0);
-							const timezoneMsecOffsetFromSystem = tz.getTimezoneMsecOffsetFromSystem();
-							if (timezoneMsecOffsetFromSystem != 0)
-							{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
-							}
+							// The zero-date check comes before the offset is applied, so the `new Date(0)` sentinel
+							// stays a zero date also when the offset is nonzero
 							if (date.getTime() != 0)
-							{	year = date.getFullYear();
+							{	const timezoneMsecOffsetFromSystem = tz.getTimezoneMsecOffsetFromSystem(date.getTime());
+								if (timezoneMsecOffsetFromSystem != 0)
+								{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
+								}
+								year = date.getFullYear();
 								month = date.getMonth() + 1;
 								day = date.getDate();
 								hour = date.getHours();
@@ -254,7 +256,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 	/**	Reads a row from the MySQL server, or from another readable stream (like file), and deserializes it into a Javascript object.
 		It deals with the MySQL binary protocol.
 	 **/
-	async deserializeRowBinary(rowType: RowType, columns: Column[], jsonAsString: boolean, datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, isForSerialize=false)
+	async deserializeRowBinary(rowType: RowType, columns: Column[], jsonAsString: boolean, datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number}, maxColumnLen: number, isForSerialize=false)
 	{	let row: Any;
 		switch (rowType)
 		{	case RowType.OBJECT:
@@ -360,9 +362,12 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 								{	date.setFullYear(year); // `new Date(year, ...)` maps years 0-99 to 1900-1999
 								}
 								value = date;
-								const timezoneMsecOffsetFromSystem = tz.getTimezoneMsecOffsetFromSystem();
-								if (timezoneMsecOffsetFromSystem != 0)
-								{	value = new Date(value.getTime() - timezoneMsecOffsetFromSystem);
+								const tentative = date.getTime();
+								const offset1 = tz.getTimezoneMsecOffsetFromSystem(tentative);
+								if (offset1 != 0)
+								{	// Two passes: the right offset is the one at the denoted instant, not at the tentative system-zone reading
+									const offset2 = tz.getTimezoneMsecOffsetFromSystem(tentative - offset1);
+									value = new Date(tentative - offset2);
 								}
 							}
 							else
@@ -486,7 +491,7 @@ export class MyProtocolReaderWriterSerializer extends MyProtocolReaderWriter
 
 	/**	Reads a row from the MySQL server when using text protocol, and deserializes it into a Javascript object.
 	 **/
-	async deserializeRowText(rowType: RowType, columns: Column[], jsonAsString: boolean, datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: () => number}, maxColumnLen: number, isForSerialize=false)
+	async deserializeRowText(rowType: RowType, columns: Column[], jsonAsString: boolean, datesAsString: boolean, tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number}, maxColumnLen: number, isForSerialize=false)
 	{	let row: Any;
 		switch (rowType)
 		{	case RowType.OBJECT:

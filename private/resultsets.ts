@@ -488,7 +488,7 @@ class StoredResultsets<Row>
 		public rowType: RowType,
 		public jsonAsString: boolean,
 		public datesAsString: boolean,
-		public tz: {getTimezoneMsecOffsetFromSystem: () => number},
+		public tz: {getTimezoneMsecOffsetFromSystem: (atMsec: number) => number},
 		public decoder: TextDecoder,
 		public resultsetsInfo: Array<{nRows: number, columns: Column[], lastInsertId: number|bigint, affectedRows: number|bigint, foundRows: number|bigint, warnings: number, statusInfo: string, noGoodIndexUsed: boolean, noIndexUsed: boolean, isSlowQuery: boolean, nPlaceholders: number}>,
 		public storedRows: ColumnValue[][],

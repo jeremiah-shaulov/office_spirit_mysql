@@ -10,7 +10,7 @@ import type {SqlSource} from './my_protocol_reader_writer.ts';
 import {Column, ResultsetsInternal, type Param} from './resultsets.ts';
 import {dateToData} from './conv_column_value.ts';
 import type {SafeSqlLogger, SafeSqlLoggerQuery} from './sql_logger.ts';
-import {getTimezoneMsecOffsetFromSystem} from './get_timezone_msec_offset_from_system.ts';
+import {parseNumericTimezoneOffset, systemMsecOffsetAt, timezoneMsecOffsetAt} from './get_timezone_msec_offset_from_system.ts';
 import {RdStream} from './deps.ts';
 import type {Closer, Reader} from './deno_ifaces.ts';
 import {utf8StringLength} from './utf8_string_length.ts';
@@ -77,6 +77,15 @@ export const enum MultiStatements
 {	NO_MATTER = 2
 }
 
+/**	How the MySQL session `time_zone` is tracked - see `MyProtocol.#setTimeZone()`.
+ **/
+const enum TimeZoneMode
+{	UNTRACKED, // no `SET time_zone` was seen: warn once, then assume the system zone
+	SYSTEM, // MySQL uses `time_zone='SYSTEM'`, or an unrecognized zone name: assume the same zone as the system
+	FIXED, // a numeric offset, like '+05:30'
+	NAMED, // an IANA zone name, like 'America/New_York', whose offset changes with DST
+}
+
 export type TakeCareOfDisconneced =
 {	dsn: Dsn;
 	rollbackPreparedXaId: string;
@@ -102,7 +111,17 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	#affectedRows: number|bigint = 0;
 	#lastInsertId: number|bigint = 0;
 	#statusInfo = '';
-	#timezoneMsecOffsetFromSystem = NaN;
+
+	/**	The MySQL session `time_zone`, as tracked from the session-track info - see {@link #setTimeZone()}.
+		The offset between it and the system zone is computed per value date in {@link getTimezoneMsecOffsetFromSystem()},
+		because either side's offset can change with DST: a July DATETIME must be converted with July's offsets
+		even when the conversion runs in January, and a long-lived connection can cross a DST transition.
+	 **/
+	#timeZoneMode = TimeZoneMode.UNTRACKED;
+	#timeZoneFixedOffset = 0; // for `TimeZoneMode.FIXED`: the UTC offset (msec) of the numeric MySQL `time_zone`, like '+05:30'
+	#timeZoneName = ''; // for `TimeZoneMode.NAMED`: the IANA zone name, whose offset at a given date `timezoneMsecOffsetAt()` computes
+	#timeZoneMemoBucket = -1; // memoization for the NAMED mode: `Intl` formatting per value would be slow in row loops
+	#timeZoneMemoOffset = 0;
 
 	#state = ProtocolState.IDLE;
 	#maxColumnLen = DEFAULT_MAX_COLUMN_LEN;
@@ -603,23 +622,56 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 	}
 
 	#setTimeZone(value: string)
-	{	this.#timezoneMsecOffsetFromSystem = 0;
+	{	this.#timeZoneMode = TimeZoneMode.SYSTEM;
+		this.#timeZoneName = '';
+		this.#timeZoneMemoBucket = -1;
 		if (value != 'SYSTEM')
-		{	try
-			{	this.#timezoneMsecOffsetFromSystem = getTimezoneMsecOffsetFromSystem(value);
+		{	const fixedOffset = parseNumericTimezoneOffset(value);
+			if (fixedOffset != undefined)
+			{	this.#timeZoneMode = TimeZoneMode.FIXED;
+				this.#timeZoneFixedOffset = fixedOffset;
 			}
-			catch (e)
-			{	this.logger.warn(e);
+			else
+			{	try
+				{	timezoneMsecOffsetAt(value, Date.now()); // probe: throws if the runtime doesn't know this zone name
+					this.#timeZoneMode = TimeZoneMode.NAMED;
+					this.#timeZoneName = value;
+				}
+				catch (e)
+				{	this.logger.warn(e);
+				}
 			}
 		}
 	}
 
-	getTimezoneMsecOffsetFromSystem()
-	{	if (Number.isNaN(this.#timezoneMsecOffsetFromSystem))
-		{	this.logger.warn(`Using system timezone to convert dates, that can lead to distortion if MySQL and Deno use different timezones. To respect MySQL timezone, execute "SET time_zone = '...'" statement as part of connection initialization. However this library can recognize such statement only if you're using MySQL 5.7+, and this doesn't work on MariaDB (at least up to 10.7).`);
-			this.#timezoneMsecOffsetFromSystem = 0;
+	/**	The offset (msec) of the MySQL session time zone from the system time zone, both taken at the `atMsec` instant.
+		Both sides can change with DST, so the offset is a function of the value date, not a connection constant.
+	 **/
+	getTimezoneMsecOffsetFromSystem(atMsec: number)
+	{	switch (this.#timeZoneMode)
+		{	case TimeZoneMode.UNTRACKED:
+			{	this.logger.warn(`Using system timezone to convert dates, that can lead to distortion if MySQL and Deno use different timezones. To respect MySQL timezone, execute "SET time_zone = '...'" statement as part of connection initialization. However this library can recognize such statement only if you're using MySQL 5.7+, and this doesn't work on MariaDB (at least up to 10.7).`);
+				this.#timeZoneMode = TimeZoneMode.SYSTEM;
+				return 0;
+			}
+			case TimeZoneMode.FIXED:
+			{	return this.#timeZoneFixedOffset - systemMsecOffsetAt(atMsec);
+			}
+			case TimeZoneMode.NAMED:
+			{	// Memoized per 15-minute bucket: within a bucket the offset is constant, except when a DST transition
+				// instant falls inside it - then values later in that same bucket can get the pre-transition offset
+				// (a bounded, rare imprecision; without the memo, `Intl` formatting per row would be slow)
+				const bucket = Math.floor(atMsec / 900000);
+				if (bucket != this.#timeZoneMemoBucket)
+				{	this.#timeZoneMemoBucket = bucket;
+					this.#timeZoneMemoOffset = timezoneMsecOffsetAt(this.#timeZoneName, atMsec);
+				}
+				return this.#timeZoneMemoOffset - systemMsecOffsetAt(atMsec);
+			}
+			default:
+			{	return 0;
+			}
 		}
-		return this.#timezoneMsecOffsetFromSystem;
 	}
 
 	authSendUint8Packet(value: number)
@@ -1795,7 +1847,7 @@ L:		while (true)
 				}
 				else if (param instanceof Date)
 				{	let date = param;
-					const timezoneMsecOffsetFromSystem = !correctDates ? 0 : this.getTimezoneMsecOffsetFromSystem();
+					const timezoneMsecOffsetFromSystem = !correctDates ? 0 : this.getTimezoneMsecOffsetFromSystem(param.getTime());
 					if (timezoneMsecOffsetFromSystem != 0)
 					{	date = new Date(date.getTime() + timezoneMsecOffsetFromSystem);
 					}
