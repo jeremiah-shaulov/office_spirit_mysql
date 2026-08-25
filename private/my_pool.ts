@@ -483,7 +483,9 @@ export class Pool
 		const promises = new Array<Promise<void>>;
 		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks, healthStatus}] of protocolsPerSchema)
 		{	let nIdle = idle.length;
-			const wantCloseAllIdle = closeAllIdle || this.#takeCareOfDisconneced.findIndex(v => v.dsn.hash == dsnHash)!=-1;
+			// Close idle connections to hosts that have deferred KILL / XA ROLLBACK entries (compare by `hashNoSchema`, like `#clearDisconnected()` does), so `getProtocol()` below cannot reuse an idle connection (skipping the handshake that runs the cleanup)
+			const idleHashNoSchema = idle[0]?.dsn.hashNoSchema;
+			const wantCloseAllIdle = closeAllIdle || idleHashNoSchema!=undefined && this.#takeCareOfDisconneced.findIndex(v => v.dsn.hashNoSchema == idleHashNoSchema)!=-1;
 			for (let i=nIdle-1; i>=0; i--)
 			{	const protocol = idle[i];
 				if (wantCloseAllIdle || protocol.useTill<=now)
@@ -501,21 +503,27 @@ export class Pool
 			//
 			this.#closeHaveSlotsTimedOut(haveSlotsCallbacks);
 		}
-		const takeCareOfDisconneced = this.#takeCareOfDisconneced.slice();
-		this.#takeCareOfDisconneced.length = 0;
-L:		for (const info of takeCareOfDisconneced)
+		// Take care of forcely disconnected connections.
+		// The deferred KILL / XA ROLLBACK entries are executed by `#clearDisconnected()` during the handshake of a new connection to the same host (see `MyProtocol.inst()`),
+		// that consumes the entries from the live `this.#takeCareOfDisconneced` array (removes handled ones, re-queues failed ones).
+		// So the entries must remain in the live array till such connection appears - either an organic one, or a fresh one that i open here (one per host is enough).
+		const servicedHosts = new Array<number>;
+L:		for (const info of this.#takeCareOfDisconneced.slice())
 		{	const {dsn} = info;
+			if (servicedHosts.includes(dsn.hashNoSchema))
+			{	continue;
+			}
 			const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
 			for (const [dsnHash, {busy, nConnecting}] of protocolsPerSchema)
 			{	if (dsnHash == dsn.hash)
 				{	if (busy.length+nConnecting >= maxConns)
 					{	// This DSN is saturated, so i cannot open a fresh connection to run the deferred KILL / XA ROLLBACK.
-						// Re-queue the entry, so it will be retried on a later `#commonTask` tick (or handled by `#clearDisconnected()` when a new connection to this host appears), instead of being dropped and leaving the runaway query / prepared XA alive.
-						this.#takeCareOfDisconneced.push(info);
+						// Leave the entry queued, so it will be retried on a later `#commonTask` tick (or handled by `#clearDisconnected()` when a new connection to this host appears), instead of being dropped and leaving the runaway query / prepared XA alive.
 						continue L;
 					}
 				}
 			}
+			servicedHosts.push(dsn.hashNoSchema);
 			promises[promises.length] = this.getProtocol(dsn, '', undefined).then
 			(	protocol =>
 				{	if (closeAllIdle)
@@ -524,7 +532,7 @@ L:		for (const info of takeCareOfDisconneced)
 					return this.returnProtocol(protocol, '', false);
 				},
 				error =>
-				{	this.#takeCareOfDisconneced.push(info);
+				{	// couldn't open the fresh connection - the entries remain queued, and will be retried on a later tick
 					this.options.logger.error(error);
 				}
 			);
