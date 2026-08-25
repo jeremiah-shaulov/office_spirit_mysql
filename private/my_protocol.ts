@@ -1186,8 +1186,10 @@ L:		while (true)
 				{	resultsets.protocol = this;
 					resultsets.hasMoreInternal = true;
 					this.#curResultsets = resultsets;
-					if (rowType == RowType.VOID)
-					{	// discard resultsets
+					if (rowType==RowType.VOID || error!=undefined)
+					{	// discard resultsets (also when the pipelined COM_INIT_DB or COM_SET_OPTION failed: the query executed
+						// anyway - possibly in the old schema - and `error` below is rethrown with the state forced to IDLE,
+						// so leaving the rows unread would desync the connection)
 						state = await this.#doDiscard(state);
 					}
 				}
@@ -1304,11 +1306,18 @@ L:		while (true)
 				}
 				// Read preStmt result
 				if (preStmtId >= 0)
-				{	const rowNColumns = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
-					debugAssert(rowNColumns == PACKET_NOT_READ_BIT); // preStmt must not return rows/columns
-					debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
-					if (!this.isAtEndOfPacket())
-					{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+				{	try
+					{	const rowNColumns = await this.#readPacket(ReadPacketMode.ROWS_OR_PREPARED_STMT);
+						debugAssert(rowNColumns == PACKET_NOT_READ_BIT); // preStmt must not return rows/columns
+						debugAssert(!(this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS)); // preStmt must not return rows/columns
+						if (!this.isAtEndOfPacket())
+						{	await this.#readPacket(ReadPacketMode.PREPARED_STMT_OK_CONTINUATION);
+						}
+					}
+					catch (e)
+					{	// don't rethrow yet: the responses of the following queries are still on the wire, and must be
+						// read anyway, or the connection would desync
+						error = e;
 					}
 				}
 				// Read prequery result
@@ -1355,7 +1364,15 @@ L:		while (true)
 					error = e;
 				}
 				if (error)
-				{	throw error;
+				{	if (state != ProtocolState.IDLE)
+					{	// the main query executed anyway and returned rows - drain them, because the throw below
+						// forces the IDLE state (see the same handling in `sendComQuery()`)
+						resultsets.protocol = this;
+						resultsets.hasMoreInternal = true;
+						this.#curResultsets = resultsets;
+						await this.#doDiscard(state);
+					}
+					throw error;
 				}
 				if (state != ProtocolState.IDLE)
 				{	resultsets.protocol = this;
