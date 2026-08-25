@@ -2051,6 +2051,13 @@ L:		while (true)
 			{	while (true)
 				{	const type = await this.#readPacket(mode);
 					this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+					while (this.payloadLength == 0xFFFFFF)
+					{	// a row larger than 0xFFFFFF bytes continues in the following packets - skip them as payload,
+						// not as fresh packets, or a continuation whose first byte happens to be 0xFE would be parsed
+						// as the resultset terminator, with `statusFlags` loaded from row garbage
+						this.readPacketHeader() || await this.readPacketHeaderAsync();
+						this.gotoEndOfPacket() || await this.gotoEndOfPacketAsync();
+					}
 					if (type == okType)
 					{	state = this.statusFlags & StatusFlags.SERVER_MORE_RESULTS_EXISTS ? ProtocolState.HAS_MORE_RESULTSETS : ProtocolState.IDLE;
 						break;
