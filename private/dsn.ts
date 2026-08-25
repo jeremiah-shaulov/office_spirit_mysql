@@ -614,7 +614,8 @@ export class Dsn
 			const tls = url.searchParams.get('tls');
 			const tlsCaCert = url.searchParams.get('tlsCaCert');
 			const tlsHostname = url.searchParams.get('tlsHostname');
-			this.#connectionTimeout = connectionTimeout!=null ? Math.max(0, Number(connectionTimeout)) : NaN;
+			// For all the numeric parameters an empty value (`?param=` or the bare `?param`) means "use the default", like the absent parameter
+			this.#connectionTimeout = connectionTimeout ? Math.max(0, Number(connectionTimeout)) : NaN;
 			this.#reconnectInterval = reconnectInterval ? Math.max(0, Number(reconnectInterval)) : NaN;
 			this.#keepAliveTimeout = keepAliveTimeout ? Math.max(0, Number(keepAliveTimeout)) : NaN;
 			this.#keepAliveMax = keepAliveMax ? Math.max(0, Math.round(Number(keepAliveMax))) : NaN;
@@ -624,11 +625,11 @@ export class Dsn
 			this.#ignoreSpace = ignoreSpace != null;
 			this.#multiStatements = multiStatements != null;
 			this.#retryLockWaitTimeout = retryLockWaitTimeout != null;
-			this.#retryQueryTimes = retryQueryTimes!=null ? Math.max(0, Number(retryQueryTimes)) : NaN;
+			this.#retryQueryTimes = retryQueryTimes ? Math.max(0, Number(retryQueryTimes)) : NaN;
 			this.#jsonAsString = jsonAsString != null;
 			this.#datesAsString = datesAsString != null;
 			this.#correctDates = correctDates != null;
-			this.#storeResultsetIfBigger = storeResultsetIfBigger!=null ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
+			this.#storeResultsetIfBigger = storeResultsetIfBigger ? Math.max(0, Number(storeResultsetIfBigger) || 0) : NaN;
 			this.#allowPublicKeyRetrieval = allowPublicKeyRetrieval != null;
 			// `URLSearchParams` decodes '+' to space, and base64 contains '+' chars, so convert spaces back to '+' (legitimate spaces can only appear in the PEM armor, that is stripped anyway)
 			this.#serverPublicKey = serverPublicKey ? publicKeyExtractBase64(serverPublicKey.replaceAll(' ', '+')).replace(RE_IGNORE_CHARS, '') : '';

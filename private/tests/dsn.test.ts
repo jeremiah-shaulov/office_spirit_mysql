@@ -431,6 +431,22 @@ Deno.test
 );
 
 Deno.test
+(	'Empty numeric parameter value means default',
+	() =>
+	{	// `?param=` (empty value) and the bare `?param` must mean "use the default" (NaN) for every numeric parameter, not 0
+		const params = ['connectionTimeout', 'reconnectInterval', 'keepAliveTimeout', 'keepAliveMax', 'maxConns', 'maxColumnLen', 'retryQueryTimes', 'storeResultsetIfBigger'] as const;
+		for (const param of params)
+		{	assertEquals(isNaN((new Dsn(`mysql://root@localhost/?${param}=`) as Any)[param]), true, `?${param}=`);
+			assertEquals(isNaN((new Dsn(`mysql://root@localhost/?${param}`) as Any)[param]), true, `?${param}`);
+		}
+		// Explicit values still work
+		assertEquals(new Dsn('mysql://root@localhost/?connectionTimeout=0').connectionTimeout, 0);
+		assertEquals(new Dsn('mysql://root@localhost/?retryQueryTimes=2').retryQueryTimes, 2);
+		assertEquals(new Dsn('mysql://root@localhost/?storeResultsetIfBigger=100').storeResultsetIfBigger, 100);
+	}
+);
+
+Deno.test
 (	'Pipe path with non-ASCII bytes is URL-decoded',
 	() =>
 	{	// User encodes a non-ASCII char (Cyrillic ф = U+0444, UTF-8 = D1 84) in the pipe path. The DSN parser should percent-decode the path bytes the same way it does for username/password — otherwise the resulting `pipe` is a literal `/%D1%84/sock` instead of the intended `/ф/sock`.
