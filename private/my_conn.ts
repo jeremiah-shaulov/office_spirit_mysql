@@ -9,6 +9,7 @@ import {type SqlLogger, SafeSqlLogger} from './sql_logger.ts';
 import {SqlLogToWritable} from './sql_log_to_writable.ts';
 import type {Reader} from './deno_ifaces.ts';
 import type {Pool} from './my_pool.ts';
+import {guardAbandoned} from './guard_abandoned.ts';
 
 export type GetConnFromPoolFunc = (dsn: Dsn, sqlLogger: SafeSqlLogger|undefined) => Promise<MyProtocol>;
 export type ReturnConnToPoolFunc = (dsn: Dsn, protocol: MyProtocol, rollbackPreparedXaId1: string, withDisposeSqlLogger: boolean) => void;
@@ -170,9 +171,20 @@ export class MyConn
 	{	return this.#curXaIdAppendConn ? '' : this.#curXaId;
 	}
 
+	/**	See {@link guardAbandoned()}: a promise that this library returns must not terminate the
+		process if the caller abandons it and it then rejects.
+	 **/
+	#guard<P extends Promise<unknown>>(promise: P)
+	{	return guardAbandoned(promise, this.#pool.options.logger);
+	}
+
 	/**	If end() called during connection process, the connection will not be established after this function returns.
 	 **/
-	async connect()
+	connect(): Promise<void>
+	{	return this.#guard(this.#doConnect());
+	}
+
+	async #doConnect()
 	{	if (this.#isConnecting)
 		{	throw new BusyError(`Previous operation is still in progress`);
 		}
@@ -294,82 +306,98 @@ export class MyConn
 	}
 
 	query<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<Record<string, ColumnType>>
-		(	(y, n) =>
-			{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<Record<string, ColumnType>>
+			(	(y, n) =>
+				{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+				}
+			)
 		);
 	}
 
 	queryMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<Map<string, ColumnType>>
-		(	(y, n) =>
-			{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<Map<string, ColumnType>>
+			(	(y, n) =>
+				{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+				}
+			)
 		);
 	}
 
 	queryArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<ColumnType[]>
-		(	(y, n) =>
-			{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<ColumnType[]>
+			(	(y, n) =>
+				{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+				}
+			)
 		);
 	}
 
 	queryCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<ColumnType>
-		(	(y, n) =>
-			{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<ColumnType>
+			(	(y, n) =>
+				{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_OFF).then(y, n);
+				}
+			)
 		);
 	}
 
 	queryVoid(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
+	{	return this.#guard(this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF));
 	}
 
 	queries<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<Record<string, ColumnType>>
-		(	(y, n) =>
-			{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_ON).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<Record<string, ColumnType>>
+			(	(y, n) =>
+				{	this.#doQuery<Record<string, ColumnType>>(sql, params, queryOptions, RowType.OBJECT, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+				}
+			)
 		);
 	}
 
 	queriesMap<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<Map<string, ColumnType>>
-		(	(y, n) =>
-			{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_ON).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<Map<string, ColumnType>>
+			(	(y, n) =>
+				{	this.#doQuery<Map<string, ColumnType>>(sql, params, queryOptions, RowType.MAP, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+				}
+			)
 		);
 	}
 
 	queriesArr<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<ColumnType[]>
-		(	(y, n) =>
-			{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_ON).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<ColumnType[]>
+			(	(y, n) =>
+				{	this.#doQuery<ColumnType[]>(sql, params, queryOptions, RowType.ARRAY, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+				}
+			)
 		);
 	}
 
 	queriesCol<ColumnType=ColumnValue>(sql: SqlSource, params?: Params, queryOptions?: QueryOptions)
-	{	return new ResultsetsPromise<ColumnType>
-		(	(y, n) =>
-			{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_ON).then(y, n);
-			}
+	{	return this.#guard
+		(	new ResultsetsPromise<ColumnType>
+			(	(y, n) =>
+				{	this.#doQuery<ColumnType>(sql, params, queryOptions, RowType.FIRST_COLUMN, SetOption.MULTI_STATEMENTS_ON).then(y, n);
+				}
+			)
 		);
 	}
 
 	queriesVoid(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_ON);
+	{	return this.#guard(this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_ON));
 	}
 
 	/**	Alias of queryVoid().
 		@deprecated
 	 **/
 	execute(sql: SqlSource, params?: Params, queryOptions?: QueryOptionsVoid): Promise<Resultsets<void>>
-	{	return this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF);
+	{	return this.#guard(this.#doQuery<void>(sql, params, queryOptions, RowType.VOID, SetOption.MULTI_STATEMENTS_OFF));
 	}
 
 	/**	Stream column contents as `Deno.Reader`. If the resultset contains multiple columns, only the last one will be used (and others discarded).
