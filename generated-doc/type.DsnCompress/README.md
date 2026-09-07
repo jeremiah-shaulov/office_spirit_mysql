@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {DsnCompress} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
+import {DsnCompress} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
 ```
 
 Value of the [Dsn.compress](../class.Dsn/README.md#-accessor-compress-dsncompress) parameter:

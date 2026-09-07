@@ -3,14 +3,15 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {PoolStatus} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
+import {PoolStatus} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
 ```
 
 ## This type has
 
-- 3 properties:
+- 4 properties:
 [nBusy](#-nbusy-number),
 [nIdle](#-nidle-number),
+[nWaiting](#-nwaiting-number),
 [healthStatus](#-healthstatus-number)
 
 
@@ -23,6 +24,18 @@ import {PoolStatus} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
 #### 📄 nIdle: `number`
 
 > Number of connections that are idle.
+
+
+
+#### 📄 nWaiting: `number`
+
+> Number of connection requests parked in this DSN's wait queue, waiting for a busy connection to be returned.
+> Nonzero only while `nBusy` is at [maxConns](../class.Dsn/README.md#-accessor-maxconns-number), and capped at [maxConnsWaitQueue](../interface.MyPoolOptions/README.md#-readonly-maxconnswaitqueue-number),
+> at which point further requests are rejected immediately instead of queuing.
+> 
+> This is what tells "at the ceiling, and draining" from "at the ceiling, and turning requests away": `nBusy` alone
+> looks the same in both. A waiter that is between two wait iterations (its `reconnectInterval` slice elapsed and it
+> has not re-parked yet) is not counted, so a saturated pool can report slightly fewer waiters than it has.
 
 
 

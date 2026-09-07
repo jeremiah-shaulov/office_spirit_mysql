@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlLogToWriter} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
+import {SqlLogToWriter} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
 ```
 
 Please, use new class called `SqlLogToWritable` that has the same functionality as old `SqlLogToWriter`,

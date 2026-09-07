@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlError} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
+import {SqlError} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
 ```
 
 Query was sent to the server, and this error is reported by the server (not a connection error or such).

@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {SqlLogger} from "jsr:@shaulov/office-spirit-mysql@0.28.3"
+import {SqlLogger} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
 ```
 
 ## This interface has
