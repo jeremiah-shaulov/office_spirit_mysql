@@ -141,6 +141,16 @@ export type PoolStatus =
 	 **/
 	nIdle: number;
 
+	/**	Number of connection requests parked in this DSN's wait queue, waiting for a busy connection to be returned.
+		Nonzero only while `nBusy` is at [maxConns]{@link Dsn.maxConns}, and capped at [maxConnsWaitQueue]{@link MyPoolOptions.maxConnsWaitQueue},
+		at which point further requests are rejected immediately instead of queuing.
+
+		This is what tells "at the ceiling, and draining" from "at the ceiling, and turning requests away": `nBusy` alone
+		looks the same in both. A waiter that is between two wait iterations (its `reconnectInterval` slice elapsed and it
+		has not re-parked yet) is not counted, so a saturated pool can report slightly fewer waiters than it has.
+	 **/
+	nWaiting: number;
+
 	/**	Health status that reflects the ratio of successful and failed connection attempts.
 		The connection attempts are those when no idle connection was found in the pool, and new connection was created.
 		This library tracks the health status for the last 1 minute, and you can specify the period (1 - 60 sec) for which to return the status in {@link MyPool.getStatus()}.
@@ -281,11 +291,21 @@ export class Pool
 	getStatus(healthStatusForPeriodSec: number)
 	{	const now = Date.now();
 		const status = new Map<Dsn, PoolStatus>;
-		for (const {idle, busy, healthStatus} of this.#protocolsPerSchema.values())
+		for (const {idle, busy, haveSlotsCallbacks, healthStatus} of this.#protocolsPerSchema.values())
 		{	const dsn = idle[0]?.dsn ?? busy[0]?.dsn;
 			if (dsn)
 			{	const h = healthStatus.getHealthStatusForPeriod(healthStatusForPeriodSec, now);
-				status.set(dsn, {nBusy: busy.length, nIdle: idle.length, healthStatus: h});
+				// Count only the waiters that are still parked. Entries whose `till` has passed belong to waiters whose
+				// wait iteration ended and that have not re-parked yet; `#closeHaveSlotsTimedOut()` sweeps them on the
+				// next `#waitHaveSlots()` for this DSN. Reporting a status must not sweep them itself - that resolves
+				// promises, and reading a counter is not a reason to wake a waiter.
+				let nWaiting = 0;
+				for (const {till} of haveSlotsCallbacks)
+				{	if (till > now)
+					{	nWaiting++;
+					}
+				}
+				status.set(dsn, {nBusy: busy.length, nIdle: idle.length, nWaiting, healthStatus: h});
 			}
 		}
 		return status;
@@ -306,12 +326,22 @@ export class Pool
 			this.#protocolsPerSchema.set(dsn.hash, conns);
 		}
 		debugAssert(conns.nConnecting >= 0);
-		const {idle, busy, haveSlotsCallbacks, healthStatus} = conns;
+		const {idle, busy, healthStatus} = conns;
 		// 2. Wait for a free slot
+		/*	Two different failures, and they used to share one message. Out of TIME means the queue was moving and this
+			request was in it for the whole `connectionTimeout` - the host is slow, and more concurrency against it would
+			make that worse. Out of QUEUE means the queue was already `maxConnsWaitQueue` deep, and this request was
+			turned away without waiting at all - the arrival rate is beyond what this pool is sized for. They call for
+			opposite responses, so they say which one happened. The leading text is unchanged: it is what log searches
+			for this condition match on.
+		 **/
 		const till = now + connectionTimeout;
 		while (busy.length+conns.nConnecting >= maxConns)
-		{	if (now>=till || !await this.#waitHaveSlots(conns, now, till, reconnectInterval))
-			{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
+		{	if (now >= till)
+			{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname} (waited ${connectionTimeout} msec)`);
+			}
+			if (!await this.#waitHaveSlots(conns, now, till, reconnectInterval))
+			{	throw new Error(`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname} (and the wait queue is full: ${this.options.maxConnsWaitQueue})`);
 			}
 			// after awaiting the promise that `waitHaveSlots()` returned, some connection could be occupied again
 			now = Date.now();
@@ -336,14 +366,14 @@ export class Pool
 				}
 				catch (e)
 				{	conns.nConnecting--;
-					this.#decNBusyAll(maxConns, haveSlotsCallbacks);
+					this.#decNBusyAll(maxConns, conns);
 					healthStatus.log(false);
 					throw e;
 				}
 			}
 			else if (protocol.useTill <= now)
 			{	this.#nIdleAll--;
-				this.#closeConn(protocol, maxConns, haveSlotsCallbacks);
+				this.#closeConn(protocol, maxConns, conns);
 				continue;
 			}
 			else
@@ -405,7 +435,7 @@ export class Pool
 			this.#nIdleAll++;
 		}
 		const maxConns = dsn.maxConns || DEFAULT_MAX_CONNS;
-		this.#decNBusyAll(maxConns, conns.haveSlotsCallbacks);
+		this.#decNBusyAll(maxConns, conns);
 	}
 
 	#stealIdleProtocolWithTheSameHost(dsn: Dsn)
@@ -434,7 +464,7 @@ export class Pool
 		return true;
 	}
 
-	async #closeConn(protocol: MyProtocol, maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	async #closeConn(protocol: MyProtocol, maxConns: number, conns: Protocols)
 	{	this.#nBusyAll++;
 		try
 		{	await this.#protocolsFactory.closeConn(protocol);
@@ -443,11 +473,32 @@ export class Pool
 		{	// must not happen
 			this.options.logger.error(e);
 		}
-		this.#decNBusyAll(maxConns, haveSlotsCallbacks);
+		this.#decNBusyAll(maxConns, conns);
 	}
 
-	#decNBusyAll(maxConns: number, haveSlotsCallbacks: HaveSlotsCallback[])
+	/**	A connection was just given back (or closed, or failed to open). Decrement the pool-wide busy count, and if that
+		freed a slot on THIS DSN, wake the requests queued for it.
+
+		The wake test is per DSN, and that is the whole point of it. It used to be `nBusyAll < maxConns`, comparing the
+		count of busy connections across EVERY DSN in the pool against the ceiling of the one DSN being returned to.
+		The two are the same number only in a pool that talks to a single host. In a pool that talks to a dozen - a
+		central database plus a fleet of per-account hosts, each with its own `maxConns` - `nBusyAll` is the sum and is
+		almost always the larger, so the test was false whenever the process was busy, and the queued requests were
+		never woken. They still got their connection: `#waitHaveSlots()` parks them for at most `reconnectInterval`
+		before they re-check the ceiling themselves, so the queue degraded from "wake on a free slot" to "poll every
+		`reconnectInterval`", silently, and only under the load that makes the queue matter in the first place. With
+		the 500 msec interval a busy host uses, that is up to half a second of added latency per acquire, on a host
+		that is by definition already at its ceiling.
+
+		`busy.length+nConnecting < maxConns` is exactly the negation of the ceiling test in {@link getProtocol()}, so a
+		waiter woken here finds a slot rather than looping straight back into the queue. Waking all of them and letting
+		them race is deliberate: the woken ones re-check the ceiling, and whoever loses re-queues. The alternative -
+		waking exactly as many as there are free slots - needs the waiters to be known-live, and a waiter whose
+		iteration has already timed out would then consume a wake-up and leave a slot idle.
+	 **/
+	#decNBusyAll(maxConns: number, conns: Protocols)
 	{	const nBusyAll = --this.#nBusyAll;
+		const {busy, haveSlotsCallbacks} = conns;
 		const n = haveSlotsCallbacks.length;
 		if (n == 0)
 		{	if (nBusyAll == 0)
@@ -459,7 +510,7 @@ export class Pool
 				}
 			}
 		}
-		else if (nBusyAll < maxConns)
+		else if (busy.length+conns.nConnecting < maxConns)
 		{	for (let i=0; i<n; i++)
 			{	haveSlotsCallbacks[i].y();
 			}
@@ -487,8 +538,9 @@ export class Pool
 	{	const protocolsPerSchema = this.#protocolsPerSchema;
 		const now = Date.now();
 		const promises = new Array<Promise<void>>;
-		for (const [dsnHash, {idle, busy, nConnecting, haveSlotsCallbacks, healthStatus}] of protocolsPerSchema)
-		{	let nIdle = idle.length;
+		for (const [dsnHash, conns] of protocolsPerSchema)
+		{	const {idle, busy, haveSlotsCallbacks, healthStatus} = conns;
+			let nIdle = idle.length;
 			// Close idle connections to hosts that have deferred KILL / XA ROLLBACK entries (compare by `hashNoSchema`, like `#clearDisconnected()` does), so `getProtocol()` below cannot reuse an idle connection (skipping the handshake that runs the cleanup)
 			const idleHashNoSchema = idle[0]?.dsn.hashNoSchema;
 			const wantCloseAllIdle = closeAllIdle || idleHashNoSchema!=undefined && this.#takeCareOfDisconneced.findIndex(v => v.dsn.hashNoSchema == idleHashNoSchema)!=-1;
@@ -498,12 +550,12 @@ export class Pool
 				{	idle[i] = idle[--nIdle];
 					this.#nIdleAll--;
 					const maxConns = protocol.dsn.maxConns || DEFAULT_MAX_CONNS;
-					promises[promises.length] = this.#closeConn(protocol, maxConns, haveSlotsCallbacks);
+					promises[promises.length] = this.#closeConn(protocol, maxConns, conns);
 				}
 			}
 			idle.length = nIdle;
 			// All removed?
-			if (busy.length+nIdle+nConnecting==0 && healthStatus.isEmpty())
+			if (busy.length+nIdle+conns.nConnecting==0 && healthStatus.isEmpty())
 			{	protocolsPerSchema.delete(dsnHash);
 			}
 			//

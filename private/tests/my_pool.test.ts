@@ -35,6 +35,7 @@ testWithDocker
 		testGetTrx,
 		testRetryQueryTimes,
 		testMaxConns,
+		testWakeWaitersIsPerDsn,
 		testLoadBigDump,
 		testLoadFile,
 		testMultiStatements,
@@ -1938,10 +1939,87 @@ async function testMaxConns(dsnStr: string)
 				catch (e)
 				{	error = e;
 				}
-				assertEquals(error?.message, `All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname}`);
+				// The two ways this fails say which one happened. Reaching the wait queue at all takes a nonzero
+				// `connectionTimeout` (with 0 the deadline is already past on the first check), and with no room in
+				// the queue the request is turned away without waiting - which is the case the elapsed-time
+				// assertion below pins from the other side.
+				const expectedMessage = connectionTimeout!=0 && maxConnsWaitQueue==0 ?
+					`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname} (and the wait queue is full: ${maxConnsWaitQueue})` :
+					`All the ${maxConns} free slots are occupied for this DSN: ${dsn.hostname} (waited ${connectionTimeout} msec)`;
+				assertEquals(error?.message, expectedMessage);
 				assertEquals(Date.now()-since > 400, connectionTimeout==401 && maxConnsWaitQueue!=0);
 			}
 		);
+	}
+}
+
+/**	Returning a connection must wake the requests queued for THAT DSN, in a pool that holds several DSNs.
+
+	The wake test in `#decNBusyAll()` used to compare the pool-wide busy count against the ceiling of the one DSN being
+	returned to. With a single DSN in the pool those are the same number and everything worked, which is why every
+	existing test here passed. With several - the case this library is built for, a pool holding a central database
+	plus a fleet of per-account hosts - the pool-wide count is the sum, so it stayed above the one DSN's ceiling and
+	the waiters were never woken. Nothing hung: `#waitHaveSlots()` re-checks the ceiling by itself every
+	`reconnectInterval`, so the queue silently became a poll, and the cost was up to a full `reconnectInterval` of
+	extra latency per acquire on exactly the pools that are busy enough to queue.
+
+	The second schema stands in for a second host: what makes two DSNs distinct here is their hash, and a pool keyed by
+	`dsn.hash` treats another schema and another hostname the same way. `reconnectInterval` is set far higher than the
+	time the assertion allows, so the poll fallback cannot make this test pass - only a real wake-up can.
+ **/
+async function testWakeWaitersIsPerDsn(dsnStr: string)
+{	const dsn1 = await dsnWithSchema(dsnStr);
+	{	await using pool = new MyPool(dsn1);
+		using conn = pool.getConn();
+		await conn.queryVoid("CREATE DATABASE IF NOT EXISTS tests2");
+	}
+	try
+	{	const dsn2 = new Dsn(dsn1);
+		dsn2.schema = 'tests2';
+		for (const dsn of [dsn1, dsn2])
+		{	dsn.maxConns = 2;
+			dsn.connectionTimeout = 30_000;
+			dsn.reconnectInterval = 10_000;
+		}
+		await using pool = new MyPool(dsn1);
+
+		// Occupy both DSNs to their ceiling: 4 busy connections in one pool, 2 of them on `dsn1`, whose ceiling is 2
+		using a1 = pool.getConn(dsn1);
+		await a1.connect();
+		using a2 = pool.getConn(dsn1);
+		await a2.connect();
+		using b1 = pool.getConn(dsn2);
+		await b1.connect();
+		using b2 = pool.getConn(dsn2);
+		await b2.connect();
+
+		// A further request for `dsn1` has to queue
+		using a3 = pool.getConn(dsn1);
+		const a3Connected = a3.connect();
+		await new Promise(y => setTimeout(y, 150)); // let it park in the queue
+		const statusWaiting = pool.getStatus().entries().find(([dsn]) => dsn.schema == dsn1.schema)?.[1];
+		assertEquals(statusWaiting?.nBusy, 2);
+		assertEquals(statusWaiting?.nWaiting, 1);
+
+		// Free one `dsn1` slot. The pool-wide busy count is 3 afterwards - still above `dsn1`'s ceiling of 2, which is
+		// what the old test looked at and why this waiter used to sit here for the whole `reconnectInterval`.
+		const since = Date.now();
+		a1.end();
+		await a3Connected;
+		const took = Date.now() - since;
+		assert(took < 2000, `The queued request waited ${took} msec for a slot that was free - it was not woken, it polled`);
+
+		// And the queue is empty again
+		const statusAfter = pool.getStatus().entries().find(([dsn]) => dsn.schema == dsn1.schema)?.[1];
+		assertEquals(statusAfter?.nBusy, 2);
+		assertEquals(statusAfter?.nWaiting, 0);
+	}
+	finally
+	{	const dsn = new Dsn(dsn1);
+		dsn.maxConns = 1;
+		await using pool = new MyPool(dsn);
+		using conn = pool.getConn();
+		await conn.queryVoid("DROP DATABASE IF EXISTS tests2");
 	}
 }
 

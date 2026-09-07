@@ -229,8 +229,10 @@
 	There will be only one retrying connection. Till it's resolved new connections will be tried once, and if not successful they will enter waiting queue.
 
 	If `maxConns` number of connections in pool reached, a new connection will enter waiting queue without trying to connect.
+	The queue is per DSN, as `maxConns` is, and [pool.getStatus()]{@link MyPool.getStatus} reports its current depth as `nWaiting`.
 
 	If there was no free slot during the [connectionTimeout]{@link Dsn.connectionTimeout} period, or if the waiting queue is full ([maxConnsWaitQueue]{@link MyPoolOptions.maxConnsWaitQueue} items long), exception is thrown.
+	These are different problems - the first says the pool is draining too slowly, the second that requests arrive faster than the pool is sized for - so the message says which of them happened.
 
 	## Cross-server sessions
 
