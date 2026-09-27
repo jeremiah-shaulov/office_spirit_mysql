@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {JsonNode} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {JsonNode} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 `type` JsonNode = `null` | `boolean` | `number` | `string` | [JsonNode](../type.JsonNode/README.md)\[] | \{\[member: `string`]: [JsonNode](../type.JsonNode/README.md)}

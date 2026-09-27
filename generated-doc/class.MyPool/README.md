@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPool} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {MyPool} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 ## This class has

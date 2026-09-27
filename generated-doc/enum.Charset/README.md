@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Charset} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {Charset} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 #### UNKNOWN = <mark>0</mark>

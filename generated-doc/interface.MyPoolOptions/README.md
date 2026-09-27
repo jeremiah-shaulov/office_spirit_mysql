@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {MyPoolOptions} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {MyPoolOptions} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 ## This interface has

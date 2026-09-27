@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {CanceledError} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {CanceledError} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 end() called during operation.

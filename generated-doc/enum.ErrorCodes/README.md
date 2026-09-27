@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ErrorCodes} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {ErrorCodes} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 #### ER\_ERROR\_FIRST = <mark>1000</mark>

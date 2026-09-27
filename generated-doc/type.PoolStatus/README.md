@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {PoolStatus} from "jsr:@shaulov/office-spirit-mysql@0.29.0"
+import {PoolStatus} from "jsr:@shaulov/office-spirit-mysql@0.29.1"
 ```
 
 ## This type has
