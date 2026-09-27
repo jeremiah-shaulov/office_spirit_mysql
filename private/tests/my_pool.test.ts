@@ -46,6 +46,7 @@ testWithDocker
 		testDatetimeBinaryProtocolFormat,
 		testStoreFractionalTime,
 		testBufferedDiscardReleasesFile,
+		testLeadingBom,
 		testCachingSha2LongPassword,
 		testAuthSha256Password,
 		testAuthEd25519,
@@ -2721,6 +2722,26 @@ async function testBufferedDiscardReleasesFile(dsnStr: string)
 	{	removed = e instanceof Deno.errors.NotFound;
 	}
 	assert(removed, 'discard() leaked the buffered temp file: '+fileName);
+}
+
+async function testLeadingBom(dsnStr: string)
+{	const dsn = new Dsn(dsnStr);
+	dsn.storeResultsetIfBigger = 0; // so buffered() reads the rows back from a temp file
+	await using pool = new MyPool(dsn);
+	using conn = pool.getConn();
+
+	// Every column value is decoded on its own, so a leading U+FEFF must not be taken for a byte-order mark and dropped
+	const expected = {lead: '﻿abc', mid: 'a﻿bc', only: '﻿'};
+	for (const charsetResults of ['', 'utf8mb4'])
+	{	if (charsetResults)
+		{	await conn.queryVoid(`SET character_set_results = ${charsetResults}`);
+		}
+		const tag = charsetResults ? `after SET character_set_results = ${charsetResults}` : 'default charset';
+		assertEquals(await conn.query("SELECT '﻿abc' AS lead, 'a﻿bc' AS mid, '﻿' AS only").first(), expected, `${tag}, text protocol`);
+		assertEquals(await conn.query("SELECT ? AS lead, ? AS mid, ? AS only", ['﻿abc', 'a﻿bc', '﻿']).first(), expected, `${tag}, binary protocol`);
+		const rs = await conn.query("SELECT '﻿abc' AS lead, 'a﻿bc' AS mid, '﻿' AS only").buffered();
+		assertEquals(await rs.all(), [expected], `${tag}, buffered`);
+	}
 }
 
 async function testDatetimeBinaryProtocolFormat(dsnStr: string)

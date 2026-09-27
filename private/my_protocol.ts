@@ -20,7 +20,9 @@ import {promiseAllSettledThrow} from './promise_all_settled_throw.ts';
 const DEFAULT_MAX_COLUMN_LEN = 10*1024*1024;
 const DEFAULT_RETRY_QUERY_TIMES = 0;
 const DEFAULT_CHARACTER_SET_CLIENT = Charset.UTF8_UNICODE_CI;
-const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8');
+// Each column value is decoded separately, so by default the decoder would strip a leading U+FEFF from every value that begins with one
+const TEXT_DECODER_OPTIONS = {ignoreBOM: true};
+const DEFAULT_TEXT_DECODER = new TextDecoder('utf-8', TEXT_DECODER_OPTIONS);
 
 const BUFFER_FOR_END_SESSION = new Uint8Array(8*1024);
 const PACKET_NOT_READ_BIT = 256;
@@ -585,7 +587,7 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 
 	#setCharacterSetResults(value: string)
 	{	if (value.slice(0, 4) == 'utf8')
-		{	this.decoder = new TextDecoder('utf-8');
+		{	this.decoder = new TextDecoder('utf-8', TEXT_DECODER_OPTIONS);
 		}
 		else
 		{	switch (value)
@@ -604,16 +606,16 @@ export class MyProtocol extends MyProtocolReaderWriterSerializer
 				case 'greek':
 				case 'hebrew':
 				case 'sjis':
-					this.decoder = new TextDecoder(value);
+					this.decoder = new TextDecoder(value, TEXT_DECODER_OPTIONS);
 					break;
 				case 'koi8r':
-					this.decoder = new TextDecoder('koi8-r');
+					this.decoder = new TextDecoder('koi8-r', TEXT_DECODER_OPTIONS);
 					break;
 				case 'koi8u':
-					this.decoder = new TextDecoder('koi8-u');
+					this.decoder = new TextDecoder('koi8-u', TEXT_DECODER_OPTIONS);
 					break;
 				case 'eucjpms':
-					this.decoder = new TextDecoder('euc-jp');
+					this.decoder = new TextDecoder('euc-jp', TEXT_DECODER_OPTIONS);
 					break;
 				default:
 					throw new Error(`Cannot use this value for character_set_results: ${value}. Options: utf8, utf8mb4, latin1, latin2, latin3, latin4, cp866, cp1250, cp1251, cp1256, cp1257, big5, gb2312, gb18030, greek, hebrew, sjis, koi8r, koi8u, eucjpms.`);
